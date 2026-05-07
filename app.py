@@ -17,6 +17,15 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── CSS: rapikan sidebar & sembunyikan default nav label ──────────────────────
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"] {display: none;}
+section[data-testid="stSidebar"] > div:first-child {padding-top: 1rem;}
+[data-testid="stSidebar"] hr {margin: 0.5rem 0;}
+</style>
+""", unsafe_allow_html=True)
+
 init_db()
 
 # ── Sidebar: navigasi + upload + status ───────────────────────────────────────
@@ -28,9 +37,17 @@ with st.sidebar:
     st.markdown("### 📂 Upload Data")
     uploaded = st.file_uploader(
         "File Excel (.xlsx)", type=["xlsx"],
-        accept_multiple_files=True,
-        help="Bisa upload lebih dari 1 file sekaligus. Sheet: Vibration_Data — kolom: Equipment, Unit, Titik Ukur, Direction, Date, Value"
+        help="Sheet: Vibration_Data — kolom: Equipment, Unit, Titik Ukur, Direction, Date, Value"
     )
+
+    st.divider()
+    st.markdown("### Navigasi")
+    st.page_link("app.py",                    label="📊 Ringkasan Status")
+    st.page_link("pages/1_Trend.py",           label="📈 Trend Vibrasi")
+    st.page_link("pages/2_Alarm.py",           label="🚨 Alarm & Warning")
+    st.page_link("pages/3_Histori.py",         label="🗄️ Histori Data")
+    st.page_link("pages/4_Pengaturan.py",      label="⚙️ Pengaturan")
+    st.page_link("pages/5_Prediksi.py",        label="🔮 Prediksi Trend")
 
     render_login_sidebar()
 
@@ -57,34 +74,21 @@ with st.sidebar:
         else:
             st.success("✅ Semua titik normal")
 
-# ── Proses upload multi-file (Editor only) ────────────────────────────────────
+# ── Proses upload (Editor only) ───────────────────────────────────────────────
 if uploaded:
     if check_role() != "editor":
         st.warning("🔒 Upload data hanya tersedia untuk **Editor**. Silakan login di sidebar kiri.")
     else:
-        total_saved = 0
-        total_skipped = 0
-        total_files = len(uploaded)
-        errors = []
-        for file in uploaded:
-            df_new = parse_excel(file)
-            if not df_new.empty:
-                saved = save_to_db(df_new)
-                skipped = len(df_new) - saved
-                total_saved   += saved
-                total_skipped += skipped
+        df_new = parse_excel(uploaded)
+        if not df_new.empty:
+            saved = save_to_db(df_new)
+            skipped = len(df_new) - saved
+            if saved > 0 and skipped > 0:
+                st.success(f"✅ {saved} baris baru disimpan · {skipped} duplikat dilewati.")
+            elif saved > 0:
+                st.success(f"✅ {saved} baris baru berhasil disimpan.")
             else:
-                errors.append(file.name)
-        if total_files > 0:
-            msg = f"✅ {total_files} file diproses · **{total_saved} baris baru** disimpan"
-            if total_skipped > 0:
-                msg += f" · {total_skipped} duplikat dilewati"
-            if total_saved > 0 or total_skipped > 0:
-                st.success(msg)
-            if errors:
-                st.error(f"❌ Gagal memproses: {', '.join(errors)}")
-            if total_saved == 0 and total_skipped > 0:
-                st.info("ℹ️ Semua data sudah ada di histori.")
+                st.info(f"ℹ️ Semua {len(df_new)} baris sudah ada di histori.")
 
 # ── Load & filter ─────────────────────────────────────────────────────────────
 df_hist = load_history()
@@ -93,7 +97,7 @@ if df_hist.empty:
     st.info("📂 Belum ada data. Silakan upload file Excel dari sidebar kiri.")
     st.stop()
 
-df_hist["date"]  = pd.to_datetime(df_hist["date"],  errors="coerce").dt.normalize()
+df_hist["date"]  = pd.to_datetime(df_hist["date"],  errors="coerce")
 df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
 
 all_units = sorted(df_hist["unit"].dropna().unique())

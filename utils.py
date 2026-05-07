@@ -122,7 +122,7 @@ def parse_excel(file) -> pd.DataFrame:
     if missing:
         st.error(f"Kolom tidak ditemukan: {missing}")
         return pd.DataFrame()
-    df["date"]  = pd.to_datetime(df["date"],  errors="coerce").dt.strftime("%Y-%m-%d")
+    df["date"]  = pd.to_datetime(df["date"],  errors="coerce")
     df["value"] = pd.to_numeric(df["value"],  errors="coerce")
     return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
 
