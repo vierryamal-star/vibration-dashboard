@@ -152,7 +152,7 @@ def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ── Sistem autentikasi role ────────────────────────────────────────────────────
-EDITOR_PASSWORD = "pltu2024"   # Ganti sesuai kebutuhan
+EDITOR_PASSWORD = "pltu2026"   # Ganti sesuai kebutuhan
 
 def check_role():
     """
