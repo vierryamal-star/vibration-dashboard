@@ -58,8 +58,8 @@ if mode == "Detail satu equipment":
         sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"])
 
    df_tr = df_hist[
-    (df_hist["equipment"]==sel_eq) &
-    (df_hist["titik"]==sel_titik) &
+    (df_hist["equipment"] == sel_eq) &
+    (df_hist["titik"] == sel_titik) &
     (df_hist["direction"].isin(sel_dir))
 ].copy()
 
