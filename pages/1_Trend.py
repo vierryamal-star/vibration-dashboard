@@ -36,7 +36,7 @@ df_hist["date"]  = pd.to_datetime(df_hist["date"],  errors="coerce")
 df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
 min_date = df_hist["date"].min().date()
 max_date = df_hist["date"].max().date()
-`
+
 sel_date = st.date_input(
     "Filter Tanggal",
     value=(min_date, max_date),
