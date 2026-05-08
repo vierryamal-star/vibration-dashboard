@@ -71,6 +71,15 @@ df_f = latest[
     latest["direction"].isin(sel_dir) &
     latest["zone"].isin(sel_zone)
 ].copy()
+# Filter tanggal
+if len(sel_date) == 2:
+
+    start_date, end_date = sel_date
+
+    df_f = df_f[
+        (df_f["date"] >= pd.to_datetime(start_date)) &
+        (df_f["date"] <= pd.to_datetime(end_date))
+    ]
 
 # ── KPI ringkas ───────────────────────────────────────────────────────────────
 n_d = (df_f["zone"]=="ZONE D").sum()
