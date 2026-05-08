@@ -238,6 +238,14 @@ with tc2:
     sel_titik_tr = st.selectbox("Titik Ukur", titik_opts, key="home_titik_tr")
 with tc3:
     sel_dir_tr = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="home_dir_tr")
+with tc4:
+
+    trend_range = st.selectbox(
+        "Rentang",
+        ["7 Hari", "30 Hari", "90 Hari", "180 Hari", "All"],
+        index=0,
+        key="home_range_tr"
+    )
 
 df_tr = df_f[df_f["equipment"]==sel_eq_tr].copy()
 if sel_titik_tr != "Semua Titik":
