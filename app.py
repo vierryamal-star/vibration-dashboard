@@ -36,8 +36,10 @@ with st.sidebar:
 
     st.markdown("### 📂 Upload Data")
     uploaded = st.file_uploader(
-        "File Excel (.xlsx)", type=["xlsx"],
-        help="Sheet: Vibration_Data — kolom: Equipment, Unit, Titik Ukur, Direction, Date, Value"
+    "File Excel (.xlsx)",
+    type=["xlsx"],
+    accept_multiple_files=True,
+    help="Sheet: Vibration_Data — kolom: Equipment, Unit, Titik Ukur, Direction, Date, Value"
     )
 
     st.divider()
@@ -79,17 +81,34 @@ if uploaded:
     if check_role() != "editor":
         st.warning("🔒 Upload data hanya tersedia untuk **Editor**. Silakan login di sidebar kiri.")
     else:
-        df_new = parse_excel(uploaded)
-        if not df_new.empty:
-            saved = save_to_db(df_new)
-            skipped = len(df_new) - saved
-            if saved > 0 and skipped > 0:
-                st.success(f"✅ {saved} baris baru disimpan · {skipped} duplikat dilewati.")
-            elif saved > 0:
-                st.success(f"✅ {saved} baris baru berhasil disimpan.")
-            else:
-                st.info(f"ℹ️ Semua {len(df_new)} baris sudah ada di histori.")
 
+        total_saved = 0
+        total_skipped = 0
+
+        for file in uploaded:
+
+            df_new = parse_excel(file)
+
+            if not df_new.empty:
+                saved = save_to_db(df_new)
+                skipped = len(df_new) - saved
+
+                total_saved += saved
+                total_skipped += skipped
+
+                st.success(
+                    f"✅ {file.name}: {saved} baris disimpan · {skipped} duplikat"
+                )
+
+        if total_saved > 0:
+            st.success(
+                f"🎉 Total {total_saved} baris baru berhasil disimpan."
+            )
+
+        if total_skipped > 0:
+            st.info(
+                f"ℹ️ Total {total_skipped} baris duplikat dilewati."
+            )
 # ── Load & filter ─────────────────────────────────────────────────────────────
 df_hist = load_history()
 
