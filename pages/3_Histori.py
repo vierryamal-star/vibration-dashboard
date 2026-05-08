@@ -53,8 +53,11 @@ else:
     df_show = df_hist[df_hist["unit"].isin(sel_unit)]
 
 st.write(f"Menampilkan **{len(df_show):,}** baris data")
+df_display = df_show.copy()
+df_display["date"] = pd.to_datetime(df_display["date"]).dt.strftime("%Y-%m-%d")
+
 st.dataframe(
-    df_show.drop(columns=["id","uploaded_at"], errors="ignore"),
+    df_display.drop(columns=["id","uploaded_at"], errors="ignore"),
     use_container_width=True, hide_index=True
 )
 
