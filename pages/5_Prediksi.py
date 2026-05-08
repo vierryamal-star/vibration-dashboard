@@ -35,7 +35,7 @@ df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
 df_hist = df_hist.dropna(subset=["date","value"])
 
 # ── Filter ────────────────────────────────────────────────────────────────────
-fc1, fc2, fc3 = st.columns(3)
+fc1, fc2, fc3, fc4 = st.columns(4)
 with fc1:
     sel_eq = st.selectbox("Equipment", sorted(df_hist["equipment"].unique()), key="pred_eq")
 with fc2:
@@ -43,6 +43,16 @@ with fc2:
     sel_titik  = st.selectbox("Titik Ukur", titik_opts, key="pred_titik")
 with fc3:
     sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="pred_dir")
+with fc4:
+
+    min_date = df_hist["date"].min().date()
+    max_date = df_hist["date"].max().date()
+
+    sel_date = st.date_input(
+        "Filter Tanggal",
+        value=(min_date, max_date),
+        key="pred_date"
+    )
 
 n_days = st.slider("Jumlah hari prediksi ke depan", min_value=1, max_value=7, value=3)
 
