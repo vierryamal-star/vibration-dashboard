@@ -62,6 +62,16 @@ df_sel = df_hist[
     (df_hist["direction"].isin(sel_dir))
 ].copy()
 
+# Filter tanggal
+if len(sel_date) == 2:
+
+    start_date, end_date = sel_date
+
+    df_sel = df_sel[
+        (df_sel["date"] >= pd.to_datetime(start_date)) &
+        (df_sel["date"] <= pd.to_datetime(end_date))
+    ]
+
 if df_sel.empty:
     st.warning("Tidak ada data untuk pilihan ini.")
     st.stop()
