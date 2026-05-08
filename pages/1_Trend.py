@@ -57,11 +57,22 @@ if mode == "Detail satu equipment":
     with c3:
         sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"])
 
-    df_tr = df_hist[
-        (df_hist["equipment"]==sel_eq) &
-        (df_hist["titik"]==sel_titik) &
-        (df_hist["direction"].isin(sel_dir))
-    ].sort_values("date")
+   df_tr = df_hist[
+    (df_hist["equipment"]==sel_eq) &
+    (df_hist["titik"]==sel_titik) &
+    (df_hist["direction"].isin(sel_dir))
+].copy()
+
+# Filter tanggal
+if len(sel_date) == 2:
+    start_date, end_date = sel_date
+
+    df_tr = df_tr[
+        (df_tr["date"].dt.date >= start_date) &
+        (df_tr["date"].dt.date <= end_date)
+    ]
+
+df_tr = df_tr.sort_values("date")
 
     thr = get_threshold(sel_eq)
 
