@@ -223,6 +223,7 @@ df_det["Zone"] = df_det["value"].apply(
 ).astype(str)
 df_det["value"] = df_det["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
 df_det = df_det.rename(columns={"unit":"Unit","titik":"Titik","direction":"Dir","value":"mm/s","date":"Tanggal"})
+df_det["Tanggal"] = pd.to_datetime(df_det["Tanggal"]).dt.strftime("%Y-%m-%d")
 st.dataframe(df_det, use_container_width=True, hide_index=True)
 
 st.divider()
