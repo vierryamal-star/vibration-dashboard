@@ -48,31 +48,49 @@ colors_dir = {"H":"#3b82f6","V":"#10b981","A":"#f59e0b"}
 ls_list    = ["solid","dash","dot","dashdot"]
 
 if mode == "Detail satu equipment":
+
     c1, c2, c3 = st.columns([2,2,1])
+
     with c1:
-        sel_eq = st.selectbox("Equipment", sorted(df_hist["equipment"].unique()))
+        sel_eq = st.selectbox(
+            "Equipment",
+            sorted(df_hist["equipment"].unique())
+        )
+
     with c2:
-        titik_opts = sorted(df_hist[df_hist["equipment"]==sel_eq]["titik"].unique())
-        sel_titik  = st.selectbox("Titik Ukur", titik_opts)
+        titik_opts = sorted(
+            df_hist[df_hist["equipment"] == sel_eq]["titik"].unique()
+        )
+
+        sel_titik = st.selectbox(
+            "Titik Ukur",
+            titik_opts
+        )
+
     with c3:
-        sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"])
+        sel_dir = st.multiselect(
+            "Direction",
+            ["H","V","A"],
+            default=["H","V","A"]
+        )
 
-  df_tr = df_hist[
-    (df_hist["equipment"] == sel_eq) &
-    (df_hist["titik"] == sel_titik) &
-    (df_hist["direction"].isin(sel_dir))
-].copy()
+    df_tr = df_hist[
+        (df_hist["equipment"] == sel_eq) &
+        (df_hist["titik"] == sel_titik) &
+        (df_hist["direction"].isin(sel_dir))
+    ].copy()
 
-# Filter tanggal
-if len(sel_date) == 2:
-    start_date, end_date = sel_date
+    # Filter tanggal
+    if len(sel_date) == 2:
 
-    df_tr = df_tr[
-        (df_tr["date"].dt.date >= start_date) &
-        (df_tr["date"].dt.date <= end_date)
-    ]
+        start_date, end_date = sel_date
 
-df_tr = df_tr.sort_values("date")
+        df_tr = df_tr[
+            (df_tr["date"].dt.date >= start_date) &
+            (df_tr["date"].dt.date <= end_date)
+        ]
+
+    df_tr = df_tr.sort_values("date")
 
     thr = get_threshold(sel_eq)
 
