@@ -81,6 +81,7 @@ if not df_d.empty:
     show_d = show_d.rename(columns={
         "unit":"Unit","equipment":"Equipment","titik":"Titik",
         "direction":"Dir","value":"mm/s","zone_label":"Zone","date":"Tanggal"})
+    show_d["Tanggal"] = pd.to_datetime(show_d["Tanggal"]).dt.strftime("%Y-%m-%d")
     st.dataframe(show_d, use_container_width=True, hide_index=True)
 else:
     if "ZONE D" in sel_zone:
@@ -97,6 +98,7 @@ if not df_c.empty:
     show_c = show_c.rename(columns={
         "unit":"Unit","equipment":"Equipment","titik":"Titik",
         "direction":"Dir","value":"mm/s","zone_label":"Zone","date":"Tanggal"})
+    show_c["Tanggal"] = pd.to_datetime(show_c["Tanggal"]).dt.strftime("%Y-%m-%d")
     st.dataframe(show_c, use_container_width=True, hide_index=True)
 else:
     if "ZONE C" in sel_zone:
@@ -114,6 +116,7 @@ for zone_name, color_fn in [("ZONE B", st.info), ("ZONE A", st.success)]:
             show_z = show_z.rename(columns={
                 "unit":"Unit","equipment":"Equipment","titik":"Titik",
                 "direction":"Dir","value":"mm/s","zone_label":"Zone","date":"Tanggal"})
+            show_z["Tanggal"] = pd.to_datetime(show_z["Tanggal"]).dt.strftime("%Y-%m-%d")
             st.dataframe(show_z, use_container_width=True, hide_index=True)
 
 st.divider()
