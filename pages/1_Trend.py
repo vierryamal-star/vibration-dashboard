@@ -85,10 +85,15 @@ if mode == "Detail satu equipment":
 
         start_date, end_date = sel_date
 
-        df_tr = df_tr[
-            (df_tr["date"].dt.date >= start_date) &
-            (df_tr["date"].dt.date <= end_date)
-        ]
+        # Filter tanggal
+if len(sel_date) == 2:
+
+    start_date, end_date = sel_date
+
+    df_tr = df_tr[
+        (df_tr["date"] >= pd.to_datetime(start_date)) &
+        (df_tr["date"] <= pd.to_datetime(end_date))
+    ]
 
     df_tr = df_tr.sort_values("date")
 
