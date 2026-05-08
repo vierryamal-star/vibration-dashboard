@@ -116,7 +116,7 @@ if df_hist.empty:
     st.info("📂 Belum ada data. Silakan upload file Excel dari sidebar kiri.")
     st.stop()
 
-df_hist["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.date
+df_hist["date"]  = pd.to_datetime(df["date"], errors="coerce")
 df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
 
 all_units = sorted(df_hist["unit"].dropna().unique())
