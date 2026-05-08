@@ -65,6 +65,7 @@ if mode == "Detail satu equipment":
     ).astype(str)
     df_tbl["value"] = df_tbl["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
     df_tbl = df_tbl.rename(columns={"date":"Tanggal","direction":"Dir","value":"mm/s"})
+    df_tbl["Tanggal"] = pd.to_datetime(df_tbl["Tanggal"]).dt.strftime("%Y-%m-%d")
     st.dataframe(df_tbl, use_container_width=True, hide_index=True)
 
     # Grafik
