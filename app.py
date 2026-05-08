@@ -230,7 +230,7 @@ st.divider()
 
 # ── Trend ringkasan (semua equipment) ────────────────────────────────────────
 st.markdown("### 📈 Trend Vibrasi")
-tc1, tc2, tc3 = st.columns([2,2,1])
+tc1, tc2, tc3, tc4 = st.columns([2,2,1,1])
 with tc1:
     sel_eq_tr = st.selectbox("Equipment", sorted(df_f["equipment"].unique()), key="home_eq_tr")
 with tc2:
