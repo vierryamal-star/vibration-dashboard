@@ -248,6 +248,24 @@ with tc4:
     )
 
 df_tr = df_f[df_f["equipment"]==sel_eq_tr].copy()
+# Filter rentang trend
+if trend_range != "All":
+
+    days_map = {
+        "7 Hari": 7,
+        "30 Hari": 30,
+        "90 Hari": 90,
+        "180 Hari": 180
+    }
+
+    end_date = df_tr["date"].max()
+    start_date = end_date - timedelta(days=days_map[trend_range])
+
+    df_tr = df_tr[
+        (df_tr["date"] >= start_date) &
+        (df_tr["date"] <= end_date)
+    ]
+    
 if sel_titik_tr != "Semua Titik":
     df_tr = df_tr[df_tr["titik"]==sel_titik_tr]
 if sel_dir_tr:
