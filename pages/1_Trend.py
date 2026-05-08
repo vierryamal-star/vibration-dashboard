@@ -34,6 +34,14 @@ if df_hist.empty:
 
 df_hist["date"]  = pd.to_datetime(df_hist["date"],  errors="coerce")
 df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
+min_date = df_hist["date"].min().date()
+max_date = df_hist["date"].max().date()
+`
+sel_date = st.date_input(
+    "Filter Tanggal",
+    value=(min_date, max_date),
+    key="trend_date"
+)
 
 mode = st.radio("Mode tampilan", ["Detail satu equipment","Ringkasan semua equipment"], horizontal=True)
 colors_dir = {"H":"#3b82f6","V":"#10b981","A":"#f59e0b"}
