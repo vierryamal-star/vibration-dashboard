@@ -42,7 +42,7 @@ latest["zone_label"] = latest.apply(
 
 # ── Filter ────────────────────────────────────────────────────────────────────
 st.markdown("### Filter")
-fc1, fc2, fc3, fc4 = st.columns(4)
+fc1, fc2, fc3, fc4, fc5 = st.columns(5)
 with fc1:
     all_units = sorted(latest["unit"].dropna().unique())
     sel_unit  = st.multiselect("Unit", all_units, default=all_units, key="alm_unit")
@@ -54,6 +54,16 @@ with fc3:
 with fc4:
     sel_zone = st.multiselect("Zone", ["ZONE D","ZONE C","ZONE B","ZONE A"],
                                default=["ZONE D","ZONE C"], key="alm_zone")
+with fc5:
+
+    min_date = latest["date"].min().date()
+    max_date = latest["date"].max().date()
+
+    sel_date = st.date_input(
+        "Tanggal",
+        value=(min_date, max_date),
+        key="alarm_date"
+    )
 
 df_f = latest[
     latest["unit"].isin(sel_unit) &
