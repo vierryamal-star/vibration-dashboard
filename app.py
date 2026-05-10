@@ -215,7 +215,7 @@ st.divider()
 
 st.markdown("### Status Terakhir per Equipment")
 
-latest_eq = latest_kpi.copy()
+latest_eq = latest_filtered.copy()
 
 CARD_BORDER = {
     "ZONE A":"#3b82f6",
