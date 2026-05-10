@@ -125,46 +125,6 @@ if df_f.empty:
 
 df_f = add_zone_cols(df_f)
 
-# ── Filter KPI ────────────────────────────────────────────────────────────────
-kpi_filter = st.radio(
-    "Filter Ringkasan",
-    ["All Equipment", "TBK #1", "TBK #2", "TBK COM"],
-    horizontal=True,
-    key="kpi_filter"
-)
-
-if kpi_filter == "TBK #1":
-
-    latest_kpi = latest[
-        latest["unit"].str.contains(
-            "TBK #1|TBK1|UNIT 1",
-            case=False,
-            na=False
-        )
-    ]
-
-elif kpi_filter == "TBK #2":
-
-    latest_kpi = latest[
-        latest["unit"].str.contains(
-            "TBK #2|TBK2|UNIT 2",
-            case=False,
-            na=False
-        )
-    ]
-
-elif kpi_filter == "TBK COM":
-
-    latest_kpi = latest[
-        latest["unit"].str.contains(
-            "COM|COMMON",
-            case=False,
-            na=False
-        )
-    ]
-
-else:
-    latest_kpi = latest.copy()
 # ── KPI ───────────────────────────────────────────────────────────────────────
 latest = df_f.sort_values("date").groupby(
     ["unit","equipment","titik","direction"], as_index=False).last()
