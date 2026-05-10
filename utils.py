@@ -57,7 +57,7 @@ import streamlit as st
 def load_history() -> pd.DataFrame:
     try:
         sb = get_supabase()
-        res = sb.table("vibration").select("*").order("date", desc=True).execute()
+        res = sb.table("vibration").select("*").limit(50000).order("date", desc=True).execute()
         if res.data:
             return pd.DataFrame(res.data)
         return pd.DataFrame()
