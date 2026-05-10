@@ -256,9 +256,9 @@ eq_rows = []
 
 for eq in sorted(latest_eq["equipment"].unique()):
 
-df_eq = latest_filtered[
+    df_eq = latest_filtered[
     latest_filtered["equipment"] == eq
-].sort_values("date")
+    ].sort_values("date")
 
     if df_eq.empty:
         continue
