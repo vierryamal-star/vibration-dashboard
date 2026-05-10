@@ -112,6 +112,7 @@ df_hist["date"]  = pd.to_datetime(df_hist["date"], errors="coerce")
 df_hist["value"] = pd.to_numeric(df_hist["value"], errors="coerce")
 
 all_units = sorted(df_hist["unit"].dropna().unique())
+st.write(all_units)
 all_equip = sorted(df_hist["equipment"].dropna().unique())
 
 # ── Header & filter unit ──────────────────────────────────────────────────────
