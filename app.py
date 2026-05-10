@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 from utils import (
-    init_db, save_to_db, load_history, parse_excel,
+    save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, ZONE_COLOR, add_zone_cols,
     render_login_sidebar, check_role
 )
