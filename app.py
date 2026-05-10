@@ -168,6 +168,30 @@ st.divider()
 # ── Card per Equipment (Alternatif A) ─────────────────────────────────────────
 st.markdown("### Status Terakhir per Equipment")
 
+equip_group = st.radio(
+    "Filter Equipment",
+    ["All Equipment", "TBK #1", "TBK #2", "TBK COM"],
+    horizontal=True
+)
+
+if equip_group == "TBK #1":
+    latest_eq = latest[
+        latest["equipment"].str.contains("1|01", case=False, na=False)
+    ]
+
+elif equip_group == "TBK #2":
+    latest_eq = latest[
+        latest["equipment"].str.contains("2|02", case=False, na=False)
+    ]
+
+elif equip_group == "TBK COM":
+    latest_eq = latest[
+        latest["equipment"].str.contains("COM|COMMON", case=False, na=False)
+    ]
+
+else:
+    latest_eq = latest.copy()
+
 CARD_BORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
 CARD_BG     = {"ZONE A":"#eff6ff","ZONE B":"#f0fdf4","ZONE C":"#fefce8","ZONE D":"#fef2f2","N/A":"#f8fafc"}
 ZONE_TEXT   = {"ZONE A":"#1d4ed8","ZONE B":"#15803d","ZONE C":"#a16207","ZONE D":"#b91c1c","N/A":"#64748b"}
