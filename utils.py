@@ -181,11 +181,31 @@ def load_filtered(df_hist, units, equips, directions):
     return df[df["unit"].isin(units) & df["equipment"].isin(equips) & df["direction"].isin(directions)].copy()
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
+
     df = df.copy()
-    df["thr_type"]  = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
-    df["zone"]      = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
-    df["zone_icon"] = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
-    df["zone_label"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[2], axis=1)
+
+    df["thr_type"] = df["equipment"].apply(
+        lambda x: "Turbine"
+        if "turbine" in str(x).lower()
+        else "Pump/Fan"
+    )
+
+    df["zone"] = df.apply(
+        lambda r: get_zone(
+            r["value"],
+            THRESHOLD[r["thr_type"]]
+        )[0],
+        axis=1
+    )
+
+    df["zone_icon"] = df.apply(
+        lambda r: get_zone(
+            r["value"],
+            THRESHOLD[r["thr_type"]]
+        )[1],
+        axis=1
+    )
+
     return df
 
 EDITOR_PASSWORD = "pltu2024"
