@@ -176,17 +176,17 @@ equip_group = st.radio(
 
 if equip_group == "TBK #1":
     latest_eq = latest[
-        latest["equipment"].str.contains("1|01", case=False, na=False)
+        latest["unit"].str.contains("TBK #1|TBK1|UNIT 1", case=False, na=False)
     ]
 
 elif equip_group == "TBK #2":
     latest_eq = latest[
-        latest["equipment"].str.contains("2|02", case=False, na=False)
+        latest["unit"].str.contains("TBK #2|TBK2|UNIT 2", case=False, na=False)
     ]
 
 elif equip_group == "TBK COM":
     latest_eq = latest[
-        latest["equipment"].str.contains("COM|COMMON", case=False, na=False)
+        latest["unit"].str.contains("COM|COMMON", case=False, na=False)
     ]
 
 else:
