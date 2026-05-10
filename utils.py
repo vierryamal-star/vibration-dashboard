@@ -56,17 +56,21 @@ def get_turbine_unit(equipment: str) -> str:
     return None
 
 def get_zone(value, thr):
-    """Return (zone_key, icon, label)"""
+
     if pd.isna(value):
-        return "N/A", "⬜", "N/A"
-    if value < thr["A"]:
-        return "ZONE A", "🔵", "Accepted"
+        return "N/A", "⬜"
+
+    if value <= thr["A"]:
+        return "ZONE A", "🔵"
+
     elif value <= thr["B"]:
-        return "ZONE B", "🟢", "Pre Warning"
+        return "ZONE B", "🟢"
+
     elif value <= thr["C"]:
-        return "ZONE C", "🟡", "Warning"
+        return "ZONE C", "🟡"
+
     else:
-        return "ZONE D", "🔴", "Danger"
+        return "ZONE D", "🔴"
 
 def init_db():
     pass
