@@ -287,36 +287,111 @@ for i in range(0, len(eq_rows), cols_per_row):
         border  = CARD_BORDER.get(r["zk"], "#94a3b8")
         bg      = CARD_BG.get(r["zk"], "#f8fafc")
         ztcolor = ZONE_TEXT.get(r["zk"], "#64748b")
-        col.markdown(f"""
-<div style="
-    background:{bg};
-    border-left:4px solid {border};
-    border-radius:0 10px 10px 0;
-    padding:12px 14px;
-    margin-bottom:4px;
-    border-top:0.5px solid {border}33;
-    border-right:0.5px solid {border}33;
-    border-bottom:0.5px solid {border}33;
-">
-  <div style="font-size:13px;font-weight:500;color:#1e293b;margin-bottom:2px">{r['eq']}</div>
-  <div style="font-size:11px;color:#64748b;margin-bottom:10px">{r['unit']}</div>
-  <div style="display:flex;gap:8px;margin-bottom:10px">
-    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
-      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">H</div>
-      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['H'],r['thr'])[0],'#888') if r['H'] is not None and not pd.isna(r['H']) else '#94a3b8'}">{fmt(r['H'])}</div>
+        for col, r in zip(cols, chunk):
+
+    card_html = f"""
+    <div style="
+        background:var(--secondary-background-color);
+        border-left:4px solid {border};
+        border-radius:0 10px 10px 0;
+        padding:12px 14px;
+        margin-bottom:4px;
+        border-top:0.5px solid {border}33;
+        border-right:0.5px solid {border}33;
+        border-bottom:0.5px solid {border}33;
+    ">
+
+      <div style="
+            font-size:13px;
+            font-weight:600;
+            color:var(--text-color);
+            margin-bottom:2px;
+      ">
+            {r['eq']}
+      </div>
+
+      <div style="
+            font-size:11px;
+            color:gray;
+            margin-bottom:10px;
+      ">
+            {r['unit']}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+
+        <div style="
+            flex:1;
+            text-align:center;
+            background:rgba(255,255,255,0.05);
+            border-radius:6px;
+            padding:5px 4px;
+        ">
+            <div style="font-size:9px;color:gray;">H</div>
+            <div style="
+                font-size:13px;
+                font-weight:600;
+                color:{DIR_COLOR.get(get_zone(r['H'],r['thr'])[0],'#888')
+                if r['H'] is not None and not pd.isna(r['H'])
+                else '#94a3b8'};
+            ">
+                {fmt(r['H'])}
+            </div>
+        </div>
+
+        <div style="
+            flex:1;
+            text-align:center;
+            background:rgba(255,255,255,0.05);
+            border-radius:6px;
+            padding:5px 4px;
+        ">
+            <div style="font-size:9px;color:gray;">V</div>
+            <div style="
+                font-size:13px;
+                font-weight:600;
+                color:{DIR_COLOR.get(get_zone(r['V'],r['thr'])[0],'#888')
+                if r['V'] is not None and not pd.isna(r['V'])
+                else '#94a3b8'};
+            ">
+                {fmt(r['V'])}
+            </div>
+        </div>
+
+        <div style="
+            flex:1;
+            text-align:center;
+            background:rgba(255,255,255,0.05);
+            border-radius:6px;
+            padding:5px 4px;
+        ">
+            <div style="font-size:9px;color:gray;">A</div>
+            <div style="
+                font-size:13px;
+                font-weight:600;
+                color:{DIR_COLOR.get(get_zone(r['A'],r['thr'])[0],'#888')
+                if r['A'] is not None and not pd.isna(r['A'])
+                else '#94a3b8'};
+            ">
+                {fmt(r['A'])}
+            </div>
+        </div>
+
+      </div>
+
+      <div style="
+            font-size:12px;
+            font-weight:600;
+            color:{ztcolor};
+      ">
+            {r['zi']} {r['zl']}
+      </div>
+
     </div>
-    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
-      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">V</div>
-      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['V'],r['thr'])[0],'#888') if r['V'] is not None and not pd.isna(r['V']) else '#94a3b8'}">{fmt(r['V'])}</div>
-    </div>
-    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
-      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">A</div>
-      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['A'],r['thr'])[0],'#888') if r['A'] is not None and not pd.isna(r['A']) else '#94a3b8'}">{fmt(r['A'])}</div>
-    </div>
-  </div>
-  <div style="font-size:12px;font-weight:500;color:{ztcolor}">{r['zi']} {r['zl']}</div>
-</div>
-""", unsafe_allow_html=True)
+    """
+
+    with col:
+        st.markdown(card_html, unsafe_allow_html=True)
 
 st.divider()
 
