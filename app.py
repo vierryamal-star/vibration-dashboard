@@ -127,7 +127,9 @@ df_f = add_zone_cols(df_f)
 
 # ── KPI ───────────────────────────────────────────────────────────────────────
 latest = df_f.sort_values("date").groupby(
-    ["unit","equipment","titik","direction"], as_index=False).last()
+    ["unit","equipment","titik","direction"],
+    as_index=False
+).last()
 
 # ── Filter KPI ────────────────────────────────────────────────────────────────
 kpi_filter = st.radio(
@@ -168,48 +170,92 @@ elif kpi_filter == "TBK COM":
     ]
 
 else:
+
     latest_kpi = latest.copy()
 
-total  = len(latest_kpi)
+# ── KPI Calculation ───────────────────────────────────────────────────────────
+total = len(latest_kpi)
 
-n_d = (latest_kpi["zone"] == "ZONE D").sum()
+n_a = (latest_kpi["zone"] == "ZONE A").sum()
+
+n_b = (latest_kpi["zone"] == "ZONE B").sum()
 
 n_c = (latest_kpi["zone"] == "ZONE C").sum()
 
-n_norm = (
-    (latest_kpi["zone"] == "ZONE A") |
-    (latest_kpi["zone"] == "ZONE B")
-).sum()
+n_d = (latest_kpi["zone"] == "ZONE D").sum()
 
+# ── KPI Cards ─────────────────────────────────────────────────────────────────
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Total Titik",      total)
-k2.metric("🔴 Danger",        int(n_d))
-k3.metric("🟡 Warning",       int(n_c))
-k4.metric("🟢 Pre Warning",   int(n_b))
-k5.metric("🔵 Accepted",      int(n_a))
 
+k1.metric("Total Titik", total)
+
+k2.metric("🔴 Danger", int(n_d))
+
+k3.metric("🟡 Warning", int(n_c))
+
+k4.metric("🟢 Pre Warning", int(n_b))
+
+k5.metric("🔵 Accepted", int(n_a))
+
+# ── Percentage Bar ────────────────────────────────────────────────────────────
 pct_a = round(n_a / total * 100) if total else 0
 pct_b = round(n_b / total * 100) if total else 0
 pct_c = round(n_c / total * 100) if total else 0
 pct_d = round(n_d / total * 100) if total else 0
+
 st.markdown(f"""
 <div style="margin:4px 0 16px">
-  <div style="height:12px;border-radius:6px;overflow:hidden;display:flex;background:#e5e7eb">
-    <div style="width:{pct_a}%;background:#3b82f6" title="Accepted {pct_a}%"></div>
-    <div style="width:{pct_b}%;background:#22c55e" title="Pre Warning {pct_b}%"></div>
-    <div style="width:{pct_c}%;background:#eab308" title="Warning {pct_c}%"></div>
-    <div style="width:{pct_d}%;background:#ef4444" title="Danger {pct_d}%"></div>
+
+  <div style="
+      height:12px;
+      border-radius:6px;
+      overflow:hidden;
+      display:flex;
+      background:var(--secondary-background-color)
+  ">
+
+    <div style="
+        width:{pct_a}%;
+        background:#3b82f6
+    "></div>
+
+    <div style="
+        width:{pct_b}%;
+        background:#22c55e
+    "></div>
+
+    <div style="
+        width:{pct_c}%;
+        background:#eab308
+    "></div>
+
+    <div style="
+        width:{pct_d}%;
+        background:#ef4444
+    "></div>
+
   </div>
-  <div style="display:flex;gap:16px;font-size:12px;margin-top:5px">
-    <span style="color:#1d4ed8">🔵 Accepted {pct_a}%</span>
-    <span style="color:#15803d">🟢 Pre Warning {pct_b}%</span>
-    <span style="color:#a16207">🟡 Warning {pct_c}%</span>
-    <span style="color:#b91c1c">🔴 Danger {pct_d}%</span>
+
+  <div style="
+      display:flex;
+      gap:16px;
+      font-size:12px;
+      margin-top:5px;
+      color:var(--text-color)
+  ">
+
+    <span>🔵 Accepted {pct_a}%</span>
+
+    <span>🟢 Pre Warning {pct_b}%</span>
+
+    <span>🟡 Warning {pct_c}%</span>
+
+    <span>🔴 Danger {pct_d}%</span>
+
   </div>
+
 </div>
 """, unsafe_allow_html=True)
-
-st.divider()
 
 # ── Card per Equipment (Alternatif A) ─────────────────────────────────────────
 st.markdown("### Status Terakhir per Equipment")
