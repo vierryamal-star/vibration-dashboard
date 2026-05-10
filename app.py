@@ -169,11 +169,16 @@ else:
 latest = df_f.sort_values("date").groupby(
     ["unit","equipment","titik","direction"], as_index=False).last()
 
-total  = len(latest)
-n_d    = (latest["zone"] == "ZONE D").sum()
-n_c    = (latest["zone"] == "ZONE C").sum()
-n_b    = (latest["zone"] == "ZONE B").sum()
-n_a    = (latest["zone"] == "ZONE A").sum()
+total  = len(latest_kpi)
+
+n_d = (latest_kpi["zone"] == "ZONE D").sum()
+
+n_c = (latest_kpi["zone"] == "ZONE C").sum()
+
+n_norm = (
+    (latest_kpi["zone"] == "ZONE A") |
+    (latest_kpi["zone"] == "ZONE B")
+).sum()
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Total Titik",      total)
