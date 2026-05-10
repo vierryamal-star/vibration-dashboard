@@ -257,7 +257,7 @@ eq_rows = []
 for eq in sorted(latest_eq["equipment"].unique()):
 
     df_eq = latest_filtered[
-    latest_filtered["equipment"] == eq
+        latest_filtered["equipment"] == eq
     ].sort_values("date")
 
     if df_eq.empty:
@@ -267,32 +267,45 @@ for eq in sorted(latest_eq["equipment"].unique()):
 
     thr = get_threshold(eq)
 
-    # Latest values
+    # ── Latest values ────────────────────────────────────────────────────────
     latest_data = df_eq.groupby(
-        ["titik","direction"],
+        ["titik", "direction"],
         as_index=False
     ).last()
 
     max_val = latest_data["value"].max()
 
+    # FIX get_zone
     zk, zi, zl = get_zone(max_val, thr)
 
-    # Direction values
-    h_val = latest_data[latest_data["direction"]=="H"]["value"].max()
-    v_val = latest_data[latest_data["direction"]=="V"]["value"].max()
-    a_val = latest_data[latest_data["direction"]=="A"]["value"].max()
+    # ── Direction values ────────────────────────────────────────────────────
+    h_val = latest_data[
+        latest_data["direction"] == "H"
+    ]["value"].max()
 
-    # Previous trend
+    v_val = latest_data[
+        latest_data["direction"] == "V"
+    ]["value"].max()
+
+    a_val = latest_data[
+        latest_data["direction"] == "A"
+    ]["value"].max()
+
+    # ── Trend calculation ───────────────────────────────────────────────────
     trend_delta = 0
 
     try:
+
         eq_hist = df_eq.sort_values("date")
 
-        latest_avg = eq_hist.groupby("date")["value"].mean().reset_index()
+        latest_avg = eq_hist.groupby(
+            "date"
+        )["value"].mean().reset_index()
 
         if len(latest_avg) >= 2:
 
             current_val = latest_avg.iloc[-1]["value"]
+
             previous_val = latest_avg.iloc[-2]["value"]
 
             trend_delta = current_val - previous_val
@@ -300,66 +313,106 @@ for eq in sorted(latest_eq["equipment"].unique()):
     except:
         trend_delta = 0
 
-    # Trend label
+    # ── Trend label ─────────────────────────────────────────────────────────
     if trend_delta > 0.5:
+
         trend_label = TREND_TEXT["up_fast"]
+
         trend_icon = "⬆"
+
         trend_color = "#ef4444"
 
     elif trend_delta > 0.1:
+
         trend_label = TREND_TEXT["up"]
+
         trend_icon = "↗"
+
         trend_color = "#f59e0b"
 
     elif trend_delta < -0.1:
+
         trend_label = TREND_TEXT["down"]
+
         trend_icon = "⬇"
+
         trend_color = "#22c55e"
 
     else:
+
         trend_label = TREND_TEXT["stable"]
+
         trend_icon = "➡"
+
         trend_color = "#94a3b8"
 
-    # Health Score
-    if zk == "ZONE A":
-        health = 95
-    elif zk == "ZONE B":
-        health = 75
-    elif zk == "ZONE C":
-        health = 50
-    else:
-        health = 20
+    # ── Health Score ────────────────────────────────────────────────────────
+    try:
 
-    # Action recommendation
+        health = max(
+            0,
+            round(100 - ((max_val / thr["C"]) * 100))
+        )
+
+    except:
+
+        health = 0
+
+    # ── Action recommendation ───────────────────────────────────────────────
     if zk == "ZONE D":
+
         action = "Inspect bearing & alignment immediately"
+
     elif zk == "ZONE C":
+
         action = "Schedule inspection"
+
     elif zk == "ZONE B":
+
         action = "Monitor closely"
+
     else:
+
         action = "Normal monitoring"
 
+    # ── Last update ─────────────────────────────────────────────────────────
     last_date = pd.to_datetime(
         df_eq["date"].max()
     ).strftime("%d %b %Y")
 
+    # ── Save row ────────────────────────────────────────────────────────────
     eq_rows.append({
+
         "equipment": eq,
+
         "unit": unit,
+
         "zone": zk,
+
         "icon": zi,
+
+        "label": zl,
+
         "max": max_val,
+
         "h": h_val,
+
         "v": v_val,
+
         "a": a_val,
+
         "trend_delta": trend_delta,
+
         "trend_label": trend_label,
+
         "trend_icon": trend_icon,
+
         "trend_color": trend_color,
+
         "health": health,
+
         "action": action,
+
         "last_date": last_date
     })
 
