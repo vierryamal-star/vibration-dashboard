@@ -127,126 +127,46 @@ df_f = add_zone_cols(df_f)
 
 # ── KPI ───────────────────────────────────────────────────────────────────────
 latest = df_f.sort_values("date").groupby(
-    ["unit","equipment","titik","direction"],
-    as_index=False
-).last()
+    ["unit","equipment","titik","direction"], as_index=False).last()
 
-# ── Filter KPI ────────────────────────────────────────────────────────────────
-kpi_filter = st.radio(
-    "Filter Ringkasan",
-    ["All Equipment", "TBK #1", "TBK #2", "TBK COM"],
-    horizontal=True,
-    key="kpi_filter"
-)
+total  = len(latest)
+n_d    = (latest["zone"] == "ZONE D").sum()
+n_c    = (latest["zone"] == "ZONE C").sum()
+n_b    = (latest["zone"] == "ZONE B").sum()
+n_a    = (latest["zone"] == "ZONE A").sum()
 
-if kpi_filter == "TBK #1":
-
-    latest_kpi = latest[
-        latest["unit"].str.contains(
-            "TBK #1|TBK1|UNIT 1",
-            case=False,
-            na=False
-        )
-    ]
-
-elif kpi_filter == "TBK #2":
-
-    latest_kpi = latest[
-        latest["unit"].str.contains(
-            "TBK #2|TBK2|UNIT 2",
-            case=False,
-            na=False
-        )
-    ]
-
-elif kpi_filter == "TBK COM":
-
-    latest_kpi = latest[
-        latest["unit"].str.contains(
-            "COM|COMMON",
-            case=False,
-            na=False
-        )
-    ]
-
-else:
-
-    latest_kpi = latest.copy()
-
-# ── KPI Calculation ───────────────────────────────────────────────────────────
-total = len(latest_kpi)
-
-n_a = (latest_kpi["zone"] == "ZONE A").sum()
-
-n_b = (latest_kpi["zone"] == "ZONE B").sum()
-
-n_c = (latest_kpi["zone"] == "ZONE C").sum()
-
-n_d = (latest_kpi["zone"] == "ZONE D").sum()
-
-# ── KPI Cards ─────────────────────────────────────────────────────────────────
 k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Total Titik",      total)
+k2.metric("🔴 Danger",        int(n_d))
+k3.metric("🟡 Warning",       int(n_c))
+k4.metric("🟢 Pre Warning",   int(n_b))
+k5.metric("🔵 Accepted",      int(n_a))
 
-k1.metric("Total Titik", total)
-
-k2.metric("🔴 Danger", int(n_d))
-
-k3.metric("🟡 Warning", int(n_c))
-
-k4.metric("🟢 Pre Warning", int(n_b))
-
-k5.metric("🔵 Accepted", int(n_a))
-
-# ── Percentage Bar ────────────────────────────────────────────────────────────
 pct_a = round(n_a / total * 100) if total else 0
 pct_b = round(n_b / total * 100) if total else 0
 pct_c = round(n_c / total * 100) if total else 0
 pct_d = round(n_d / total * 100) if total else 0
+st.markdown(f"""
+<div style="margin:4px 0 16px">
+  <div style="height:12px;border-radius:6px;overflow:hidden;display:flex;background:#e5e7eb">
+    <div style="width:{pct_a}%;background:#3b82f6" title="Accepted {pct_a}%"></div>
+    <div style="width:{pct_b}%;background:#22c55e" title="Pre Warning {pct_b}%"></div>
+    <div style="width:{pct_c}%;background:#eab308" title="Warning {pct_c}%"></div>
+    <div style="width:{pct_d}%;background:#ef4444" title="Danger {pct_d}%"></div>
+  </div>
+  <div style="display:flex;gap:16px;font-size:12px;margin-top:5px">
+    <span style="color:#1d4ed8">🔵 Accepted {pct_a}%</span>
+    <span style="color:#15803d">🟢 Pre Warning {pct_b}%</span>
+    <span style="color:#a16207">🟡 Warning {pct_c}%</span>
+    <span style="color:#b91c1c">🔴 Danger {pct_d}%</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-st.markdown(
-    f"""
-    <div style="margin:4px 0 16px;">
-
-        <div style="
-            height:12px;
-            border-radius:6px;
-            overflow:hidden;
-            display:flex;
-            background:var(--secondary-background-color);
-        ">
-
-            <div style="width:{pct_a}%; background:#3b82f6;"></div>
-            <div style="width:{pct_b}%; background:#22c55e;"></div>
-            <div style="width:{pct_c}%; background:#eab308;"></div>
-            <div style="width:{pct_d}%; background:#ef4444;"></div>
-
-        </div>
-
-        <div style="
-            display:flex;
-            gap:16px;
-            font-size:12px;
-            margin-top:5px;
-            color:var(--text-color);
-        ">
-
-            <span>🔵 Accepted {pct_a}%</span>
-            <span>🟢 Pre Warning {pct_b}%</span>
-            <span>🟡 Warning {pct_c}%</span>
-            <span>🔴 Danger {pct_d}%</span>
-
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.divider()
 
 # ── Card per Equipment (Alternatif A) ─────────────────────────────────────────
 st.markdown("### Status Terakhir per Equipment")
-
-# Gunakan filter yang sama dengan KPI
-latest_eq = latest_kpi.copy()
 
 CARD_BORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
 CARD_BG     = {"ZONE A":"#eff6ff","ZONE B":"#f0fdf4","ZONE C":"#fefce8","ZONE D":"#fef2f2","N/A":"#f8fafc"}
@@ -265,16 +185,15 @@ def dir_html(val, thr):
 
 # Kumpulkan data per equipment
 eq_rows = []
-for eq in sorted(latest_eq["equipment"].unique()):
-    df_eq = latest_eq[latest_eq["equipment"] == eq]
+for eq in sorted(latest["equipment"].unique()):
+    df_eq = latest[latest["equipment"] == eq]
     unit  = df_eq["unit"].iloc[0]
     thr   = get_threshold(eq)
     h_val = df_eq[df_eq["direction"]=="H"]["value"].max() if not df_eq[df_eq["direction"]=="H"].empty else None
     v_val = df_eq[df_eq["direction"]=="V"]["value"].max() if not df_eq[df_eq["direction"]=="V"].empty else None
     a_val = df_eq[df_eq["direction"]=="A"]["value"].max() if not df_eq[df_eq["direction"]=="A"].empty else None
     max_val = df_eq["value"].max()
-    zk, zi = get_zone(max_val, thr)
-    zl = zk.replace("ZONE ", "")
+    zk, zi, zl = get_zone(max_val, thr)
     eq_rows.append({"eq":eq,"unit":unit,"H":h_val,"V":v_val,"A":a_val,
                     "max":max_val,"zk":zk,"zi":zi,"zl":zl,"thr":thr})
 
@@ -287,110 +206,36 @@ for i in range(0, len(eq_rows), cols_per_row):
         border  = CARD_BORDER.get(r["zk"], "#94a3b8")
         bg      = CARD_BG.get(r["zk"], "#f8fafc")
         ztcolor = ZONE_TEXT.get(r["zk"], "#64748b")
-        for col, r in zip(cols, chunk):
-            card_html = f"""
-    <div style="
-        background:var(--secondary-background-color);
-        border-left:4px solid {border};
-        border-radius:0 10px 10px 0;
-        padding:12px 14px;
-        margin-bottom:4px;
-        border-top:0.5px solid {border}33;
-        border-right:0.5px solid {border}33;
-        border-bottom:0.5px solid {border}33;
-    ">
-
-      <div style="
-            font-size:13px;
-            font-weight:600;
-            color:var(--text-color);
-            margin-bottom:2px;
-      ">
-            {r['eq']}
-      </div>
-
-      <div style="
-            font-size:11px;
-            color:gray;
-            margin-bottom:10px;
-      ">
-            {r['unit']}
-      </div>
-
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-
-        <div style="
-            flex:1;
-            text-align:center;
-            background:rgba(255,255,255,0.05);
-            border-radius:6px;
-            padding:5px 4px;
-        ">
-            <div style="font-size:9px;color:gray;">H</div>
-            <div style="
-                font-size:13px;
-                font-weight:600;
-                color:{DIR_COLOR.get(get_zone(r['H'],r['thr'])[0],'#888')
-                if r['H'] is not None and not pd.isna(r['H'])
-                else '#94a3b8'};
-            ">
-                {fmt(r['H'])}
-            </div>
-        </div>
-
-        <div style="
-            flex:1;
-            text-align:center;
-            background:rgba(255,255,255,0.05);
-            border-radius:6px;
-            padding:5px 4px;
-        ">
-            <div style="font-size:9px;color:gray;">V</div>
-            <div style="
-                font-size:13px;
-                font-weight:600;
-                color:{DIR_COLOR.get(get_zone(r['V'],r['thr'])[0],'#888')
-                if r['V'] is not None and not pd.isna(r['V'])
-                else '#94a3b8'};
-            ">
-                {fmt(r['V'])}
-            </div>
-        </div>
-
-        <div style="
-            flex:1;
-            text-align:center;
-            background:rgba(255,255,255,0.05);
-            border-radius:6px;
-            padding:5px 4px;
-        ">
-            <div style="font-size:9px;color:gray;">A</div>
-            <div style="
-                font-size:13px;
-                font-weight:600;
-                color:{DIR_COLOR.get(get_zone(r['A'],r['thr'])[0],'#888')
-                if r['A'] is not None and not pd.isna(r['A'])
-                else '#94a3b8'};
-            ">
-                {fmt(r['A'])}
-            </div>
-        </div>
-
-      </div>
-
-      <div style="
-            font-size:12px;
-            font-weight:600;
-            color:{ztcolor};
-      ">
-            {r['zi']} {r['zl']}
-      </div>
-
+        col.markdown(f"""
+<div style="
+    background:{bg};
+    border-left:4px solid {border};
+    border-radius:0 10px 10px 0;
+    padding:12px 14px;
+    margin-bottom:4px;
+    border-top:0.5px solid {border}33;
+    border-right:0.5px solid {border}33;
+    border-bottom:0.5px solid {border}33;
+">
+  <div style="font-size:13px;font-weight:500;color:#1e293b;margin-bottom:2px">{r['eq']}</div>
+  <div style="font-size:11px;color:#64748b;margin-bottom:10px">{r['unit']}</div>
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
+      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">H</div>
+      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['H'],r['thr'])[0],'#888') if r['H'] is not None and not pd.isna(r['H']) else '#94a3b8'}">{fmt(r['H'])}</div>
     </div>
-    """
-
-    with col:
-        st.markdown(card_html, unsafe_allow_html=True)
+    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
+      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">V</div>
+      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['V'],r['thr'])[0],'#888') if r['V'] is not None and not pd.isna(r['V']) else '#94a3b8'}">{fmt(r['V'])}</div>
+    </div>
+    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
+      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">A</div>
+      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['A'],r['thr'])[0],'#888') if r['A'] is not None and not pd.isna(r['A']) else '#94a3b8'}">{fmt(r['A'])}</div>
+    </div>
+  </div>
+  <div style="font-size:12px;font-weight:500;color:{ztcolor}">{r['zi']} {r['zl']}</div>
+</div>
+""", unsafe_allow_html=True)
 
 st.divider()
 
@@ -400,7 +245,7 @@ sel_det = st.selectbox("Pilih Equipment", sorted(latest["equipment"].unique()), 
 thr_det = get_threshold(sel_det)
 df_det  = latest[latest["equipment"] == sel_det][["unit","titik","direction","value","date"]].copy()
 df_det["Status"] = df_det["value"].apply(
-    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[0]
+    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[2]
 ).astype(str)
 df_det["value"] = df_det["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
 df_det["date"]  = pd.to_datetime(df_det["date"]).dt.strftime("%Y-%m-%d")
