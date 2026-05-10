@@ -209,7 +209,7 @@ def dir_html(val, thr):
 
 # Kumpulkan data per equipment
 eq_rows = []
-for eq in sorted(latest["equipment"].unique()):
+for eq in sorted(latest_eq["equipment"].unique()):
     df_eq = latest[latest["equipment"] == eq]
     unit  = df_eq["unit"].iloc[0]
     thr   = get_threshold(eq)
