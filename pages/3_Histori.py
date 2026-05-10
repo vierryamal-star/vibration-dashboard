@@ -129,19 +129,38 @@ with del_tab1:
 # ── Tab 2: Hapus semua ────────────────────────────────────────────────────────
 with del_tab2:
     total_rows = len(df_hist)
-    st.error(f"⚠️ Tindakan ini akan menghapus **{total_rows:,} baris** secara permanen.")
-    konfirmasi = st.text_input("Ketik **HAPUS SEMUA** untuk konfirmasi:", key="konfirm_all")
+
+    st.error(
+        f"⚠️ Tindakan ini akan menghapus **{total_rows:,} baris** secara permanen."
+    )
+
+    konfirmasi = st.text_input(
+        "Ketik **HAPUS SEMUA** untuk konfirmasi:",
+        key="konfirm_all"
+    )
+
     col_b1, col_b2 = st.columns([1, 3])
+
     with col_b1:
-        if st.button("🗑️ Hapus Semua Data", key="btn_del_all", type="secondary"):
 
-    if konfirmasi == "HAPUS SEMUA":
+        if st.button(
+            "🗑️ Hapus Semua Data",
+            key="btn_del_all",
+            type="secondary"
+        ):
 
-        deleted = delete_all()
+            if konfirmasi == "HAPUS SEMUA":
 
-        st.success(f"✅ {deleted} baris berhasil dihapus.")
+                success = delete_all()
 
-        st.rerun()
+                if success:
+                    st.success("✅ Semua data berhasil dihapus.")
+                    st.rerun()
+                else:
+                    st.error("❌ Gagal menghapus data.")
 
-    else:
-        st.error("❌ Konfirmasi salah. Ketik: HAPUS SEMUA")
+            else:
+                st.error("❌ Konfirmasi salah. Ketik: HAPUS SEMUA")
+
+    with col_b2:
+        st.caption("Tindakan ini tidak dapat dibatalkan.")
