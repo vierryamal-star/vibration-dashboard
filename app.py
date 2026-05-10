@@ -104,6 +104,8 @@ if uploaded:
             st.success(
                 f"🎉 Total {total_saved} baris baru berhasil disimpan."
             )
+            st.cache_data.clear()
+            st.rerun()
 
         if total_skipped > 0:
             st.info(
