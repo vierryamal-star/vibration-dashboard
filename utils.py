@@ -114,11 +114,18 @@ def delete_by_dates(dates: list) -> int:
         st.error(f"Gagal hapus data: {e}")
         return 0
 
-def delete_all() -> bool:
+def delete_all() -> int:
     try:
         sb = get_supabase(service_role=True)
-        sb.table("vibration").delete().gt("id", 0).execute()
-        return True
+
+        res = sb.table("vibration").delete().neq("equipment", "").execute()
+
+        return len(res.data) if res.data else 0
+
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Gagal hapus semua data: {e}")
+        return 0
     except Exception as e:
         import streamlit as st
         st.error(f"Gagal hapus semua data: {e}")
