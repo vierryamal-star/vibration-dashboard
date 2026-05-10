@@ -170,11 +170,15 @@ else:
 
     latest_filtered = latest.copy()
 
-total  = len(latest)
-n_d    = (latest["zone"] == "ZONE D").sum()
-n_c    = (latest["zone"] == "ZONE C").sum()
-n_b    = (latest["zone"] == "ZONE B").sum()
-n_a    = (latest["zone"] == "ZONE A").sum()
+total  = len(latest_filtered)
+
+n_d = (latest_filtered["zone"] == "ZONE D").sum()
+
+n_c = (latest_filtered["zone"] == "ZONE C").sum()
+
+n_b = (latest_filtered["zone"] == "ZONE B").sum()
+
+n_a = (latest_filtered["zone"] == "ZONE A").sum()
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Total Titik",      total)
