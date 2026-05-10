@@ -81,16 +81,6 @@ if mode == "Detail satu equipment":
     ].copy()
 
     # Filter tanggal
-    if len(sel_date) == 2:
-
-        start_date, end_date = sel_date
-
-        # Filter tanggal
-if len(sel_date) == 2:
-
-    start_date, end_date = sel_date
-
-    # Filter tanggal
 if len(sel_date) == 2:
 
     start_date, end_date = sel_date
