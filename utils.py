@@ -56,21 +56,17 @@ def get_turbine_unit(equipment: str) -> str:
     return None
 
 def get_zone(value, thr):
-
+    """Return (zone_key, icon, label)"""
     if pd.isna(value):
-        return "N/A", "⬜"
-
-    if value <= thr["A"]:
-        return "ZONE A", "🔵"
-
+        return "N/A", "⬜", "N/A"
+    if value < thr["A"]:
+        return "ZONE A", "🔵", "Accepted"
     elif value <= thr["B"]:
-        return "ZONE B", "🟢"
-
+        return "ZONE B", "🟢", "Pre Warning"
     elif value <= thr["C"]:
-        return "ZONE C", "🟡"
-
+        return "ZONE C", "🟡", "Warning"
     else:
-        return "ZONE D", "🔴"
+        return "ZONE D", "🔴", "Danger"
 
 def init_db():
     pass
@@ -181,31 +177,11 @@ def load_filtered(df_hist, units, equips, directions):
     return df[df["unit"].isin(units) & df["equipment"].isin(equips) & df["direction"].isin(directions)].copy()
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
-
     df = df.copy()
-
-    df["thr_type"] = df["equipment"].apply(
-        lambda x: "Turbine"
-        if "turbine" in str(x).lower()
-        else "Pump/Fan"
-    )
-
-    df["zone"] = df.apply(
-        lambda r: get_zone(
-            r["value"],
-            THRESHOLD[r["thr_type"]]
-        )[0],
-        axis=1
-    )
-
-    df["zone_icon"] = df.apply(
-        lambda r: get_zone(
-            r["value"],
-            THRESHOLD[r["thr_type"]]
-        )[1],
-        axis=1
-    )
-
+    df["thr_type"]  = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
+    df["zone"]      = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
+    df["zone_icon"] = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
+    df["zone_label"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[2], axis=1)
     return df
 
 EDITOR_PASSWORD = "pltu2024"
