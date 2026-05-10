@@ -156,6 +156,7 @@ def parse_excel(file) -> pd.DataFrame:
         return pd.DataFrame()
     df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["value"])
     return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
 
 def load_filtered(df_hist, units, equips, directions):
