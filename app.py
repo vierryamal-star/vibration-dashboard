@@ -203,59 +203,44 @@ pct_b = round(n_b / total * 100) if total else 0
 pct_c = round(n_c / total * 100) if total else 0
 pct_d = round(n_d / total * 100) if total else 0
 
-st.markdown(f"""
-<div style="margin:4px 0 16px">
+st.markdown(
+    f"""
+    <div style="margin:4px 0 16px;">
 
-  <div style="
-      height:12px;
-      border-radius:6px;
-      overflow:hidden;
-      display:flex;
-      background:var(--secondary-background-color)
-  ">
+        <div style="
+            height:12px;
+            border-radius:6px;
+            overflow:hidden;
+            display:flex;
+            background:var(--secondary-background-color);
+        ">
 
-    <div style="
-        width:{pct_a}%;
-        background:#3b82f6
-    "></div>
+            <div style="width:{pct_a}%; background:#3b82f6;"></div>
+            <div style="width:{pct_b}%; background:#22c55e;"></div>
+            <div style="width:{pct_c}%; background:#eab308;"></div>
+            <div style="width:{pct_d}%; background:#ef4444;"></div>
 
-    <div style="
-        width:{pct_b}%;
-        background:#22c55e
-    "></div>
+        </div>
 
-    <div style="
-        width:{pct_c}%;
-        background:#eab308
-    "></div>
+        <div style="
+            display:flex;
+            gap:16px;
+            font-size:12px;
+            margin-top:5px;
+            color:var(--text-color);
+        ">
 
-    <div style="
-        width:{pct_d}%;
-        background:#ef4444
-    "></div>
+            <span>🔵 Accepted {pct_a}%</span>
+            <span>🟢 Pre Warning {pct_b}%</span>
+            <span>🟡 Warning {pct_c}%</span>
+            <span>🔴 Danger {pct_d}%</span>
 
-  </div>
+        </div>
 
-  <div style="
-      display:flex;
-      gap:16px;
-      font-size:12px;
-      margin-top:5px;
-      color:var(--text-color)
-  ">
-
-    <span>🔵 Accepted {pct_a}%</span>
-
-    <span>🟢 Pre Warning {pct_b}%</span>
-
-    <span>🟡 Warning {pct_c}%</span>
-
-    <span>🔴 Danger {pct_d}%</span>
-
-  </div>
-
-</div>
-""", unsafe_allow_html=True)
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # ── Card per Equipment (Alternatif A) ─────────────────────────────────────────
 st.markdown("### Status Terakhir per Equipment")
