@@ -326,7 +326,7 @@ sel_det = st.selectbox("Pilih Equipment", sorted(latest["equipment"].unique()), 
 thr_det = get_threshold(sel_det)
 df_det  = latest[latest["equipment"] == sel_det][["unit","titik","direction","value","date"]].copy()
 df_det["Status"] = df_det["value"].apply(
-    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[2]
+    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[0]
 ).astype(str)
 df_det["value"] = df_det["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
 df_det["date"]  = pd.to_datetime(df_det["date"]).dt.strftime("%Y-%m-%d")
