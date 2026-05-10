@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 import io
 from datetime import datetime, date
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils import load_history, DB_PATH, render_login_sidebar, check_role
+from utils import load_history, delete_by_dates, delete_all, render_login_sidebar, check_role
 
 st.set_page_config(page_title="Histori Data — PLTU TBK", page_icon="🗄️", layout="wide")
 st.markdown("""<style>[data-testid="stSidebarNav"]{display:none;}</style>""", unsafe_allow_html=True)
@@ -119,15 +118,8 @@ with del_tab1:
         col_b1, col_b2 = st.columns([1, 3])
         with col_b1:
             if st.button(f"🗑️ Hapus {n_del} baris", key="btn_del_dates", type="secondary"):
-                con = sqlite3.connect(DB_PATH)
-                placeholders = ",".join(["?" for _ in sel_dates])
-                con.execute(
-                    f"DELETE FROM vibration WHERE DATE(date) IN ({placeholders})",
-                    sel_dates
-                )
-                con.commit()
-                con.close()
-                st.success(f"✅ {n_del} baris berhasil dihapus.")
+                deleted = delete_by_dates(sel_dates)
+                st.success(f"✅ {deleted} baris berhasil dihapus.")
                 st.rerun()
         with col_b2:
             st.caption("Tindakan ini tidak dapat dibatalkan.")
