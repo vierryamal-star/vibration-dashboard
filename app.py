@@ -128,6 +128,47 @@ df_f = add_zone_cols(df_f)
 # ── KPI ───────────────────────────────────────────────────────────────────────
 latest = df_f.sort_values("date").groupby(
     ["unit","equipment","titik","direction"], as_index=False).last()
+# ── Shared Filter TBK ────────────────────────────────────────────────────────
+shared_filter = st.radio(
+    "Filter Area",
+    ["All Equipment", "TBK #1", "TBK #2", "TBK COM"],
+    horizontal=True,
+    key="shared_filter"
+)
+
+if shared_filter == "TBK #1":
+
+    latest_filtered = latest[
+        latest["unit"].str.contains(
+            "TBK #1|TBK1|UNIT 1",
+            case=False,
+            na=False
+        )
+    ]
+
+elif shared_filter == "TBK #2":
+
+    latest_filtered = latest[
+        latest["unit"].str.contains(
+            "TBK #2|TBK2|UNIT 2",
+            case=False,
+            na=False
+        )
+    ]
+
+elif shared_filter == "TBK COM":
+
+    latest_filtered = latest[
+        latest["unit"].str.contains(
+            "COM|COMMON",
+            case=False,
+            na=False
+        )
+    ]
+
+else:
+
+    latest_filtered = latest.copy()
 
 total  = len(latest)
 n_d    = (latest["zone"] == "ZONE D").sum()
