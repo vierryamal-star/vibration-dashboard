@@ -289,24 +289,39 @@ pivot_det = pivot_det.rename(columns={"titik":"Titik Ukur"})
 
 # Tampilkan tabel dengan highlight berdasarkan zone
 def highlight_row(row):
-    zk = row.get("zone_key","N/A")
-    colors = {
-        "ZONE A": "background-color:rgba(59,130,246,0.08);color:inherit",
-        "ZONE B": "background-color:rgba(34,197,94,0.08);color:inherit",
-        "ZONE C": "background-color:rgba(234,179,8,0.12);color:inherit",
-        "ZONE D": "background-color:rgba(239,68,68,0.12);color:inherit",
-    }
-    style = colors.get(zk,"")
-    return [style] * len(row)
+    zk = row["zone_key"]
 
-show_cols = ["Titik Ukur"] + dir_cols_d + ["Max (mm/s)","Status"]
+    if zk == "ZONE A":
+        color = "background-color: rgba(59,130,246,0.08);"
+
+    elif zk == "ZONE B":
+        color = "background-color: rgba(34,197,94,0.08);"
+
+    elif zk == "ZONE C":
+        color = "background-color: rgba(234,179,8,0.12);"
+
+    elif zk == "ZONE D":
+        color = "background-color: rgba(239,68,68,0.12);"
+
+    else:
+        color = ""
+
+    return [color] * len(row)
+
+show_cols = ["Titik Ukur"] + dir_cols_d + ["Max (mm/s)", "Status"]
+
+show_df = pivot_det[show_cols + ["zone_key"]].copy()
+
 styled = (
-    pivot_det[show_cols + ["zone_key"]]
-    .style
+    show_df.style
     .apply(highlight_row, axis=1)
-    .hide(axis="index")
 )
-st.dataframe(styled, use_container_width=True, hide_index=True)
+
+st.dataframe(
+    styled,
+    use_container_width=True,
+    hide_index=True
+)
 
 st.divider()
 
