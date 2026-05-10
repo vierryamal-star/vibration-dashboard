@@ -92,7 +92,7 @@ if len(sel_date) == 2:
 
 df_tr = df_tr.sort_values("date")
 
-    thr = get_threshold(sel_eq)
+thr = get_threshold(sel_eq)
 
     # Tabel nilai
     st.markdown(f"**Data — {sel_eq} · {sel_titik}**")
