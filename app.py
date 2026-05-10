@@ -560,16 +560,44 @@ for i in range(0, len(eq_rows), cols_per_row):
 
 # ── Detail per Equipment ──────────────────────────────────────────────────────
 st.markdown("### 🔍 Detail per Equipment")
-sel_det = st.selectbox("Pilih Equipment", sorted(latest_filtered["equipment"].unique()), key="home_det")
+
+sel_det = st.selectbox(
+    "Pilih Equipment",
+    sorted(latest_filtered["equipment"].unique()),
+    key="home_det"
+)
+
 thr_det = get_threshold(sel_det)
-df_det  = latest_filtered[latest["equipment"] == sel_det][["unit","titik","direction","value","date"]].copy()
+
+df_det = latest_filtered[
+    latest_filtered["equipment"] == sel_det
+][["unit","titik","direction","value","date"]].copy()
+
 df_det["Status"] = df_det["value"].apply(
-    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[2]
+    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[0]
 ).astype(str)
-df_det["value"] = df_det["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
-df_det["date"]  = pd.to_datetime(df_det["date"]).dt.strftime("%Y-%m-%d")
-df_det = df_det.rename(columns={"unit":"Unit","titik":"Titik","direction":"Dir","value":"mm/s","date":"Tanggal"})
-st.dataframe(df_det, use_container_width=True, hide_index=True)
+
+df_det["value"] = df_det["value"].map(
+    lambda v: f"{v:.3f}" if pd.notna(v) else "–"
+)
+
+df_det["date"] = pd.to_datetime(
+    df_det["date"]
+).dt.strftime("%Y-%m-%d")
+
+df_det = df_det.rename(columns={
+    "unit":"Unit",
+    "titik":"Titik",
+    "direction":"Dir",
+    "value":"mm/s",
+    "date":"Tanggal"
+})
+
+st.dataframe(
+    df_det,
+    use_container_width=True,
+    hide_index=True
+)
 
 st.divider()
 
