@@ -390,67 +390,178 @@ if mode_trend == "Satu Equipment":
         st.info("Tidak ada data untuk pilihan ini.")
 
 else:
-    # Mode bandingkan 2 equipment
+    # ── Compare 2 Equipment — Separate Charts ────────────────────────────────
     bc1, bc2 = st.columns(2)
+
     with bc1:
         st.markdown("**Equipment 1**")
-        eq1 = st.selectbox("Equipment 1", sorted(df_f["equipment"].unique()), key="cmp_eq1")
-        titik1_opts = ["Semua Titik"] + sorted(df_f[df_f["equipment"]==eq1]["titik"].unique())
-        titik1 = st.selectbox("Titik Ukur 1", titik1_opts, key="cmp_titik1")
-        dir1   = st.multiselect("Direction 1", ["H","V","A"], default=["H"], key="cmp_dir1")
+        eq1 = st.selectbox(
+            "Equipment 1",
+            sorted(df_f["equipment"].unique()),
+            key="cmp_eq1"
+        )
+
+        titik1_opts = ["Semua Titik"] + sorted(
+            df_f[df_f["equipment"] == eq1]["titik"].unique()
+        )
+
+        titik1 = st.selectbox(
+            "Titik Ukur 1",
+            titik1_opts,
+            key="cmp_titik1"
+        )
+
+        dir1 = st.multiselect(
+            "Direction 1",
+            ["H","V","A"],
+            default=["H"],
+            key="cmp_dir1"
+        )
+
     with bc2:
         st.markdown("**Equipment 2**")
-        eq2 = st.selectbox("Equipment 2", sorted(df_f["equipment"].unique()), index=min(1,len(sorted(df_f["equipment"].unique()))-1), key="cmp_eq2")
-        titik2_opts = ["Semua Titik"] + sorted(df_f[df_f["equipment"]==eq2]["titik"].unique())
-        titik2 = st.selectbox("Titik Ukur 2", titik2_opts, key="cmp_titik2")
-        dir2   = st.multiselect("Direction 2", ["H","V","A"], default=["H"], key="cmp_dir2")
 
-    cmp_range = st.selectbox("Rentang Waktu", ["7 Hari","30 Hari","90 Hari","180 Hari","All"], index=1, key="cmp_range")
+        eq2 = st.selectbox(
+            "Equipment 2",
+            sorted(df_f["equipment"].unique()),
+            index=min(1, len(sorted(df_f["equipment"].unique())) - 1),
+            key="cmp_eq2"
+        )
 
-    fig_cmp = go.Figure()
-    colors_eq = ["#3b82f6","#ef4444","#10b981","#f59e0b"]
+        titik2_opts = ["Semua Titik"] + sorted(
+            df_f[df_f["equipment"] == eq2]["titik"].unique()
+        )
 
-    for eq_idx, (eq, titik, dirs) in enumerate([(eq1,titik1,dir1),(eq2,titik2,dir2)]):
-        df_eq = df_f[df_f["equipment"]==eq].copy()
+        titik2 = st.selectbox(
+            "Titik Ukur 2",
+            titik2_opts,
+            key="cmp_titik2"
+        )
+
+        dir2 = st.multiselect(
+            "Direction 2",
+            ["H","V","A"],
+            default=["H"],
+            key="cmp_dir2"
+        )
+
+    cmp_range = st.selectbox(
+        "Rentang Waktu",
+        ["7 Hari","30 Hari","90 Hari","180 Hari","All"],
+        index=1,
+        key="cmp_range"
+    )
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    compare_configs = [
+        (chart_col1, eq1, titik1, dir1, "#3b82f6"),
+        (chart_col2, eq2, titik2, dir2, "#ef4444"),
+    ]
+
+    for chart_col, eq, titik, dirs, base_color in compare_configs:
+
+        df_eq = df_f[df_f["equipment"] == eq].copy()
+
         if cmp_range != "All" and not df_eq.empty:
-            days_map = {"7 Hari":7,"30 Hari":30,"90 Hari":90,"180 Hari":180}
-            end_d   = df_eq["date"].max()
+            days_map = {
+                "7 Hari": 7,
+                "30 Hari": 30,
+                "90 Hari": 90,
+                "180 Hari": 180
+            }
+
+            end_d = df_eq["date"].max()
             start_d = end_d - timedelta(days=days_map[cmp_range])
-            df_eq   = df_eq[(df_eq["date"] >= start_d) & (df_eq["date"] <= end_d)]
+
+            df_eq = df_eq[
+                (df_eq["date"] >= start_d) &
+                (df_eq["date"] <= end_d)
+            ]
+
         if titik != "Semua Titik":
-            df_eq = df_eq[df_eq["titik"]==titik]
+            df_eq = df_eq[df_eq["titik"] == titik]
+
         if dirs:
             df_eq = df_eq[df_eq["direction"].isin(dirs)]
+
         df_eq = df_eq.sort_values("date")
 
-        color_base = colors_eq[eq_idx*2]
-        color_alt  = colors_eq[eq_idx*2+1]
-        ls         = "solid" if eq_idx == 0 else "dash"
+        fig_eq = go.Figure()
+
+        colors_dir = {
+            "H": "#3b82f6",
+            "V": "#10b981",
+            "A": "#f59e0b"
+        }
 
         for i, titik_val in enumerate(sorted(df_eq["titik"].unique())):
+
             for d in dirs:
-                sub = df_eq[(df_eq["titik"]==titik_val)&(df_eq["direction"]==d)]
-                if sub.empty: continue
-                fig_cmp.add_trace(go.Scatter(
-                    x=sub["date"], y=sub["value"],
+
+                sub = df_eq[
+                    (df_eq["titik"] == titik_val) &
+                    (df_eq["direction"] == d)
+                ]
+
+                if sub.empty:
+                    continue
+
+                fig_eq.add_trace(go.Scatter(
+                    x=sub["date"],
+                    y=sub["value"],
                     mode="lines+markers",
-                    name=f"[{eq_idx+1}] {eq} – {titik_val} ({d})",
-                    line=dict(color=color_base if i%2==0 else color_alt, width=2, dash=ls),
+                    name=f"{titik_val} ({d})",
+                    line=dict(
+                        color=colors_dir.get(d, base_color),
+                        width=2
+                    ),
                     marker=dict(size=6),
-                    hovertemplate=f"<b>{eq} – {titik_val} ({d})</b><br>%{{x|%d-%b-%Y}}<br>%{{y:.3f}} mm/s<extra></extra>",
+                    hovertemplate=
+                        f"<b>{eq}</b><br>"
+                        f"{titik_val} ({d})<br>"
+                        "%{x|%d-%b-%Y}<br>"
+                        "%{y:.3f} mm/s<extra></extra>",
                 ))
 
-    thr_ref = get_threshold(eq1)
-    fig_cmp.add_hline(y=thr_ref["A"], line_dash="dot",  line_color="#3b82f6", line_width=1,
-                      annotation_text=f"Accepted ({thr_ref['A']})", annotation_position="top left")
-    fig_cmp.add_hline(y=thr_ref["B"], line_dash="dot",  line_color="#22c55e", line_width=1,
-                      annotation_text=f"Pre Warning ({thr_ref['B']})", annotation_position="top left")
-    fig_cmp.add_hline(y=thr_ref["C"], line_dash="dash", line_color="#ef4444", line_width=1.5,
-                      annotation_text=f"Warning ({thr_ref['C']})", annotation_position="top left")
-    fig_cmp.update_layout(
-        title=f"Perbandingan: {eq1} vs {eq2}",
-        xaxis_title="Tanggal", yaxis_title="Vibrasi (mm/s)",
-        height=460, hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    )
-    st.plotly_chart(fig_cmp, use_container_width=True)
+        thr = get_threshold(eq)
+
+        fig_eq.add_hline(
+            y=thr["A"],
+            line_dash="dot",
+            line_color="#3b82f6",
+            line_width=1,
+        )
+
+        fig_eq.add_hline(
+            y=thr["B"],
+            line_dash="dot",
+            line_color="#22c55e",
+            line_width=1,
+        )
+
+        fig_eq.add_hline(
+            y=thr["C"],
+            line_dash="dash",
+            line_color="#ef4444",
+            line_width=1.5,
+        )
+
+        fig_eq.update_layout(
+            title=eq,
+            xaxis_title="Tanggal",
+            yaxis_title="Vibrasi (mm/s)",
+            height=420,
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02
+            ),
+            margin=dict(l=20, r=20, t=50, b=20),
+        )
+
+        chart_col.plotly_chart(
+            fig_eq,
+            use_container_width=True
+        )
