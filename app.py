@@ -260,29 +260,8 @@ st.markdown(f"""
 # ── Card per Equipment (Alternatif A) ─────────────────────────────────────────
 st.markdown("### Status Terakhir per Equipment")
 
-equip_group = st.radio(
-    "Filter Equipment",
-    ["All Equipment", "TBK #1", "TBK #2", "TBK COM"],
-    horizontal=True
-)
-
-if equip_group == "TBK #1":
-    latest_eq = latest[
-        latest["unit"].str.contains("TBK #1|TBK1|UNIT 1", case=False, na=False)
-    ]
-
-elif equip_group == "TBK #2":
-    latest_eq = latest[
-        latest["unit"].str.contains("TBK #2|TBK2|UNIT 2", case=False, na=False)
-    ]
-
-elif equip_group == "TBK COM":
-    latest_eq = latest[
-        latest["unit"].str.contains("COM|COMMON", case=False, na=False)
-    ]
-
-else:
-    latest_eq = latest.copy()
+# Gunakan filter yang sama dengan KPI
+latest_eq = latest_kpi.copy()
 
 CARD_BORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
 CARD_BG     = {"ZONE A":"#eff6ff","ZONE B":"#f0fdf4","ZONE C":"#fefce8","ZONE D":"#fef2f2","N/A":"#f8fafc"}
