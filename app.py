@@ -193,7 +193,7 @@ pct_c = round(n_c / total * 100) if total else 0
 pct_d = round(n_d / total * 100) if total else 0
 st.markdown(f"""
 <div style="margin:4px 0 16px">
-  <div style="height:12px;border-radius:6px;overflow:hidden;display:flex;background:#e5e7eb">
+  <div style="height:12px;border-radius:6px;overflow:hidden;display:flex;background:var(--secondary-background-color)">
     <div style="width:{pct_a}%;background:#3b82f6" title="Accepted {pct_a}%"></div>
     <div style="width:{pct_b}%;background:#22c55e" title="Pre Warning {pct_b}%"></div>
     <div style="width:{pct_c}%;background:#eab308" title="Warning {pct_c}%"></div>
@@ -256,7 +256,9 @@ eq_rows = []
 
 for eq in sorted(latest_eq["equipment"].unique()):
 
-    df_eq = df_f[df_f["equipment"] == eq].sort_values("date")
+df_eq = latest_filtered[
+    latest_filtered["equipment"] == eq
+].sort_values("date")
 
     if df_eq.empty:
         continue
@@ -286,7 +288,7 @@ for eq in sorted(latest_eq["equipment"].unique()):
     try:
         eq_hist = df_eq.sort_values("date")
 
-        latest_avg = eq_hist.groupby("date")["value"].max().reset_index()
+        latest_avg = eq_hist.groupby("date")["value"].mean().reset_index()
 
         if len(latest_avg) >= 2:
 
@@ -393,7 +395,7 @@ for i in range(0, len(eq_rows), cols_per_row):
     background:{bg};
     border-left:8px solid {border};
     border-radius:14px;
-    padding:18px;
+    padding:14px;
     margin-bottom:14px;
     border-top:1px solid {border}44;
     border-right:1px solid {border}44;
@@ -574,7 +576,7 @@ df_det = latest_filtered[
 ][["unit","titik","direction","value","date"]].copy()
 
 df_det["Status"] = df_det["value"].apply(
-    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[0]
+    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[2]
 ).astype(str)
 
 df_det["value"] = df_det["value"].map(
