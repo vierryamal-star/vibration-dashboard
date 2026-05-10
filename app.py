@@ -26,7 +26,8 @@ section[data-testid="stSidebar"] > div:first-child {padding-top: 1rem;}
 """, unsafe_allow_html=True)
 
 init_db()
-
+# Load data sekali saja
+df_hist = load_history()
 # ── Sidebar: navigasi + upload + status ───────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚡ PLTU TBK")
