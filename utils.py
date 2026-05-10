@@ -1,17 +1,36 @@
 import pandas as pd
 from datetime import datetime
 
+# ── Threshold baru ────────────────────────────────────────────────────────────
+# A (Accepted)   : < 1.4
+# B (Pre Warning): 1.4 - 2.8
+# C (Warning)    : 2.8 - 4.5
+# D (Danger)     : > 4.5
 THRESHOLD = {
-    "Turbine": {"A": 3.8, "B": 7.5, "C": 11.8},
+    "Turbine": {"A": 1.4, "B": 2.8, "C": 4.5},
     "Pump/Fan": {"A": 1.4, "B": 2.8, "C": 4.5},
 }
 
 ZONE_COLOR = {
-    "ZONE A": "#22c55e",
-    "ZONE B": "#eab308",
-    "ZONE C": "#f97316",
+    "ZONE A": "#3b82f6",
+    "ZONE B": "#22c55e",
+    "ZONE C": "#eab308",
     "ZONE D": "#ef4444",
     "N/A":    "#94a3b8",
+}
+
+ZONE_LABEL = {
+    "ZONE A": "Accepted",
+    "ZONE B": "Pre Warning",
+    "ZONE C": "Warning",
+    "ZONE D": "Danger",
+}
+
+ZONE_ICON = {
+    "ZONE A": "🔵",
+    "ZONE B": "🟢",
+    "ZONE C": "🟡",
+    "ZONE D": "🔴",
 }
 
 def get_supabase(service_role=False):
@@ -37,16 +56,17 @@ def get_turbine_unit(equipment: str) -> str:
     return None
 
 def get_zone(value, thr):
+    """Return (zone_key, icon, label)"""
     if pd.isna(value):
-        return "N/A", "⬜"
-    if value <= thr["A"]:
-        return "ZONE A", "🟢"
+        return "N/A", "⬜", "N/A"
+    if value < thr["A"]:
+        return "ZONE A", "🔵", "Accepted"
     elif value <= thr["B"]:
-        return "ZONE B", "🟡"
+        return "ZONE B", "🟢", "Pre Warning"
     elif value <= thr["C"]:
-        return "ZONE C", "🟠"
+        return "ZONE C", "🟡", "Warning"
     else:
-        return "ZONE D", "🔴"
+        return "ZONE D", "🔴", "Danger"
 
 def init_db():
     pass
@@ -62,7 +82,6 @@ def load_history() -> pd.DataFrame:
             return pd.DataFrame(res.data)
         return pd.DataFrame()
     except Exception as e:
-        import streamlit as st
         st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
 
@@ -96,7 +115,6 @@ def save_to_db(df: pd.DataFrame) -> int:
                 sb.table("vibration").insert(rows_to_insert[i:i+batch_size]).execute()
         return len(rows_to_insert)
     except Exception as e:
-        import streamlit as st
         st.error(f"Gagal simpan data: {e}")
         return 0
 
@@ -110,26 +128,17 @@ def delete_by_dates(dates: list) -> int:
                 total += len(res.data)
         return total
     except Exception as e:
-        import streamlit as st
         st.error(f"Gagal hapus data: {e}")
         return 0
 
 def delete_all() -> int:
     try:
         sb = get_supabase(service_role=True)
-
         res = sb.table("vibration").delete().neq("equipment", "").execute()
-
         return len(res.data) if res.data else 0
-
     except Exception as e:
-        import streamlit as st
         st.error(f"Gagal hapus semua data: {e}")
         return 0
-    except Exception as e:
-        import streamlit as st
-        st.error(f"Gagal hapus semua data: {e}")
-        return False
 
 def parse_excel(file) -> pd.DataFrame:
     import streamlit as st
@@ -163,15 +172,16 @@ def load_filtered(df_hist, units, equips, directions):
     if df_hist.empty:
         return pd.DataFrame()
     df = df_hist.copy()
-    df["date"]  = pd.to_datetime(df["date"],  errors="coerce")
-    df["value"] = pd.to_numeric(df["value"],  errors="coerce")
+    df["date"]  = pd.to_datetime(df["date"], errors="coerce")
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df[df["unit"].isin(units) & df["equipment"].isin(equips) & df["direction"].isin(directions)].copy()
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
-    df["zone"]     = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
-    df["zone_icon"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
+    df["thr_type"]  = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
+    df["zone"]      = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
+    df["zone_icon"] = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
+    df["zone_label"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[2], axis=1)
     return df
 
 EDITOR_PASSWORD = "pltu2024"
