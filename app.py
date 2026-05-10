@@ -55,7 +55,7 @@ with st.sidebar:
     st.divider()
 
     # Status ringkas
-    df_check = load_history()
+    df_check = df_hist.copy()
     if not df_check.empty:
         df_check["value"] = pd.to_numeric(df_check["value"], errors="coerce")
         latest_c = df_check.sort_values("date").groupby(
