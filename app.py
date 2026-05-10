@@ -273,7 +273,7 @@ for eq in sorted(latest_eq["equipment"].unique()):
 
     max_val = latest_data["value"].max()
 
-    zk, zi = get_zone(max_val, thr)
+    zk, zi, zl = get_zone(max_val, thr)
 
     # Direction values
     h_val = latest_data[latest_data["direction"]=="H"]["value"].max()
