@@ -211,80 +211,352 @@ st.markdown(f"""
 st.divider()
 
 # ── Card per Equipment (Alternatif A) ─────────────────────────────────────────
+# ── Modern Equipment Card ────────────────────────────────────────────────────
+
 st.markdown("### Status Terakhir per Equipment")
 
-CARD_BORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
-CARD_BG     = {"ZONE A":"#eff6ff","ZONE B":"#f0fdf4","ZONE C":"#fefce8","ZONE D":"#fef2f2","N/A":"#f8fafc"}
-ZONE_TEXT   = {"ZONE A":"#1d4ed8","ZONE B":"#15803d","ZONE C":"#a16207","ZONE D":"#b91c1c","N/A":"#64748b"}
-DIR_COLOR   = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
+latest_eq = latest_kpi.copy()
+
+CARD_BORDER = {
+    "ZONE A":"#3b82f6",
+    "ZONE B":"#22c55e",
+    "ZONE C":"#eab308",
+    "ZONE D":"#ef4444",
+    "N/A":"#94a3b8"
+}
+
+CARD_BG = {
+    "ZONE A":"rgba(59,130,246,0.08)",
+    "ZONE B":"rgba(34,197,94,0.08)",
+    "ZONE C":"rgba(234,179,8,0.08)",
+    "ZONE D":"rgba(239,68,68,0.08)",
+    "N/A":"rgba(148,163,184,0.08)"
+}
+
+ZONE_TEXT = {
+    "ZONE A":"ACCEPTED",
+    "ZONE B":"PRE WARNING",
+    "ZONE C":"WARNING",
+    "ZONE D":"DANGER",
+    "N/A":"NO DATA"
+}
+
+TREND_TEXT = {
+    "up_fast":"RAPID RISE",
+    "up":"INCREASING",
+    "stable":"STABLE",
+    "down":"IMPROVING"
+}
 
 def fmt(v):
-    return f"{v:.3f}" if v is not None and not pd.isna(v) else "–"
+    return f"{v:.2f}" if pd.notna(v) else "-"
 
-def dir_html(val, thr):
-    if val is None or pd.isna(val):
-        return "<span style='color:#94a3b8'>–</span>"
-    zk = get_zone(val, thr)[0]
-    color = DIR_COLOR.get(zk, "#888")
-    return f"<span style='color:{color};font-weight:500'>{val:.3f}</span>"
-
-# Kumpulkan data per equipment
+# ── Build Equipment Data ─────────────────────────────────────────────────────
 eq_rows = []
-for eq in sorted(latest_filtered["equipment"].unique()):
-    df_eq = latest_filtered[
-    latest_filtered["equipment"] == eq
-]
-    unit  = df_eq["unit"].iloc[0]
-    thr   = get_threshold(eq)
-    h_val = df_eq[df_eq["direction"]=="H"]["value"].max() if not df_eq[df_eq["direction"]=="H"].empty else None
-    v_val = df_eq[df_eq["direction"]=="V"]["value"].max() if not df_eq[df_eq["direction"]=="V"].empty else None
-    a_val = df_eq[df_eq["direction"]=="A"]["value"].max() if not df_eq[df_eq["direction"]=="A"].empty else None
-    max_val = df_eq["value"].max()
-    zk, zi, zl = get_zone(max_val, thr)
-    eq_rows.append({"eq":eq,"unit":unit,"H":h_val,"V":v_val,"A":a_val,
-                    "max":max_val,"zk":zk,"zi":zi,"zl":zl,"thr":thr})
 
-# Tampilkan card 3 kolom
-cols_per_row = 3
+for eq in sorted(latest_eq["equipment"].unique()):
+
+    df_eq = df_f[df_f["equipment"] == eq].sort_values("date")
+
+    if df_eq.empty:
+        continue
+
+    unit = df_eq["unit"].iloc[0]
+
+    thr = get_threshold(eq)
+
+    # Latest values
+    latest_data = df_eq.groupby(
+        ["titik","direction"],
+        as_index=False
+    ).last()
+
+    max_val = latest_data["value"].max()
+
+    zk, zi = get_zone(max_val, thr)
+
+    # Direction values
+    h_val = latest_data[latest_data["direction"]=="H"]["value"].max()
+    v_val = latest_data[latest_data["direction"]=="V"]["value"].max()
+    a_val = latest_data[latest_data["direction"]=="A"]["value"].max()
+
+    # Previous trend
+    trend_delta = 0
+
+    try:
+        eq_hist = df_eq.sort_values("date")
+
+        latest_avg = eq_hist.groupby("date")["value"].max().reset_index()
+
+        if len(latest_avg) >= 2:
+
+            current_val = latest_avg.iloc[-1]["value"]
+            previous_val = latest_avg.iloc[-2]["value"]
+
+            trend_delta = current_val - previous_val
+
+    except:
+        trend_delta = 0
+
+    # Trend label
+    if trend_delta > 0.5:
+        trend_label = TREND_TEXT["up_fast"]
+        trend_icon = "⬆"
+        trend_color = "#ef4444"
+
+    elif trend_delta > 0.1:
+        trend_label = TREND_TEXT["up"]
+        trend_icon = "↗"
+        trend_color = "#f59e0b"
+
+    elif trend_delta < -0.1:
+        trend_label = TREND_TEXT["down"]
+        trend_icon = "⬇"
+        trend_color = "#22c55e"
+
+    else:
+        trend_label = TREND_TEXT["stable"]
+        trend_icon = "➡"
+        trend_color = "#94a3b8"
+
+    # Health Score
+    if zk == "ZONE A":
+        health = 95
+    elif zk == "ZONE B":
+        health = 75
+    elif zk == "ZONE C":
+        health = 50
+    else:
+        health = 20
+
+    # Action recommendation
+    if zk == "ZONE D":
+        action = "Inspect bearing & alignment immediately"
+    elif zk == "ZONE C":
+        action = "Schedule inspection"
+    elif zk == "ZONE B":
+        action = "Monitor closely"
+    else:
+        action = "Normal monitoring"
+
+    last_date = pd.to_datetime(
+        df_eq["date"].max()
+    ).strftime("%d %b %Y")
+
+    eq_rows.append({
+        "equipment": eq,
+        "unit": unit,
+        "zone": zk,
+        "icon": zi,
+        "max": max_val,
+        "h": h_val,
+        "v": v_val,
+        "a": a_val,
+        "trend_delta": trend_delta,
+        "trend_label": trend_label,
+        "trend_icon": trend_icon,
+        "trend_color": trend_color,
+        "health": health,
+        "action": action,
+        "last_date": last_date
+    })
+
+# ── Sort by Severity ─────────────────────────────────────────────────────────
+severity_order = {
+    "ZONE D":0,
+    "ZONE C":1,
+    "ZONE B":2,
+    "ZONE A":3
+}
+
+eq_rows = sorted(
+    eq_rows,
+    key=lambda x: severity_order.get(x["zone"], 99)
+)
+
+# ── Display Cards ────────────────────────────────────────────────────────────
+cols_per_row = 2
+
 for i in range(0, len(eq_rows), cols_per_row):
+
     chunk = eq_rows[i:i+cols_per_row]
-    cols  = st.columns(cols_per_row)
+
+    cols = st.columns(cols_per_row)
+
     for col, r in zip(cols, chunk):
-        border  = CARD_BORDER.get(r["zk"], "#94a3b8")
-        bg      = CARD_BG.get(r["zk"], "#f8fafc")
-        ztcolor = ZONE_TEXT.get(r["zk"], "#64748b")
-        col.markdown(f"""
+
+        border = CARD_BORDER.get(r["zone"], "#94a3b8")
+        bg = CARD_BG.get(r["zone"], "#111827")
+
+        card_html = f"""
 <div style="
     background:{bg};
-    border-left:4px solid {border};
-    border-radius:0 10px 10px 0;
-    padding:12px 14px;
-    margin-bottom:4px;
-    border-top:0.5px solid {border}33;
-    border-right:0.5px solid {border}33;
-    border-bottom:0.5px solid {border}33;
+    border-left:8px solid {border};
+    border-radius:14px;
+    padding:18px;
+    margin-bottom:14px;
+    border-top:1px solid {border}44;
+    border-right:1px solid {border}44;
+    border-bottom:1px solid {border}44;
 ">
-  <div style="font-size:13px;font-weight:500;color:#1e293b;margin-bottom:2px">{r['eq']}</div>
-  <div style="font-size:11px;color:#64748b;margin-bottom:10px">{r['unit']}</div>
-  <div style="display:flex;gap:8px;margin-bottom:10px">
-    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
-      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">H</div>
-      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['H'],r['thr'])[0],'#888') if r['H'] is not None and not pd.isna(r['H']) else '#94a3b8'}">{fmt(r['H'])}</div>
-    </div>
-    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
-      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">V</div>
-      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['V'],r['thr'])[0],'#888') if r['V'] is not None and not pd.isna(r['V']) else '#94a3b8'}">{fmt(r['V'])}</div>
-    </div>
-    <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:6px;padding:5px 4px">
-      <div style="font-size:9px;color:#94a3b8;margin-bottom:2px">A</div>
-      <div style="font-size:13px;font-weight:500;color:{DIR_COLOR.get(get_zone(r['A'],r['thr'])[0],'#888') if r['A'] is not None and not pd.isna(r['A']) else '#94a3b8'}">{fmt(r['A'])}</div>
-    </div>
-  </div>
-  <div style="font-size:12px;font-weight:500;color:{ztcolor}">{r['zi']} {r['zl']}</div>
-</div>
-""", unsafe_allow_html=True)
 
-st.divider()
+    <div style="
+        font-size:22px;
+        font-weight:700;
+        margin-bottom:4px;
+        color:var(--text-color);
+    ">
+        {r['icon']} {r['equipment']}
+    </div>
+
+    <div style="
+        font-size:13px;
+        color:gray;
+        margin-bottom:18px;
+    ">
+        {r['unit']}
+    </div>
+
+    <div style="
+        font-size:13px;
+        color:gray;
+        margin-bottom:4px;
+    ">
+        CURRENT VIBRATION
+    </div>
+
+    <div style="
+        font-size:38px;
+        font-weight:800;
+        color:{border};
+        line-height:1;
+        margin-bottom:10px;
+    ">
+        {fmt(r['max'])} mm/s
+    </div>
+
+    <div style="
+        display:inline-block;
+        background:{border};
+        color:white;
+        padding:6px 12px;
+        border-radius:8px;
+        font-size:13px;
+        font-weight:700;
+        margin-bottom:18px;
+    ">
+        {ZONE_TEXT.get(r['zone'])}
+    </div>
+
+    <div style="
+        color:{r['trend_color']};
+        font-size:15px;
+        font-weight:600;
+        margin-bottom:2px;
+    ">
+        {r['trend_icon']} {fmt(r['trend_delta'])} mm/s
+    </div>
+
+    <div style="
+        color:{r['trend_color']};
+        font-size:12px;
+        margin-bottom:16px;
+    ">
+        TREND : {r['trend_label']}
+    </div>
+
+    <div style="
+        display:flex;
+        gap:10px;
+        margin-bottom:18px;
+    ">
+
+        <div style="
+            flex:1;
+            background:rgba(255,255,255,0.08);
+            border-radius:10px;
+            padding:10px;
+            text-align:center;
+        ">
+            <div style="font-size:11px;color:gray;">H</div>
+            <div style="font-size:18px;font-weight:700;color:var(--text-color);">
+                {fmt(r['h'])}
+            </div>
+        </div>
+
+        <div style="
+            flex:1;
+            background:rgba(255,255,255,0.08);
+            border-radius:10px;
+            padding:10px;
+            text-align:center;
+        ">
+            <div style="font-size:11px;color:gray;">V</div>
+            <div style="font-size:18px;font-weight:700;color:var(--text-color);">
+                {fmt(r['v'])}
+            </div>
+        </div>
+
+        <div style="
+            flex:1;
+            background:rgba(255,255,255,0.08);
+            border-radius:10px;
+            padding:10px;
+            text-align:center;
+        ">
+            <div style="font-size:11px;color:gray;">A</div>
+            <div style="font-size:18px;font-weight:700;color:var(--text-color);">
+                {fmt(r['a'])}
+            </div>
+        </div>
+
+    </div>
+
+    <div style="
+        font-size:12px;
+        color:gray;
+        margin-bottom:4px;
+    ">
+        HEALTH SCORE
+    </div>
+
+    <div style="
+        font-size:26px;
+        font-weight:700;
+        color:var(--text-color);
+        margin-bottom:18px;
+    ">
+        {r['health']} / 100
+    </div>
+
+    <div style="
+        font-size:12px;
+        color:gray;
+        margin-bottom:4px;
+    ">
+        ACTION
+    </div>
+
+    <div style="
+        font-size:14px;
+        font-weight:500;
+        color:var(--text-color);
+        margin-bottom:18px;
+    ">
+        {r['action']}
+    </div>
+
+    <div style="
+        font-size:11px;
+        color:gray;
+    ">
+        Last Update : {r['last_date']}
+    </div>
+
+</div>
+"""
+
+        col.markdown(card_html, unsafe_allow_html=True)
 
 # ── Detail per Equipment ──────────────────────────────────────────────────────
 st.markdown("### 🔍 Detail per Equipment")
