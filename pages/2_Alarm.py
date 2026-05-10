@@ -3,7 +3,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils import load_history, get_zone, THRESHOLD, add_zone_cols, render_login_sidebar
+from utils import (
+    load_history,
+    get_zone,
+    get_threshold,
+    THRESHOLD,
+    add_zone_cols,
+    render_login_sidebar
+)
 
 st.set_page_config(page_title="Alarm & Warning — PLTU TBK", page_icon="🚨", layout="wide")
 st.markdown("""<style>[data-testid="stSidebarNav"]{display:none;}</style>""", unsafe_allow_html=True)
