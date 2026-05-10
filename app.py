@@ -10,7 +10,7 @@ from utils import (
 )
 
 st.set_page_config(
-    page_title="Monitoring Vibrasi — PLTU TBK",
+    page_title="Dashboard Monitoring Vibrasi — PLTU TBK",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -31,7 +31,7 @@ df_hist = load_history()
 with st.sidebar:
     st.image("assets/logo_pln_ip.png", width=220)
     st.markdown("## ⚡ PLTU TBK")
-    st.caption("Monitoring Vibrasi · ISO 10816")
+    st.caption("Dashboard Monitoring Vibrasi · ISO 10816")
     st.divider()
 
     st.markdown("### 📂 Upload Data")
