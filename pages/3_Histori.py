@@ -134,12 +134,14 @@ with del_tab2:
     col_b1, col_b2 = st.columns([1, 3])
     with col_b1:
         if st.button("🗑️ Hapus Semua Data", key="btn_del_all", type="secondary"):
-            if konfirmasi == "HAPUS SEMUA":
-                con = sqlite3.connect(DB_PATH)
-                con.execute("DELETE FROM vibration")
-                con.commit()
-                con.close()
-                st.success("✅ Semua data berhasil dihapus.")
-                st.rerun()
-            else:
-                st.error("❌ Konfirmasi salah. Ketik: HAPUS SEMUA (huruf kapital)")
+
+    if konfirmasi == "HAPUS SEMUA":
+
+        deleted = delete_all()
+
+        st.success(f"✅ {deleted} baris berhasil dihapus.")
+
+        st.rerun()
+
+    else:
+        st.error("❌ Konfirmasi salah. Ketik: HAPUS SEMUA")
