@@ -273,7 +273,8 @@ for eq in sorted(latest_eq["equipment"].unique()):
     v_val = df_eq[df_eq["direction"]=="V"]["value"].max() if not df_eq[df_eq["direction"]=="V"].empty else None
     a_val = df_eq[df_eq["direction"]=="A"]["value"].max() if not df_eq[df_eq["direction"]=="A"].empty else None
     max_val = df_eq["value"].max()
-    zk, zi, zl = get_zone(max_val, thr)
+    zk, zi = get_zone(max_val, thr)
+    zl = zk
     eq_rows.append({"eq":eq,"unit":unit,"H":h_val,"V":v_val,"A":a_val,
                     "max":max_val,"zk":zk,"zi":zi,"zl":zl,"thr":thr})
 
