@@ -258,6 +258,9 @@ if trend_range != "All":
         "180 Hari": 180
     }
 
+    if df_tr.empty:
+    st.warning("Tidak ada data trend.")
+    st.stop()
     end_date = df_tr["date"].max()
     start_date = end_date - timedelta(days=days_map[trend_range])
 
