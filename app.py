@@ -109,7 +109,6 @@ if uploaded:
                 f"ℹ️ Total {total_skipped} baris duplikat dilewati."
             )
 # ── Load & filter ─────────────────────────────────────────────────────────────
-df_hist = load_history()
 
 if df_hist.empty:
     st.info("📂 Belum ada data. Silakan upload file Excel dari sidebar kiri.")
