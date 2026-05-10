@@ -231,7 +231,9 @@ def dir_html(val, thr):
 # Kumpulkan data per equipment
 eq_rows = []
 for eq in sorted(latest_filtered["equipment"].unique()):
-    df_eq = latest[latest["equipment"] == eq]
+    df_eq = latest_filtered[
+    latest_filtered["equipment"] == eq
+]
     unit  = df_eq["unit"].iloc[0]
     thr   = get_threshold(eq)
     h_val = df_eq[df_eq["direction"]=="H"]["value"].max() if not df_eq[df_eq["direction"]=="H"].empty else None
