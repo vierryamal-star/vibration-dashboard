@@ -1,8 +1,5 @@
-import sqlite3
 import pandas as pd
 from datetime import datetime
-
-DB_PATH = "vibration_history.db"
 
 THRESHOLD = {
     "Turbine": {"A": 3.8, "B": 7.5, "C": 11.8},
@@ -17,6 +14,13 @@ ZONE_COLOR = {
     "N/A":    "#94a3b8",
 }
 
+def get_supabase(service_role=False):
+    import streamlit as st
+    from supabase import create_client
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
 def get_threshold(equipment: str):
     name = equipment.upper()
     if "TURBINE" in name:
@@ -24,7 +28,6 @@ def get_threshold(equipment: str):
     return THRESHOLD["Pump/Fan"]
 
 def get_turbine_unit(equipment: str) -> str:
-    """Kembalikan unit berdasarkan nama turbine (Turbine 01 → TBK #1, Turbine 02 → TBK #2)."""
     name = equipment.upper()
     if "TURBINE" in name or "TURBIN" in name:
         if "01" in name or "1" in name:
@@ -46,66 +49,85 @@ def get_zone(value, thr):
         return "ZONE D", "🔴"
 
 def init_db():
-    con = sqlite3.connect(DB_PATH)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS vibration (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            equipment   TEXT,
-            unit        TEXT,
-            titik       TEXT,
-            direction   TEXT,
-            date        TEXT,
-            value       REAL,
-            uploaded_at TEXT
-        )
-    """)
-    con.commit()
-    con.close()
-
-def save_to_db(df: pd.DataFrame):
-    con = sqlite3.connect(DB_PATH)
-    now = datetime.now().isoformat()
-    rows = df.copy()
-    rows["uploaded_at"] = now
-    try:
-        existing = pd.read_sql(
-            "SELECT equipment, unit, titik, direction, date FROM vibration", con
-        )
-        existing["_key"] = (
-            existing["equipment"].astype(str) + "|" +
-            existing["unit"].astype(str) + "|" +
-            existing["titik"].astype(str) + "|" +
-            existing["direction"].astype(str) + "|" +
-            pd.to_datetime(existing["date"], errors="coerce").dt.date.astype(str)
-        )
-        rows["_key"] = (
-            rows["equipment"].astype(str) + "|" +
-            rows["unit"].astype(str) + "|" +
-            rows["titik"].astype(str) + "|" +
-            rows["direction"].astype(str) + "|" +
-            pd.to_datetime(rows["date"], errors="coerce").dt.date.astype(str)
-        )
-        rows_new = rows[~rows["_key"].isin(existing["_key"])].drop(columns=["_key"])
-    except Exception:
-        rows_new = rows.copy()
-    saved = len(rows_new)
-    if not rows_new.empty:
-        rows_new.to_sql("vibration", con, if_exists="append", index=False)
-    con.close()
-    return saved
+    pass
 
 def load_history() -> pd.DataFrame:
-    con = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT * FROM vibration ORDER BY date DESC", con)
-    except Exception:
-        df = pd.DataFrame()
-    con.close()
-    return df
+        sb = get_supabase()
+        res = sb.table("vibration").select("*").order("date", desc=True).execute()
+        if res.data:
+            return pd.DataFrame(res.data)
+        return pd.DataFrame()
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Gagal load data: {e}")
+        return pd.DataFrame()
+
+def save_to_db(df: pd.DataFrame) -> int:
+    try:
+        sb = get_supabase(service_role=True)
+        now = datetime.now().isoformat()
+        res = sb.table("vibration").select("equipment,unit,titik,direction,date").execute()
+        existing_keys = set()
+        if res.data:
+            for row in res.data:
+                key = f"{row['equipment']}|{row['unit']}|{row['titik']}|{row['direction']}|{str(row['date'])[:10]}"
+                existing_keys.add(key)
+        rows_to_insert = []
+        for _, r in df.iterrows():
+            date_str = str(r["date"])[:10] if pd.notna(r["date"]) else ""
+            key = f"{r['equipment']}|{r['unit']}|{r['titik']}|{r['direction']}|{date_str}"
+            if key not in existing_keys:
+                rows_to_insert.append({
+                    "equipment":   str(r["equipment"]),
+                    "unit":        str(r["unit"]),
+                    "titik":       str(r["titik"]),
+                    "direction":   str(r["direction"]),
+                    "date":        date_str,
+                    "value":       float(r["value"]) if pd.notna(r["value"]) else None,
+                    "uploaded_at": now,
+                })
+        if rows_to_insert:
+            batch_size = 500
+            for i in range(0, len(rows_to_insert), batch_size):
+                sb.table("vibration").insert(rows_to_insert[i:i+batch_size]).execute()
+        return len(rows_to_insert)
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Gagal simpan data: {e}")
+        return 0
+
+def delete_by_dates(dates: list) -> int:
+    try:
+        sb = get_supabase(service_role=True)
+        total = 0
+        for d in dates:
+            res = sb.table("vibration").delete().eq("date", d).execute()
+            if res.data:
+                total += len(res.data)
+        return total
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Gagal hapus data: {e}")
+        return 0
+
+def delete_all() -> bool:
+    try:
+        sb = get_supabase(service_role=True)
+        sb.table("vibration").delete().gt("id", 0).execute()
+        return True
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Gagal hapus semua data: {e}")
+        return False
 
 def parse_excel(file) -> pd.DataFrame:
     import streamlit as st
-    df = pd.read_excel(file, sheet_name="Vibration_Data")
+    try:
+        df = pd.read_excel(file, sheet_name="Vibration_Data")
+    except Exception as e:
+        st.error(f"Gagal baca file {getattr(file, 'name', 'unknown')}: {e}")
+        return pd.DataFrame()
     df.columns = [c.strip() for c in df.columns]
     col_map = {}
     for c in df.columns:
@@ -122,56 +144,34 @@ def parse_excel(file) -> pd.DataFrame:
     if missing:
         st.error(f"Kolom tidak ditemukan: {missing}")
         return pd.DataFrame()
-    df["date"] = pd.to_datetime(
-    df["date"],
-    errors="coerce"
-).dt.date
-    df["value"] = pd.to_numeric(df["value"],  errors="coerce")
+    df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
 
-def load_filtered(df_hist: pd.DataFrame, units, equips, directions) -> pd.DataFrame:
+def load_filtered(df_hist, units, equips, directions):
     if df_hist.empty:
         return pd.DataFrame()
     df = df_hist.copy()
     df["date"]  = pd.to_datetime(df["date"],  errors="coerce")
     df["value"] = pd.to_numeric(df["value"],  errors="coerce")
-    return df[
-        df["unit"].isin(units) &
-        df["equipment"].isin(equips) &
-        df["direction"].isin(directions)
-    ].copy()
+    return df[df["unit"].isin(units) & df["equipment"].isin(equips) & df["direction"].isin(directions)].copy()
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["thr_type"] = df["equipment"].apply(
-        lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan"
-    )
-    df["zone"] = df.apply(
-        lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1
-    )
-    df["zone_icon"] = df.apply(
-        lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1
-    )
+    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
+    df["zone"]     = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
+    df["zone_icon"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
     return df
 
-# ── Sistem autentikasi role ────────────────────────────────────────────────────
-EDITOR_PASSWORD = "pltu2024"   # Ganti sesuai kebutuhan
+EDITOR_PASSWORD = "pltu2024"
 
 def check_role():
-    """
-    Kembalikan role sesi saat ini: 'viewer' atau 'editor'.
-    Disimpan di st.session_state['role'].
-    """
     import streamlit as st
     if "role" not in st.session_state:
         st.session_state["role"] = "viewer"
     return st.session_state["role"]
 
 def render_login_sidebar():
-    """
-    Tampilkan widget login/logout di sidebar.
-    Viewer bisa lihat semua data, Editor bisa upload/hapus/edit.
-    """
     import streamlit as st
     role = check_role()
     st.sidebar.divider()
@@ -192,11 +192,8 @@ def render_login_sidebar():
                     st.error("Password salah.")
 
 def require_editor():
-    """
-    Blokir aksi jika bukan editor. Kembalikan True jika editor, False jika viewer.
-    """
     import streamlit as st
     if check_role() != "editor":
-        st.warning("🔒 Fitur ini hanya tersedia untuk **Editor**. Silakan login terlebih dahulu.")
+        st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
         return False
     return True
