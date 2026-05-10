@@ -288,8 +288,7 @@ for i in range(0, len(eq_rows), cols_per_row):
         bg      = CARD_BG.get(r["zk"], "#f8fafc")
         ztcolor = ZONE_TEXT.get(r["zk"], "#64748b")
         for col, r in zip(cols, chunk):
-
-    card_html = f"""
+            card_html = f"""
     <div style="
         background:var(--secondary-background-color);
         border-left:4px solid {border};
