@@ -1,13 +1,23 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import timedelta
+
 from utils import (
-    save_to_db, load_history, parse_excel,
-    get_zone, get_threshold, THRESHOLD, ZONE_COLOR, add_zone_cols,
-    render_login_sidebar, check_role
+    save_to_db,
+    load_history,
+    parse_excel,
+    get_zone,
+    get_threshold,
+    THRESHOLD,
+    add_zone_cols,
+    render_login_sidebar,
+    check_role
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Dashboard Monitoring Vibrasi — PLTU TBK",
     page_icon="⚡",
@@ -15,125 +25,203 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# STYLE
+# ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-[data-testid="stSidebarNav"] {display: none;}
-section[data-testid="stSidebar"] > div:first-child {padding-top: 1rem;}
-[data-testid="stSidebar"] hr {margin: 0.5rem 0;}
+[data-testid="stSidebarNav"] {
+    display:none;
+}
+
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top:1rem;
+}
+
+[data-testid="stSidebar"] hr {
+    margin:0.5rem 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────────────────────────────────────────
 df_hist = load_history()
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
+
     try:
         st.image("assets/logo_pln_ip.png", width=220)
     except:
         pass
+
     st.markdown("## ⚡ PLTU TBK")
     st.caption("Dashboard Monitoring Vibrasi · ISO 10816")
+
     st.divider()
 
+    # Upload
     st.markdown("### 📂 Upload Data")
+
     uploaded = st.file_uploader(
         "File Excel (.xlsx)",
         type=["xlsx"],
         accept_multiple_files=True,
-        help="Sheet: Vibration_Data — kolom: Equipment, Unit, Titik Ukur, Direction, Date, Value"
+        help="Sheet: Vibration_Data"
     )
 
     st.divider()
+
+    # Navigation
     st.markdown("### Navigasi")
-    st.page_link("app.py",                   label="📊 Ringkasan Status")
-    st.page_link("pages/1_Trend.py",          label="📈 Trend Vibrasi")
-    st.page_link("pages/2_Alarm.py",          label="🚨 Alarm & Warning")
-    st.page_link("pages/3_Histori.py",        label="🗄️ Histori Data")
-    st.page_link("pages/4_Pengaturan.py",     label="⚙️ Pengaturan")
-    st.page_link("pages/5_Prediksi.py",       label="🔮 Prediksi Trend")
+
+    st.page_link("app.py", label="📊 Ringkasan Status")
+    st.page_link("pages/1_Trend.py", label="📈 Trend Vibrasi")
+    st.page_link("pages/2_Alarm.py", label="🚨 Alarm & Warning")
+    st.page_link("pages/3_Histori.py", label="🗄️ Histori Data")
+    st.page_link("pages/4_Pengaturan.py", label="⚙️ Pengaturan")
+    st.page_link("pages/5_Prediksi.py", label="🔮 Prediksi Trend")
 
     render_login_sidebar()
-    st.divider()
 
-    if not df_hist.empty:
-        df_check = df_hist.copy()
-        df_check["value"] = pd.to_numeric(df_check["value"], errors="coerce")
-        latest_c = df_check.sort_values("date").groupby(
-            ["unit","equipment","titik","direction"], as_index=False).last()
-        n_d = sum(1 for _, r in latest_c.iterrows()
-            if get_zone(r["value"], THRESHOLD["Turbine" if "turbine" in str(r["equipment"]).lower() else "Pump/Fan"])[0] == "ZONE D")
-        n_c = sum(1 for _, r in latest_c.iterrows()
-            if get_zone(r["value"], THRESHOLD["Turbine" if "turbine" in str(r["equipment"]).lower() else "Pump/Fan"])[0] == "ZONE C")
-        if n_d > 0:
-            st.error(f"🔴 {n_d} titik Danger aktif")
-        elif n_c > 0:
-            st.warning(f"🟡 {n_c} titik Warning aktif")
-        else:
-            st.success("✅ Semua titik normal")
-
-# ── Proses upload ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# UPLOAD PROCESS
+# ─────────────────────────────────────────────────────────────────────────────
 if uploaded:
+
     if check_role() != "editor":
-        st.warning("🔒 Upload hanya untuk Editor. Silakan login di sidebar.")
+
+        st.warning("🔒 Upload hanya untuk Editor.")
+
     else:
+
         total_saved = 0
         total_skipped = 0
+
         for file in uploaded:
+
             df_new = parse_excel(file)
+
             if not df_new.empty:
+
                 saved = save_to_db(df_new)
+
                 skipped = len(df_new) - saved
+
                 total_saved += saved
                 total_skipped += skipped
-                st.success(f"✅ {file.name}: {saved} baris disimpan · {skipped} duplikat")
+
+                st.success(
+                    f"✅ {file.name}: "
+                    f"{saved} baris disimpan · "
+                    f"{skipped} duplikat"
+                )
+
         if total_saved > 0:
-            st.success(f"🎉 Total {total_saved} baris baru berhasil disimpan.")
+
+            st.success(
+                f"🎉 Total {total_saved} baris berhasil disimpan."
+            )
+
             st.cache_data.clear()
             st.rerun()
-        if total_skipped > 0:
-            st.info(f"ℹ️ Total {total_skipped} baris duplikat dilewati.")
 
-# ── Load data ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# EMPTY CHECK
+# ─────────────────────────────────────────────────────────────────────────────
 if df_hist.empty:
-    st.info("📂 Belum ada data. Silakan upload file Excel dari sidebar kiri.")
+
+    st.info("📂 Belum ada data.")
+
     st.stop()
 
-df_hist["date"]  = pd.to_datetime(df_hist["date"], errors="coerce")
-df_hist["value"] = pd.to_numeric(df_hist["value"], errors="coerce")
+# ─────────────────────────────────────────────────────────────────────────────
+# CLEAN DATA
+# ─────────────────────────────────────────────────────────────────────────────
+df_hist["date"] = pd.to_datetime(
+    df_hist["date"],
+    errors="coerce"
+)
 
-all_units = sorted(df_hist["unit"].dropna().unique())
-all_equip = sorted(df_hist["equipment"].dropna().unique())
+df_hist["value"] = pd.to_numeric(
+    df_hist["value"],
+    errors="coerce"
+)
 
-# ── Filter bar ────────────────────────────────────────────────────────────────
+all_units = sorted(
+    df_hist["unit"].dropna().unique()
+)
+
+all_equip = sorted(
+    df_hist["equipment"].dropna().unique()
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FILTER
+# ─────────────────────────────────────────────────────────────────────────────
 st.markdown("## 📊 Ringkasan Status")
+
 fc1, fc2, fc3 = st.columns(3)
+
 with fc1:
-    sel_unit  = st.multiselect("Unit",      all_units,     default=all_units,     key="home_unit")
+
+    sel_unit = st.multiselect(
+        "Unit",
+        all_units,
+        default=all_units
+    )
+
 with fc2:
-    sel_equip = st.multiselect("Equipment", all_equip,     default=all_equip,     key="home_equip")
+
+    sel_equip = st.multiselect(
+        "Equipment",
+        all_equip,
+        default=all_equip
+    )
+
 with fc3:
-    sel_dir   = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="home_dir")
+
+    sel_dir = st.multiselect(
+        "Direction",
+        ["H", "V", "A"],
+        default=["H", "V", "A"]
+    )
 
 df_f = df_hist[
-    df_hist["unit"].isin(sel_unit) &
-    df_hist["equipment"].isin(sel_equip) &
+    df_hist["unit"].isin(sel_unit)
+    &
+    df_hist["equipment"].isin(sel_equip)
+    &
     df_hist["direction"].isin(sel_dir)
 ].copy()
 
 if df_f.empty:
-    st.warning("Tidak ada data sesuai filter.")
+
+    st.warning("Tidak ada data.")
+
     st.stop()
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ZONE
+# ─────────────────────────────────────────────────────────────────────────────
 df_f = add_zone_cols(df_f)
 
-# ── KPI ───────────────────────────────────────────────────────────────────────
 latest = df_f.sort_values("date").groupby(
-    ["unit","equipment","titik","direction"], as_index=False).last()
-# ── Shared Filter TBK ────────────────────────────────────────────────────────
+    ["unit", "equipment", "titik", "direction"],
+    as_index=False
+).last()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TBK FILTER
+# ─────────────────────────────────────────────────────────────────────────────
 shared_filter = st.radio(
     "Filter Area",
     ["All Equipment", "TBK #1", "TBK #2", "TBK COM"],
-    horizontal=True,
-    key="shared_filter"
+    horizontal=True
 )
 
 if shared_filter == "TBK #1":
@@ -170,295 +258,143 @@ else:
 
     latest_filtered = latest.copy()
 
-total  = len(latest_filtered)
-
-n_d = (latest_filtered["zone"] == "ZONE D").sum()
-
-n_c = (latest_filtered["zone"] == "ZONE C").sum()
-
-n_b = (latest_filtered["zone"] == "ZONE B").sum()
+# ─────────────────────────────────────────────────────────────────────────────
+# KPI
+# ─────────────────────────────────────────────────────────────────────────────
+total = len(latest_filtered)
 
 n_a = (latest_filtered["zone"] == "ZONE A").sum()
+n_b = (latest_filtered["zone"] == "ZONE B").sum()
+n_c = (latest_filtered["zone"] == "ZONE C").sum()
+n_d = (latest_filtered["zone"] == "ZONE D").sum()
 
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Total Titik",      total)
-k2.metric("🔴 Danger",        int(n_d))
-k3.metric("🟡 Warning",       int(n_c))
-k4.metric("🟢 Pre Warning",   int(n_b))
-k5.metric("🔵 Accepted",      int(n_a))
 
-pct_a = round(n_a / total * 100) if total else 0
-pct_b = round(n_b / total * 100) if total else 0
-pct_c = round(n_c / total * 100) if total else 0
-pct_d = round(n_d / total * 100) if total else 0
+k1.metric("Total Titik", total)
+k2.metric("🔴 Danger", int(n_d))
+k3.metric("🟡 Warning", int(n_c))
+k4.metric("🟢 Pre Warning", int(n_b))
+k5.metric("🔵 Accepted", int(n_a))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PERCENT BAR
+# ─────────────────────────────────────────────────────────────────────────────
+pct_a = round((n_a / total) * 100) if total else 0
+pct_b = round((n_b / total) * 100) if total else 0
+pct_c = round((n_c / total) * 100) if total else 0
+pct_d = round((n_d / total) * 100) if total else 0
+
 st.markdown(f"""
 <div style="margin:4px 0 16px">
-  <div style="height:12px;border-radius:6px;overflow:hidden;display:flex;background:var(--secondary-background-color)">
-    <div style="width:{pct_a}%;background:#3b82f6" title="Accepted {pct_a}%"></div>
-    <div style="width:{pct_b}%;background:#22c55e" title="Pre Warning {pct_b}%"></div>
-    <div style="width:{pct_c}%;background:#eab308" title="Warning {pct_c}%"></div>
-    <div style="width:{pct_d}%;background:#ef4444" title="Danger {pct_d}%"></div>
-  </div>
-  <div style="display:flex;gap:16px;font-size:12px;margin-top:5px">
-    <span style="color:#1d4ed8">🔵 Accepted {pct_a}%</span>
-    <span style="color:#15803d">🟢 Pre Warning {pct_b}%</span>
-    <span style="color:#a16207">🟡 Warning {pct_c}%</span>
-    <span style="color:#b91c1c">🔴 Danger {pct_d}%</span>
-  </div>
+
+    <div style="
+        height:12px;
+        border-radius:6px;
+        overflow:hidden;
+        display:flex;
+        background:var(--secondary-background-color);
+    ">
+
+        <div style="width:{pct_a}%;background:#3b82f6"></div>
+        <div style="width:{pct_b}%;background:#22c55e"></div>
+        <div style="width:{pct_c}%;background:#eab308"></div>
+        <div style="width:{pct_d}%;background:#ef4444"></div>
+
+    </div>
+
 </div>
 """, unsafe_allow_html=True)
 
 st.divider()
 
-# ── Card per Equipment (Alternatif A) ─────────────────────────────────────────
-# ── Modern Equipment Card ────────────────────────────────────────────────────
-
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS EQUIPMENT
+# ─────────────────────────────────────────────────────────────────────────────
 st.markdown("### Status Terakhir per Equipment")
 
-latest_eq = latest_filtered.copy()
-
-CARD_BORDER = {
-    "ZONE A":"#3b82f6",
-    "ZONE B":"#22c55e",
-    "ZONE C":"#eab308",
-    "ZONE D":"#ef4444",
-    "N/A":"#94a3b8"
-}
-
-CARD_BG = {
-    "ZONE A":"rgba(59,130,246,0.08)",
-    "ZONE B":"rgba(34,197,94,0.08)",
-    "ZONE C":"rgba(234,179,8,0.08)",
-    "ZONE D":"rgba(239,68,68,0.08)",
-    "N/A":"rgba(148,163,184,0.08)"
-}
-
-ZONE_TEXT = {
-    "ZONE A":"ACCEPTED",
-    "ZONE B":"PRE WARNING",
-    "ZONE C":"WARNING",
-    "ZONE D":"DANGER",
-    "N/A":"NO DATA"
-}
-
-TREND_TEXT = {
-    "up_fast":"RAPID RISE",
-    "up":"INCREASING",
-    "stable":"STABLE",
-    "down":"IMPROVING"
-}
-
 def fmt(v):
-    return f"{v:.2f}" if pd.notna(v) else "-"
 
-# ── Build Equipment Data ─────────────────────────────────────────────────────
+    if pd.isna(v):
+        return "-"
+
+    return f"{v:.2f}"
+
 eq_rows = []
 
-for eq in sorted(latest_eq["equipment"].unique()):
+for eq in sorted(latest_filtered["equipment"].unique()):
 
     df_eq = latest_filtered[
         latest_filtered["equipment"] == eq
-    ].sort_values("date")
+    ]
 
     if df_eq.empty:
         continue
 
-    unit = df_eq["unit"].iloc[0]
-
     thr = get_threshold(eq)
 
-    # ── Latest values ────────────────────────────────────────────────────────
-    latest_data = df_eq.groupby(
-        ["titik", "direction"],
-        as_index=False
-    ).last()
+    max_val = df_eq["value"].max()
 
-    max_val = latest_data["value"].max()
-
-    # FIX get_zone
     zk, zi, zl = get_zone(max_val, thr)
 
-    # ── Direction values ────────────────────────────────────────────────────
-    h_val = latest_data[
-        latest_data["direction"] == "H"
+    unit = df_eq["unit"].iloc[0]
+
+    h_val = df_eq[
+        df_eq["direction"] == "H"
     ]["value"].max()
 
-    v_val = latest_data[
-        latest_data["direction"] == "V"
+    v_val = df_eq[
+        df_eq["direction"] == "V"
     ]["value"].max()
 
-    a_val = latest_data[
-        latest_data["direction"] == "A"
+    a_val = df_eq[
+        df_eq["direction"] == "A"
     ]["value"].max()
 
-    # ── Trend calculation ───────────────────────────────────────────────────
-    trend_delta = 0
-
-    try:
-
-        eq_hist = df_eq.sort_values("date")
-
-        latest_avg = eq_hist.groupby(
-            "date"
-        )["value"].mean().reset_index()
-
-        if len(latest_avg) >= 2:
-
-            current_val = latest_avg.iloc[-1]["value"]
-
-            previous_val = latest_avg.iloc[-2]["value"]
-
-            trend_delta = current_val - previous_val
-
-    except:
-        trend_delta = 0
-
-    # ── Trend label ─────────────────────────────────────────────────────────
-    if trend_delta > 0.5:
-
-        trend_label = TREND_TEXT["up_fast"]
-
-        trend_icon = "⬆"
-
-        trend_color = "#ef4444"
-
-    elif trend_delta > 0.1:
-
-        trend_label = TREND_TEXT["up"]
-
-        trend_icon = "↗"
-
-        trend_color = "#f59e0b"
-
-    elif trend_delta < -0.1:
-
-        trend_label = TREND_TEXT["down"]
-
-        trend_icon = "⬇"
-
-        trend_color = "#22c55e"
-
-    else:
-
-        trend_label = TREND_TEXT["stable"]
-
-        trend_icon = "➡"
-
-        trend_color = "#94a3b8"
-
-    # ── Health Score ────────────────────────────────────────────────────────
-    try:
-
-        health = max(
-            0,
-            round(100 - ((max_val / thr["C"]) * 100))
-        )
-
-    except:
-
-        health = 0
-
-    # ── Action recommendation ───────────────────────────────────────────────
-    if zk == "ZONE D":
-
-        action = "Inspect bearing & alignment immediately"
-
-    elif zk == "ZONE C":
-
-        action = "Schedule inspection"
-
-    elif zk == "ZONE B":
-
-        action = "Monitor closely"
-
-    else:
-
-        action = "Normal monitoring"
-
-    # ── Last update ─────────────────────────────────────────────────────────
-    last_date = pd.to_datetime(
-        df_eq["date"].max()
-    ).strftime("%d %b %Y")
-
-    # ── Save row ────────────────────────────────────────────────────────────
     eq_rows.append({
-
         "equipment": eq,
-
         "unit": unit,
-
         "zone": zk,
-
         "icon": zi,
-
         "label": zl,
-
         "max": max_val,
-
         "h": h_val,
-
         "v": v_val,
-
-        "a": a_val,
-
-        "trend_delta": trend_delta,
-
-        "trend_label": trend_label,
-
-        "trend_icon": trend_icon,
-
-        "trend_color": trend_color,
-
-        "health": health,
-
-        "action": action,
-
-        "last_date": last_date
+        "a": a_val
     })
 
-# ── Sort by Severity ─────────────────────────────────────────────────────────
-severity_order = {
-    "ZONE D":0,
-    "ZONE C":1,
-    "ZONE B":2,
-    "ZONE A":3
-}
-
-eq_rows = sorted(
-    eq_rows,
-    key=lambda x: severity_order.get(x["zone"], 99)
-)
-
-# ── Display Cards ────────────────────────────────────────────────────────────
 cols_per_row = 2
 
 for i in range(0, len(eq_rows), cols_per_row):
 
-    chunk = eq_rows[i:i+cols_per_row]
+    chunk = eq_rows[i:i + cols_per_row]
 
     cols = st.columns(cols_per_row)
 
     for col, r in zip(cols, chunk):
 
-        border = CARD_BORDER.get(r["zone"], "#94a3b8")
-        bg = CARD_BG.get(r["zone"], "#111827")
+        color = "#3b82f6"
+
+        if r["zone"] == "ZONE B":
+            color = "#22c55e"
+
+        elif r["zone"] == "ZONE C":
+            color = "#eab308"
+
+        elif r["zone"] == "ZONE D":
+            color = "#ef4444"
 
         card_html = f"""
 <div style="
-    background:{bg};
-    border-left:8px solid {border};
-    border-radius:14px;
-    padding:14px;
-    margin-bottom:14px;
-    border-top:1px solid {border}44;
-    border-right:1px solid {border}44;
-    border-bottom:1px solid {border}44;
+    border-left:6px solid {color};
+    padding:16px;
+    border-radius:12px;
+    background:rgba(255,255,255,0.03);
+    margin-bottom:12px;
 ">
 
     <div style="
         font-size:22px;
         font-weight:700;
-        margin-bottom:4px;
         color:var(--text-color);
     ">
         {r['icon']} {r['equipment']}
@@ -467,173 +403,96 @@ for i in range(0, len(eq_rows), cols_per_row):
     <div style="
         font-size:13px;
         color:gray;
-        margin-bottom:18px;
+        margin-bottom:14px;
     ">
         {r['unit']}
     </div>
 
     <div style="
-        font-size:13px;
-        color:gray;
-        margin-bottom:4px;
-    ">
-        CURRENT VIBRATION
-    </div>
-
-    <div style="
-        font-size:38px;
+        font-size:34px;
         font-weight:800;
-        color:{border};
-        line-height:1;
-        margin-bottom:10px;
+        color:{color};
     ">
         {fmt(r['max'])} mm/s
     </div>
 
     <div style="
-        display:inline-block;
-        background:{border};
-        color:white;
-        padding:6px 12px;
-        border-radius:8px;
-        font-size:13px;
+        margin-top:6px;
+        margin-bottom:14px;
+        color:{color};
         font-weight:700;
-        margin-bottom:18px;
     ">
-        {ZONE_TEXT.get(r['zone'])}
-    </div>
-
-    <div style="
-        color:{r['trend_color']};
-        font-size:15px;
-        font-weight:600;
-        margin-bottom:2px;
-    ">
-        {r['trend_icon']} {fmt(r['trend_delta'])} mm/s
-    </div>
-
-    <div style="
-        color:{r['trend_color']};
-        font-size:12px;
-        margin-bottom:16px;
-    ">
-        TREND : {r['trend_label']}
+        {r['label']}
     </div>
 
     <div style="
         display:flex;
         gap:10px;
-        margin-bottom:18px;
     ">
 
-        <div style="
-            flex:1;
-            background:rgba(255,255,255,0.08);
-            border-radius:10px;
-            padding:10px;
-            text-align:center;
-        ">
-            <div style="font-size:11px;color:gray;">H</div>
-            <div style="font-size:18px;font-weight:700;color:var(--text-color);">
+        <div style="flex:1;text-align:center">
+            <div style="font-size:11px;color:gray">H</div>
+            <div style="font-size:18px;font-weight:700">
                 {fmt(r['h'])}
             </div>
         </div>
 
-        <div style="
-            flex:1;
-            background:rgba(255,255,255,0.08);
-            border-radius:10px;
-            padding:10px;
-            text-align:center;
-        ">
-            <div style="font-size:11px;color:gray;">V</div>
-            <div style="font-size:18px;font-weight:700;color:var(--text-color);">
+        <div style="flex:1;text-align:center">
+            <div style="font-size:11px;color:gray">V</div>
+            <div style="font-size:18px;font-weight:700">
                 {fmt(r['v'])}
             </div>
         </div>
 
-        <div style="
-            flex:1;
-            background:rgba(255,255,255,0.08);
-            border-radius:10px;
-            padding:10px;
-            text-align:center;
-        ">
-            <div style="font-size:11px;color:gray;">A</div>
-            <div style="font-size:18px;font-weight:700;color:var(--text-color);">
+        <div style="flex:1;text-align:center">
+            <div style="font-size:11px;color:gray">A</div>
+            <div style="font-size:18px;font-weight:700">
                 {fmt(r['a'])}
             </div>
         </div>
 
     </div>
 
-    <div style="
-        font-size:12px;
-        color:gray;
-        margin-bottom:4px;
-    ">
-        HEALTH SCORE
-    </div>
-
-    <div style="
-        font-size:26px;
-        font-weight:700;
-        color:var(--text-color);
-        margin-bottom:18px;
-    ">
-        {r['health']} / 100
-    </div>
-
-    <div style="
-        font-size:12px;
-        color:gray;
-        margin-bottom:4px;
-    ">
-        ACTION
-    </div>
-
-    <div style="
-        font-size:14px;
-        font-weight:500;
-        color:var(--text-color);
-        margin-bottom:18px;
-    ">
-        {r['action']}
-    </div>
-
-    <div style="
-        font-size:11px;
-        color:gray;
-    ">
-        Last Update : {r['last_date']}
-    </div>
-
 </div>
 """
 
-        col.markdown(card_html, unsafe_allow_html=True)
+        col.markdown(
+            card_html,
+            unsafe_allow_html=True
+        )
 
-# ── Detail per Equipment ──────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# DETAIL EQUIPMENT
+# ─────────────────────────────────────────────────────────────────────────────
+st.divider()
+
 st.markdown("### 🔍 Detail per Equipment")
 
 sel_det = st.selectbox(
     "Pilih Equipment",
-    sorted(latest_filtered["equipment"].unique()),
-    key="home_det"
+    sorted(latest_filtered["equipment"].unique())
 )
 
 thr_det = get_threshold(sel_det)
 
 df_det = latest_filtered[
     latest_filtered["equipment"] == sel_det
-][["unit","titik","direction","value","date"]].copy()
+][
+    ["unit", "titik", "direction", "value", "date"]
+].copy()
 
 df_det["Status"] = df_det["value"].apply(
-    lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[2]
-).astype(str)
+    lambda v: (
+        get_zone(v, thr_det)[1]
+        +
+        " "
+        +
+        get_zone(v, thr_det)[2]
+    )
+)
 
 df_det["value"] = df_det["value"].map(
-    lambda v: f"{v:.3f}" if pd.notna(v) else "–"
+    lambda v: f"{v:.3f}"
 )
 
 df_det["date"] = pd.to_datetime(
@@ -641,11 +500,11 @@ df_det["date"] = pd.to_datetime(
 ).dt.strftime("%Y-%m-%d")
 
 df_det = df_det.rename(columns={
-    "unit":"Unit",
-    "titik":"Titik",
-    "direction":"Dir",
-    "value":"mm/s",
-    "date":"Tanggal"
+    "unit": "Unit",
+    "titik": "Titik",
+    "direction": "Dir",
+    "value": "mm/s",
+    "date": "Tanggal"
 })
 
 st.dataframe(
@@ -654,63 +513,152 @@ st.dataframe(
     hide_index=True
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TREND
+# ─────────────────────────────────────────────────────────────────────────────
 st.divider()
 
-# ── Trend Vibrasi ─────────────────────────────────────────────────────────────
 st.markdown("### 📈 Trend Vibrasi")
-tc1, tc2, tc3, tc4 = st.columns([2,2,1,1])
-with tc1:
-    sel_eq_tr = st.selectbox("Equipment", sorted(df_f["equipment"].unique()), key="home_eq_tr")
-with tc2:
-    titik_opts = ["Semua Titik"] + sorted(df_f[df_f["equipment"]==sel_eq_tr]["titik"].unique())
-    sel_titik_tr = st.selectbox("Titik Ukur", titik_opts, key="home_titik_tr")
-with tc3:
-    sel_dir_tr = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="home_dir_tr")
-with tc4:
-    trend_range = st.selectbox("Rentang", ["7 Hari","30 Hari","90 Hari","180 Hari","All"], index=1, key="home_range_tr")
 
-df_tr = df_f[df_f["equipment"]==sel_eq_tr].copy()
+tc1, tc2, tc3, tc4 = st.columns([2,2,1,1])
+
+with tc1:
+
+    sel_eq_tr = st.selectbox(
+        "Equipment",
+        sorted(df_f["equipment"].unique())
+    )
+
+with tc2:
+
+    titik_opts = ["Semua Titik"] + sorted(
+        df_f[
+            df_f["equipment"] == sel_eq_tr
+        ]["titik"].unique()
+    )
+
+    sel_titik_tr = st.selectbox(
+        "Titik Ukur",
+        titik_opts
+    )
+
+with tc3:
+
+    sel_dir_tr = st.multiselect(
+        "Direction",
+        ["H", "V", "A"],
+        default=["H", "V", "A"]
+    )
+
+with tc4:
+
+    trend_range = st.selectbox(
+        "Rentang",
+        ["7 Hari", "30 Hari", "90 Hari", "180 Hari", "All"],
+        index=1
+    )
+
+df_tr = df_f[
+    df_f["equipment"] == sel_eq_tr
+].copy()
+
 if trend_range != "All":
-    days_map = {"7 Hari":7,"30 Hari":30,"90 Hari":90,"180 Hari":180}
-    if not df_tr.empty:
-        end_date   = df_tr["date"].max()
-        start_date = end_date - timedelta(days=days_map[trend_range])
-        df_tr = df_tr[(df_tr["date"] >= start_date) & (df_tr["date"] <= end_date)]
+
+    days_map = {
+        "7 Hari": 7,
+        "30 Hari": 30,
+        "90 Hari": 90,
+        "180 Hari": 180
+    }
+
+    end_date = df_tr["date"].max()
+
+    start_date = end_date - timedelta(
+        days=days_map[trend_range]
+    )
+
+    df_tr = df_tr[
+        (df_tr["date"] >= start_date)
+        &
+        (df_tr["date"] <= end_date)
+    ]
 
 if sel_titik_tr != "Semua Titik":
-    df_tr = df_tr[df_tr["titik"]==sel_titik_tr]
+
+    df_tr = df_tr[
+        df_tr["titik"] == sel_titik_tr
+    ]
+
 if sel_dir_tr:
-    df_tr = df_tr[df_tr["direction"].isin(sel_dir_tr)]
+
+    df_tr = df_tr[
+        df_tr["direction"].isin(sel_dir_tr)
+    ]
+
 df_tr = df_tr.sort_values("date")
 
 thr_tr = get_threshold(sel_eq_tr)
-colors_dir = {"H":"#3b82f6","V":"#10b981","A":"#f59e0b"}
-ls_list    = ["solid","dash","dot","dashdot"]
 
 if not df_tr.empty:
+
     fig = go.Figure()
-    for i, titik in enumerate(sorted(df_tr["titik"].unique())):
-        for d in sel_dir_tr:
-            sub = df_tr[(df_tr["titik"]==titik)&(df_tr["direction"]==d)]
-            if sub.empty: continue
-            fig.add_trace(go.Scatter(
-                x=sub["date"], y=sub["value"],
-                mode="lines+markers", name=f"{titik} – {d}",
-                line=dict(color=colors_dir.get(d,"#888"), width=2, dash=ls_list[i%4]),
-                marker=dict(size=6),
-                hovertemplate=f"<b>{titik} ({d})</b><br>%{{x|%d-%b-%Y}}<br>%{{y:.3f}} mm/s<extra></extra>",
-            ))
-    fig.add_hline(y=thr_tr["A"], line_dash="dot",  line_color="#3b82f6", line_width=1,
-                  annotation_text=f"Accepted ({thr_tr['A']})", annotation_position="top left")
-    fig.add_hline(y=thr_tr["B"], line_dash="dot",  line_color="#22c55e", line_width=1,
-                  annotation_text=f"Pre Warning ({thr_tr['B']})", annotation_position="top left")
-    fig.add_hline(y=thr_tr["C"], line_dash="dash", line_color="#ef4444", line_width=1.5,
-                  annotation_text=f"Warning ({thr_tr['C']})", annotation_position="top left")
-    fig.update_layout(
-        xaxis_title="Tanggal", yaxis_title="Vibrasi (mm/s)",
-        height=420, hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+
+    colors_dir = {
+        "H": "#3b82f6",
+        "V": "#22c55e",
+        "A": "#f59e0b"
+    }
+
+    for d in sel_dir_tr:
+
+        sub = df_tr[
+            df_tr["direction"] == d
+        ]
+
+        if sub.empty:
+            continue
+
+        fig.add_trace(go.Scatter(
+            x=sub["date"],
+            y=sub["value"],
+            mode="lines+markers",
+            name=d,
+            line=dict(
+                color=colors_dir[d],
+                width=2
+            )
+        ))
+
+    fig.add_hline(
+        y=thr_tr["A"],
+        line_dash="dot",
+        line_color="#3b82f6"
     )
-    st.plotly_chart(fig, use_container_width=True)
+
+    fig.add_hline(
+        y=thr_tr["B"],
+        line_dash="dot",
+        line_color="#22c55e"
+    )
+
+    fig.add_hline(
+        y=thr_tr["C"],
+        line_dash="dash",
+        line_color="#ef4444"
+    )
+
+    fig.update_layout(
+        height=420,
+        hovermode="x unified",
+        xaxis_title="Tanggal",
+        yaxis_title="Vibrasi (mm/s)"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
 else:
-    st.info("Tidak ada data untuk pilihan ini.")
+
+    st.info("Tidak ada data trend.")
