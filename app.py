@@ -290,7 +290,7 @@ st.divider()
 st.markdown("### 🔍 Detail per Equipment")
 sel_det = st.selectbox("Pilih Equipment", sorted(latest_filtered["equipment"].unique()), key="home_det")
 thr_det = get_threshold(sel_det)
-df_det  = latest[latest["equipment"] == sel_det][["unit","titik","direction","value","date"]].copy()
+df_det  = latest_filtered[latest["equipment"] == sel_det][["unit","titik","direction","value","date"]].copy()
 df_det["Status"] = df_det["value"].apply(
     lambda v: get_zone(v, thr_det)[1] + " " + get_zone(v, thr_det)[2]
 ).astype(str)
