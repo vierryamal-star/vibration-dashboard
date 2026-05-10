@@ -51,6 +51,9 @@ def get_zone(value, thr):
 def init_db():
     pass
 
+import streamlit as st
+
+@st.cache_data(ttl=60)
 def load_history() -> pd.DataFrame:
     try:
         sb = get_supabase()
