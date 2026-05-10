@@ -29,6 +29,7 @@ section[data-testid="stSidebar"] > div:first-child {padding-top: 1rem;}
 df_hist = load_history()
 # ── Sidebar: navigasi + upload + status ───────────────────────────────────────
 with st.sidebar:
+    st.image("assets/logoPLNIP.png", width=220)
     st.markdown("## ⚡ PLTU TBK")
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
