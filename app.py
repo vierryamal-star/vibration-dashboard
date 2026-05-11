@@ -217,11 +217,9 @@ for c in dir_cols_d:
 pivot_det["Max (mm/s)"] = pivot_det["Max (mm/s)"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
 pivot_det = pivot_det.rename(columns={"titik":"Titik Ukur"})
 
-ZONE_BG = {"ZONE A":"rgba(59,130,246,0.08)","ZONE B":"rgba(34,197,94,0.08)","ZONE C":"rgba(234,179,8,0.10)","ZONE D":"rgba(239,68,68,0.10)"}
-def hl(row):
-    s = ZONE_BG.get(row.get("_zk",""),"")
-    return [s]*len(row)
-
 show_cols = ["Titik Ukur"]+dir_cols_d+["Max (mm/s)","Status"]
-styled = pivot_det[show_cols+["_zk"]].style.apply(hl,axis=1).hide(axis="index")
-st.dataframe(styled, use_container_width=True, hide_index=True)
+st.dataframe(
+    pivot_det[show_cols],
+    use_container_width=True,
+    hide_index=True
+)
