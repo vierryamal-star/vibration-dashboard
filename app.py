@@ -1,188 +1,227 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
+from datetime import timedelta
 from utils import (
-    load_history, add_zone_cols, get_zone, get_threshold,
+    save_to_db, load_history, parse_excel,
+    get_zone, get_threshold, THRESHOLD, add_zone_cols,
     render_login_sidebar, check_role
 )
 
 st.set_page_config(
-    page_title="Monitor — PLTU TBK",
+    page_title="Monitor Vibrasi — PLTU TBK",
     page_icon="⚡",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# ====================== SIDEBAR ======================
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"]{display:none;}
+section[data-testid="stSidebar"]>div:first-child{padding-top:1rem;}
+</style>
+""", unsafe_allow_html=True)
+
+df_hist = load_history()
+
 with st.sidebar:
     try:
         st.image("assets/logo_pln_ip.png", width=200)
     except:
-        st.markdown("### ⚡ PLTU TBK")
-    
+        pass
+    st.markdown("## ⚡ PLTU TBK")
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
-    
     st.markdown("### Navigasi")
-    st.page_link("app.py", label="📊 Monitor", icon="1️⃣")
-    st.page_link("pages/2_Analisis.py", label="📈 Analisis", icon="2️⃣")
-    st.page_link("pages/3_Data_Kelola.py", label="🗄️ Data & Kelola", icon="3️⃣")
-    
+    st.page_link("app.py",                  label="📊 Monitor")
+    st.page_link("pages/1_Analisis.py",      label="📈 Analisis")
+    st.page_link("pages/2_Data_Kelola.py",   label="🗄️ Data & Kelola")
     render_login_sidebar()
-
-# ====================== LOAD DATA ======================
-df_hist = load_history()
+    st.divider()
+    if not df_hist.empty:
+        df_chk = df_hist.copy()
+        df_chk["value"] = pd.to_numeric(df_chk["value"], errors="coerce")
+        lc = df_chk.sort_values("date").groupby(
+            ["unit","equipment","titik","direction"], as_index=False).last()
+        nd = sum(1 for _,r in lc.iterrows()
+            if get_zone(r["value"], THRESHOLD["Turbine" if "turbine" in str(r["equipment"]).lower() else "Pump/Fan"])[0]=="ZONE D")
+        nc = sum(1 for _,r in lc.iterrows()
+            if get_zone(r["value"], THRESHOLD["Turbine" if "turbine" in str(r["equipment"]).lower() else "Pump/Fan"])[0]=="ZONE C")
+        if nd > 0:   st.error(f"🔴 {nd} titik Danger aktif")
+        elif nc > 0: st.warning(f"🟡 {nc} titik Warning aktif")
+        else:        st.success("✅ Semua titik normal")
 
 if df_hist.empty:
-    st.info("📂 Belum ada data. Silakan upload di halaman Data & Kelola.")
+    st.info("📂 Belum ada data. Upload file Excel di halaman **Data & Kelola**.")
     st.stop()
 
-df_hist["date"] = pd.to_datetime(df_hist["date"], errors="coerce")
-df_hist["value"] = pd.to_numeric(df_hist["value"], errors="coerce")
-df_hist = add_zone_cols(df_hist)
+df_hist["date"]  = pd.to_datetime(df_hist["date"],  errors="coerce")
+df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
+all_units = sorted(df_hist["unit"].dropna().unique())
+all_equip = sorted(df_hist["equipment"].dropna().unique())
 
-# ====================== FILTER GLOBAL ======================
-st.markdown("# 📊 Monitor Vibrasi PLTU TBK")
+st.markdown("## 📊 Monitor")
 
-unit_options = ["All"] + sorted(df_hist["unit"].dropna().unique())
-sel_unit_btn = st.radio("Filter Unit", unit_options, horizontal=True, label_visibility="collapsed")
+unit_opts = ["All"] + all_units
+sel_unit_btn = st.radio("Filter unit", unit_opts, horizontal=True, key="mon_unit", label_visibility="collapsed")
+sel_unit = all_units if sel_unit_btn == "All" else [sel_unit_btn]
 
-if sel_unit_btn == "All":
-    df_f = df_hist.copy()
-else:
-    df_f = df_hist[df_hist["unit"] == sel_unit_btn].copy()
+fc1, fc2 = st.columns([3,1])
+with fc1:
+    sel_equip = st.multiselect("Equipment", all_equip, default=all_equip, key="mon_equip")
+with fc2:
+    sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="mon_dir")
 
+df_f = df_hist[
+    df_hist["unit"].isin(sel_unit) &
+    df_hist["equipment"].isin(sel_equip) &
+    df_hist["direction"].isin(sel_dir)
+].copy()
+
+if df_f.empty:
+    st.warning("Tidak ada data sesuai filter.")
+    st.stop()
+
+df_f = add_zone_cols(df_f)
 latest = df_f.sort_values("date").groupby(
-    ["unit", "equipment", "titik", "direction"], as_index=False
-).last()
-
-# ====================== KPI RINGKAS ======================
-st.markdown("### Seksi 1 — KPI Ringkas")
+    ["unit","equipment","titik","direction"], as_index=False).last()
 
 total = len(latest)
-n_d = (latest["zone"] == "ZONE D").sum()
-n_c = (latest["zone"] == "ZONE C").sum()
-n_b = (latest["zone"] == "ZONE B").sum()
-n_a = (latest["zone"] == "ZONE A").sum()
+n_d = (latest["zone"]=="ZONE D").sum()
+n_c = (latest["zone"]=="ZONE C").sum()
+n_b = (latest["zone"]=="ZONE B").sum()
+n_a = (latest["zone"]=="ZONE A").sum()
 
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Total Titik Ukur", f"{total:,}")
-k2.metric("🔴 Danger", int(n_d), delta=None)
-k3.metric("🟡 Warning", int(n_c), delta=None)
-k4.metric("🟢 Pre Warning", int(n_b), delta=None)
-k5.metric("🔵 Accepted", int(n_a), delta=None)
+k1,k2,k3,k4,k5 = st.columns(5)
+k1.metric("Total titik",    total)
+k2.metric("🔴 Danger",      int(n_d))
+k3.metric("🟡 Warning",     int(n_c))
+k4.metric("🟢 Pre Warning", int(n_b))
+k5.metric("🔵 Accepted",    int(n_a))
 
-# Progress Bar
-pct_a = round(n_a / total * 100) if total else 0
-pct_b = round(n_b / total * 100) if total else 0
-pct_c = round(n_c / total * 100) if total else 0
-pct_d = round(n_d / total * 100) if total else 0
-
+pct_a = round(n_a/total*100) if total else 0
+pct_b = round(n_b/total*100) if total else 0
+pct_c = round(n_c/total*100) if total else 0
+pct_d = round(n_d/total*100) if total else 0
 st.markdown(f"""
-<div style="margin: 10px 0 20px">
-  <div style="height:14px; border-radius:8px; overflow:hidden; background:#e2e8f0; display:flex">
-    <div style="width:{pct_a}%; background:#3b82f6"></div>
-    <div style="width:{pct_b}%; background:#22c55e"></div>
-    <div style="width:{pct_c}%; background:#eab308"></div>
-    <div style="width:{pct_d}%; background:#ef4444"></div>
-  </div>
+<div style="margin:4px 0 16px">
+<div style="height:12px;border-radius:6px;overflow:hidden;display:flex;background:var(--color-background-tertiary)">
+<div style="width:{pct_a}%;background:#3b82f6"></div>
+<div style="width:{pct_b}%;background:#22c55e"></div>
+<div style="width:{pct_c}%;background:#eab308"></div>
+<div style="width:{pct_d}%;background:#ef4444"></div>
 </div>
+<div style="display:flex;gap:16px;font-size:12px;margin-top:5px;color:var(--color-text-secondary)">
+<span style="color:#3b82f6">🔵 Accepted {pct_a}%</span>
+<span style="color:#22c55e">🟢 Pre Warning {pct_b}%</span>
+<span style="color:#eab308">🟡 Warning {pct_c}%</span>
+<span style="color:#ef4444">🔴 Danger {pct_d}%</span>
+</div></div>
 """, unsafe_allow_html=True)
 
 st.divider()
 
-# ====================== STATUS PER EQUIPMENT ======================
-st.markdown("### Seksi 2 — Status per Equipment")
+CBORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
+
+def fmt(v):
+    return f"{v:.3f}" if v is not None and not pd.isna(v) else "–"
 
 eq_rows = []
 for eq in sorted(latest["equipment"].unique()):
-    df_eq = latest[latest["equipment"] == eq]
-    unit = df_eq["unit"].iloc[0]
+    df_eq = latest[latest["equipment"]==eq]
+    unit  = df_eq["unit"].iloc[0]
+    thr   = get_threshold(eq)
+    h_val = df_eq[df_eq["direction"]=="H"]["value"].max() if not df_eq[df_eq["direction"]=="H"].empty else None
+    v_val = df_eq[df_eq["direction"]=="V"]["value"].max() if not df_eq[df_eq["direction"]=="V"].empty else None
+    a_val = df_eq[df_eq["direction"]=="A"]["value"].max() if not df_eq[df_eq["direction"]=="A"].empty else None
     max_val = df_eq["value"].max()
-    thr = get_threshold(eq)
-    zone_key, icon, label = get_zone(max_val, thr)
-    
-    h = df_eq[df_eq["direction"]=="H"]["value"].max()
-    v = df_eq[df_eq["direction"]=="V"]["value"].max()
-    a = df_eq[df_eq["direction"]=="A"]["value"].max()
-    
-    eq_rows.append({
-        "equipment": eq,
-        "unit": unit,
-        "H": h, "V": v, "A": a,
-        "max": max_val,
-        "zone_key": zone_key,
-        "icon": icon,
-        "label": label
-    })
+    zk,zi,zl = get_zone(max_val, thr)
+    eq_rows.append({"eq":eq,"unit":unit,"H":h_val,"V":v_val,"A":a_val,"zk":zk,"zi":zi,"zl":zl,"thr":thr})
 
-cols = st.columns(3)
-for i, r in enumerate(eq_rows):
-    with cols[i % 3]:
-        color = {
-            "ZONE A": "#3b82f6", "ZONE B": "#22c55e",
-            "ZONE C": "#eab308", "ZONE D": "#ef4444"
-        }.get(r["zone_key"], "#94a3b8")
-        
-        st.markdown(f"""
-        <div style="border:2px solid {color}; border-radius:12px; padding:16px; margin-bottom:12px; background:var(--background-color)">
-            <div style="font-weight:600; font-size:1.1em;">{r['equipment']}</div>
-            <div style="color:gray; font-size:0.9em;">{r['unit']}</div>
-            
-            <div style="display:flex; gap:8px; margin:12px 0;">
-                <div style="flex:1; text-align:center; background:#f8fafc; padding:8px; border-radius:8px;">
-                    <small>H</small><br><b style="color:{color}">{r['H']:.3f if pd.notna(r['H']) else '–'}</b>
-                </div>
-                <div style="flex:1; text-align:center; background:#f8fafc; padding:8px; border-radius:8px;">
-                    <small>V</small><br><b style="color:{color}">{r['V']:.3f if pd.notna(r['V']) else '–'}</b>
-                </div>
-                <div style="flex:1; text-align:center; background:#f8fafc; padding:8px; border-radius:8px;">
-                    <small>A</small><br><b style="color:{color}">{r['A']:.3f if pd.notna(r['A']) else '–'}</b>
-                </div>
-            </div>
-            
-            <div style="text-align:center; font-size:1.1em; color:{color}; font-weight:600;">
-                {r['icon']} {r['label']}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+st.markdown("### Status per Equipment")
 
-# ====================== ALARM AKTIF ======================
-st.divider()
-st.markdown("### Seksi 3 — Alarm Aktif")
+def dir_block(label, val, thr):
+    if val is None or pd.isna(val):
+        return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:9px;color:var(--color-text-secondary)">{label}</div><div style="font-size:12px;color:var(--color-text-secondary)">–</div></div>'
+    zk2 = get_zone(val, thr)[0]
+    c2  = CBORDER.get(zk2,"#94a3b8")
+    return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:9px;color:var(--color-text-secondary)">{label}</div><div style="font-size:12px;font-weight:500;color:{c2}">{val:.3f}</div></div>'
 
-if n_d > 0:
-    st.error(f"🔴 **DANGER** — Ada {n_d} titik ukur dalam kondisi bahaya!")
-elif n_c > 0:
-    st.warning(f"🟡 **WARNING** — Ada {n_c} titik ukur perlu perhatian!")
+for i in range(0, len(eq_rows), 3):
+    chunk = eq_rows[i:i+3]
+    cols  = st.columns(3)
+    for col, r in zip(cols, chunk):
+        border = CBORDER.get(r["zk"],"#94a3b8")
+        ztc    = CBORDER.get(r["zk"],"#94a3b8")
+        col.markdown(f"""
+<div style="border-left:4px solid {border};border-radius:0 10px 10px 0;
+border:0.5px solid var(--color-border-tertiary);border-left:4px solid {border};
+padding:12px 14px;margin-bottom:4px;background:var(--color-background-secondary)">
+<div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:2px">{r['eq']}</div>
+<div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px">{r['unit']}</div>
+<div style="display:flex;gap:6px;margin-bottom:10px">
+{dir_block("H",r['H'],r['thr'])}{dir_block("V",r['V'],r['thr'])}{dir_block("A",r['A'],r['thr'])}
+</div>
+<div style="font-size:12px;font-weight:500;color:{ztc}">{r['zi']} {r['zl']}</div>
+</div>""", unsafe_allow_html=True)
 
 st.divider()
 
-# ====================== DETAIL EQUIPMENT ======================
-st.markdown("### Seksi 4 — Detail Equipment")
+st.markdown("### 🚨 Alarm Aktif")
 
-sel_eq = st.selectbox("Pilih Equipment", sorted(latest["equipment"].unique()))
-
-thr = get_threshold(sel_eq)
-df_det = latest[latest["equipment"] == sel_eq].copy()
-
-# Pivot Table
-pivot = df_det.pivot_table(
-    index="titik", 
-    columns="direction", 
-    values="value", 
-    aggfunc="last"
-).reset_index()
-
-dir_cols = [c for c in ["H","V","A"] if c in pivot.columns]
-pivot["Max (mm/s)"] = pivot[dir_cols].max(axis=1)
-pivot["Status"] = pivot["Max (mm/s)"].apply(lambda x: get_zone(x, thr)[1] + " " + get_zone(x, thr)[2])
-
-for c in dir_cols + ["Max (mm/s)"]:
-    pivot[c] = pivot[c].map(lambda x: f"{x:.3f}" if pd.notna(x) else "–")
-
-st.dataframe(
-    pivot.rename(columns={"titik": "Titik Ukur"}),
-    use_container_width=True,
-    hide_index=True
+latest_alarm = add_zone_cols(
+    df_hist[df_hist["unit"].isin(sel_unit)].sort_values("date")
+    .groupby(["unit","equipment","titik","direction"], as_index=False).last()
 )
+latest_alarm["zone_label"] = latest_alarm.apply(
+    lambda r: get_zone(r["value"],THRESHOLD[r["thr_type"]])[1]+" "+get_zone(r["value"],THRESHOLD[r["thr_type"]])[2], axis=1).astype(str)
 
-st.caption(f"Terakhir diperbarui: {df_hist['date'].max().strftime('%d %B %Y') if not df_hist.empty else '-'}")
+df_d = latest_alarm[latest_alarm["zone"]=="ZONE D"]
+df_c = latest_alarm[latest_alarm["zone"]=="ZONE C"]
+
+if df_d.empty and df_c.empty:
+    st.success("✅ Tidak ada alarm aktif — semua titik dalam batas normal.")
+else:
+    if not df_d.empty:
+        st.error(f"🔴 **Danger** — {len(df_d)} titik ukur melebihi batas kritis")
+        sd = df_d[["unit","equipment","titik","direction","value","zone_label","date"]].copy()
+        sd["value"] = sd["value"].map(lambda v: f"{v:.3f}")
+        sd["date"]  = pd.to_datetime(sd["date"]).dt.strftime("%d-%b-%Y")
+        sd = sd.rename(columns={"unit":"Unit","equipment":"Equipment","titik":"Titik","direction":"Dir","value":"mm/s","zone_label":"Status","date":"Tanggal"})
+        st.dataframe(sd, use_container_width=True, hide_index=True)
+    if not df_c.empty:
+        st.warning(f"🟡 **Warning** — {len(df_c)} titik ukur perlu dipantau")
+        sc = df_c[["unit","equipment","titik","direction","value","zone_label","date"]].copy()
+        sc["value"] = sc["value"].map(lambda v: f"{v:.3f}")
+        sc["date"]  = pd.to_datetime(sc["date"]).dt.strftime("%d-%b-%Y")
+        sc = sc.rename(columns={"unit":"Unit","equipment":"Equipment","titik":"Titik","direction":"Dir","value":"mm/s","zone_label":"Status","date":"Tanggal"})
+        st.dataframe(sc, use_container_width=True, hide_index=True)
+
+st.divider()
+
+st.markdown("### 🔍 Detail per Equipment")
+sel_det = st.selectbox("Pilih Equipment", sorted(latest["equipment"].unique()), key="mon_det")
+thr_det = get_threshold(sel_det)
+df_det  = latest[latest["equipment"]==sel_det].copy().sort_values(["titik","direction"])
+df_det["zk"],df_det["zi"],df_det["zl"] = zip(*df_det["value"].apply(lambda v: get_zone(v,thr_det)))
+
+pivot_det = df_det.pivot_table(index="titik",columns="direction",values="value",aggfunc="last").reset_index()
+pivot_det.columns.name = None
+dir_cols_d = [c for c in ["H","V","A"] if c in pivot_det.columns]
+pivot_det["Max (mm/s)"] = pivot_det[dir_cols_d].max(axis=1)
+pivot_det["Status"] = pivot_det["Max (mm/s)"].apply(lambda v: get_zone(v,thr_det)[1]+" "+get_zone(v,thr_det)[2])
+pivot_det["_zk"]    = pivot_det["Max (mm/s)"].apply(lambda v: get_zone(v,thr_det)[0])
+
+for c in dir_cols_d:
+    pivot_det[c] = pivot_det[c].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
+pivot_det["Max (mm/s)"] = pivot_det["Max (mm/s)"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
+pivot_det = pivot_det.rename(columns={"titik":"Titik Ukur"})
+
+ZONE_BG = {"ZONE A":"rgba(59,130,246,0.08)","ZONE B":"rgba(34,197,94,0.08)","ZONE C":"rgba(234,179,8,0.10)","ZONE D":"rgba(239,68,68,0.10)"}
+def hl(row):
+    s = ZONE_BG.get(row.get("_zk",""),"")
+    return [s]*len(row)
+
+show_cols = ["Titik Ukur"]+dir_cols_d+["Max (mm/s)","Status"]
+styled = pivot_det[show_cols+["_zk"]].style.apply(hl,axis=1).hide(axis="index")
+st.dataframe(styled, use_container_width=True, hide_index=True)
