@@ -340,6 +340,3 @@ pivot_det = pivot_det.rename(columns={"titik":"Titik Ukur"})
 
 show_cols = ["Titik Ukur"] + dir_cols_d + ["Max (mm/s)", "Status"]
 st.dataframe(pivot_det[show_cols], use_container_width=True, hide_index=True)
-
-show_cols = ["Titik Ukur"] + dir_cols_d + ["Max (mm/s)", "Status"]
-st.dataframe(pivot_det[show_cols], use_container_width=True, hide_index=True)
