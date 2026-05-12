@@ -203,32 +203,50 @@ for eq in sorted(df_card_latest["equipment"].dropna().unique()):
     if eq not in sel_equip:
         continue
 
-    df_eq = df_card_latest[df_card_latest["equipment"]==eq]
+    df_eq = df_card_latest[df_card_latest["equipment"] == eq]
     unit  = df_eq["unit"].iloc[0]
     thr   = get_threshold(eq)
 
-    # Nilai max per direction — dari SEMUA titik ukur di equipment tersebut
+    # Nilai max per direction
     def max_dir(d, _df=df_eq):
-        sub = _df[_df["direction"]==d]["value"].dropna()
+        sub = _df[_df["direction"] == d]["value"].dropna()
         return float(sub.max()) if not sub.empty else None
 
     h_val = max_dir("H")
     v_val = max_dir("V")
     a_val = max_dir("A")
 
-    # Zone ditentukan dari nilai max di semua direction yang tersedia
-   all_vals = [v for v in [h_val, v_val, a_val]
-            if v is not None and not pd.isna(v)]
+    # Penentuan zone
+    all_vals = [
+        v for v in [h_val, v_val, a_val]
+        if v is not None and not pd.isna(v)
+    ]
 
-if all_vals:
-    max_val = max(all_vals)
-    zk, zi, zl = get_zone(max_val, thr)
-else:
-    max_val = None
-    zk, zi, zl = ("N/A", "NO DATA", "")
-    tgl_eq   = pd.to_datetime(df_eq["date"].max()).strftime("%d-%b-%Y") if pd.notna(df_eq["date"].max()) else "–"
-    eq_rows.append({"eq":eq,"unit":unit,"H":h_val,"V":v_val,"A":a_val,
-                    "zk":zk,"zi":zi,"zl":zl,"thr":thr,"tgl":tgl_eq})
+    if all_vals:
+        max_val = max(all_vals)
+        zk, zi, zl = get_zone(max_val, thr)
+    else:
+        max_val = None
+        zk, zi, zl = ("N/A", "NO DATA", "")
+
+    tgl_eq = (
+        pd.to_datetime(df_eq["date"].max()).strftime("%d-%b-%Y")
+        if pd.notna(df_eq["date"].max())
+        else "–"
+    )
+
+    eq_rows.append({
+        "eq": eq,
+        "unit": unit,
+        "H": h_val,
+        "V": v_val,
+        "A": a_val,
+        "zk": zk,
+        "zi": zi,
+        "zl": zl,
+        "thr": thr,
+        "tgl": tgl_eq
+    })
 
 for i in range(0, len(eq_rows), 3):
     chunk = eq_rows[i:i+3]
