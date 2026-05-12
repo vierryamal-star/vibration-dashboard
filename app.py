@@ -117,75 +117,89 @@ date_mode = st.radio(
 if date_mode == "📅 Pilih tanggal spesifik":
 
     # ===============================
-# FILTER TAHUN
-# ===============================
+    # FILTER TAHUN
+    # ===============================
 
-avail_years = sorted(
-    df_hist["date"].dt.year.dropna().unique(),
-    reverse=True
-)
+    avail_years = sorted(
+        df_hist["date"].dt.year.dropna().unique(),
+        reverse=True
+    )
 
-sel_year = st.selectbox(
-    "📅 Tahun",
-    avail_years,
-    key="mon_year"
-)
+    sel_year = st.selectbox(
+        "📅 Tahun",
+        avail_years,
+        key="mon_year"
+    )
 
-# ===============================
-# FILTER BULAN
-# ===============================
+    # ===============================
+    # FILTER BULAN
+    # ===============================
 
-df_year = df_hist[
-    df_hist["date"].dt.year == sel_year
-]
+    df_year = df_hist[
+        df_hist["date"].dt.year == sel_year
+    ]
 
-avail_months = sorted(
-    df_year["date"].dt.month.unique()
-)
+    avail_months = sorted(
+        df_year["date"].dt.month.unique()
+    )
 
-month_map = {
-    1:"Januari",
-    2:"Februari",
-    3:"Maret",
-    4:"April",
-    5:"Mei",
-    6:"Juni",
-    7:"Juli",
-    8:"Agustus",
-    9:"September",
-    10:"Oktober",
-    11:"November",
-    12:"Desember"
-}
+    month_map = {
+        1:"Januari",
+        2:"Februari",
+        3:"Maret",
+        4:"April",
+        5:"Mei",
+        6:"Juni",
+        7:"Juli",
+        8:"Agustus",
+        9:"September",
+        10:"Oktober",
+        11:"November",
+        12:"Desember"
+    }
 
-sel_month = st.selectbox(
-    "📅 Bulan",
-    avail_months,
-    format_func=lambda x: month_map[x],
-    key="mon_month"
-)
+    sel_month = st.selectbox(
+        "📅 Bulan",
+        avail_months,
+        format_func=lambda x: month_map[x],
+        key="mon_month"
+    )
 
-# ===============================
-# FILTER TANGGAL TERSEDIA
-# ===============================
+    # ===============================
+    # FILTER TANGGAL TERSEDIA
+    # ===============================
 
-df_month = df_year[
-    df_year["date"].dt.month == sel_month
-]
+    df_month = df_year[
+        df_year["date"].dt.month == sel_month
+    ]
 
-avail_dates = sorted(
-    df_month["date"].dt.date.unique(),
-    reverse=True
-)
+    avail_dates = sorted(
+        df_month["date"].dt.date.unique(),
+        reverse=True
+    )
 
-sel_date = st.selectbox(
-    "📅 Tanggal tersedia",
-    avail_dates,
-    format_func=lambda x: pd.to_datetime(x).strftime("%d %b %Y"),
-    key="mon_date"
-)
+    sel_date = st.selectbox(
+        "📅 Tanggal tersedia",
+        avail_dates,
+        format_func=lambda x: pd.to_datetime(x).strftime("%d %b %Y"),
+        key="mon_date"
+    )
 
-sel_tgl = pd.to_datetime(sel_date).strftime("%Y-%m-%d")
+    sel_tgl = pd.to_datetime(sel_date).strftime("%Y-%m-%d")
+
+    # Filter df_hist ke tanggal terpilih
+    df_base = df_hist[
+        df_hist["unit"].isin(sel_unit) &
+        df_hist["equipment"].isin(sel_equip) &
+        df_hist["direction"].isin(sel_dir) &
+        (df_hist["date"].dt.strftime("%Y-%m-%d") == sel_tgl)
+    ].copy()
+
+    tgl_label = pd.to_datetime(sel_tgl).strftime("%d %b %Y")
+
+    st.caption(
+        f"Menampilkan data pengukuran tanggal **{tgl_label}**"
+    )
     # Filter df_hist ke tanggal terpilih
     df_base = df_hist[
         df_hist["unit"].isin(sel_unit) &
