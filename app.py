@@ -225,9 +225,14 @@ for i in range(0, len(eq_rows), 3):
         border = CBORDER.get(r["zk"],"#94a3b8")
         ztc    = CBORDER.get(r["zk"],"#94a3b8")
         col.markdown(f"""
-<div style="border-left:4px solid {border};border-radius:0 10px 10px 0;
-border:0.5px solid var(--color-border-tertiary);
-padding:12px 14px;margin-bottom:4px;background:var(--color-background-secondary)">
+<div style="
+background:var(--color-background-secondary);
+padding:12px 14px;
+margin-bottom:4px;
+border-radius:10px;
+box-shadow: inset 6px 0 0 {border};
+border:1px solid var(--color-border-tertiary);
+">
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
   <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">{r['eq']}</div>
   <div style="font-size:10px;color:var(--color-text-secondary)">{r['tgl']}</div>
