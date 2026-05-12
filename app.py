@@ -225,19 +225,34 @@ for i in range(0, len(eq_rows), 3):
         border = CBORDER.get(r["zk"],"#94a3b8")
         ztc    = CBORDER.get(r["zk"],"#94a3b8")
         col.markdown(f"""
-<div style="border-left:4px solid {border};border-radius:0 10px 10px 0;
+<div style="
 border:0.5px solid var(--color-border-tertiary);
-padding:12px 14px;margin-bottom:4px;background:var(--color-background-secondary)">
+border-left:4px solid {border};
+border-radius:0 10px 10px 0;
+padding:12px 14px;
+margin-bottom:4px;
+background:var(--color-background-secondary)
+">
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
   <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">{r['eq']}</div>
   <div style="font-size:10px;color:var(--color-text-secondary)">{r['tgl']}</div>
 </div>
-<div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px">{r['unit']}</div>
-<div style="display:flex;gap:6px;margin-bottom:10px">
-{dir_block("H",r['H'],r['thr'])}{dir_block("V",r['V'],r['thr'])}{dir_block("A",r['A'],r['thr'])}
+
+<div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px">
+{r['unit']}
 </div>
-<div style="font-size:12px;font-weight:500;color:{ztc}">{r['zi']} {r['zl']}</div>
-</div>""", unsafe_allow_html=True)
+
+<div style="display:flex;gap:6px;margin-bottom:10px">
+{dir_block("H",r['H'],r['thr'])}
+{dir_block("V",r['V'],r['thr'])}
+{dir_block("A",r['A'],r['thr'])}
+</div>
+
+<div style="font-size:12px;font-weight:500;color:{ztc}">
+{r['zi']} {r['zl']}
+</div>
+</div>
+""", unsafe_allow_html=True)
 
 st.divider()
 
