@@ -158,7 +158,13 @@ st.divider()
 # ── Card per Equipment ────────────────────────────────────────────────────────
 st.markdown("### Status per Equipment")
 
-CBORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
+CBORDER = {
+    "ZONE A": "#3b82f6",   # biru
+    "ZONE B": "#22c55e",   # hijau
+    "ZONE C": "#eab308",   # kuning
+    "ZONE D": "#ef4444",   # merah
+    "N/A": "#94a3b8"       # abu
+}
 
 def dir_block(label, val, thr):
     if val is None or pd.isna(val):
@@ -211,9 +217,15 @@ for eq in sorted(df_card_latest["equipment"].dropna().unique()):
     a_val = max_dir("A")
 
     # Zone ditentukan dari nilai max di semua direction yang tersedia
-    all_vals = [v for v in [h_val, v_val, a_val] if v is not None and not pd.isna(v)]
-    max_val  = max(all_vals) if all_vals else float("nan")
-    zk,zi,zl = get_zone(max_val, thr)
+   all_vals = [v for v in [h_val, v_val, a_val]
+            if v is not None and not pd.isna(v)]
+
+if all_vals:
+    max_val = max(all_vals)
+    zk, zi, zl = get_zone(max_val, thr)
+else:
+    max_val = None
+    zk, zi, zl = ("N/A", "NO DATA", "")
     tgl_eq   = pd.to_datetime(df_eq["date"].max()).strftime("%d-%b-%Y") if pd.notna(df_eq["date"].max()) else "–"
     eq_rows.append({"eq":eq,"unit":unit,"H":h_val,"V":v_val,"A":a_val,
                     "zk":zk,"zi":zi,"zl":zl,"thr":thr,"tgl":tgl_eq})
@@ -236,7 +248,16 @@ padding:12px 14px;margin-bottom:4px;background:var(--color-background-secondary)
 <div style="display:flex;gap:6px;margin-bottom:10px">
 {dir_block("H",r['H'],r['thr'])}{dir_block("V",r['V'],r['thr'])}{dir_block("A",r['A'],r['thr'])}
 </div>
-<div style="font-size:12px;font-weight:500;color:{ztc}">{r['zi']} {r['zl']}</div>
+<div style="
+display:inline-block;
+padding:4px 10px;
+border-radius:999px;
+background:{ztc};
+color:white;
+font-size:11px;
+font-weight:700">
+    {r['zi']} {r['zl']}
+</div>
 </div>""", unsafe_allow_html=True)
 
 st.divider()
