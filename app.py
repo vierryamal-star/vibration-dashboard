@@ -115,12 +115,19 @@ date_mode = st.radio(
 )
 
 if date_mode == "📅 Pilih tanggal spesifik":
-    sel_tgl = st.selectbox(
-        "Pilih tanggal pengukuran",
-        options=all_dates_str,
-        format_func=lambda d: pd.to_datetime(d).strftime("%d %b %Y"),
+
+    min_date = min(all_dates_sorted)
+    max_date = max(all_dates_sorted)
+
+    sel_tgl = st.date_input(
+        "📅 Pilih tanggal pengukuran",
+        value=max_date,
+        min_value=min_date,
+        max_value=max_date,
         key="mon_tgl_select"
     )
+
+    sel_tgl = pd.to_datetime(sel_tgl).strftime("%Y-%m-%d")
     # Filter df_hist ke tanggal terpilih
     df_base = df_hist[
         df_hist["unit"].isin(sel_unit) &
