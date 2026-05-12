@@ -191,8 +191,8 @@ def dir_block(label, val, thr):
     </div>
     '''
 
-zk2 = get_zone(val, thr)[0]
-c2  = CBORDER.get(zk2,"#94a3b8")
+    zk2 = get_zone(val, thr)[0]
+    c2  = CBORDER.get(zk2,"#94a3b8")
 
 return f'''
 <div style="
