@@ -146,13 +146,76 @@ with tab_hapus:
 
             with h_tab1:
                 st.markdown("Pilih tanggal — **semua data pada tanggal tersebut akan dihapus**.")
-                all_dates = sorted(df_hapus["date_str"].dropna().unique(), reverse=True)
-                sel_dates = st.multiselect(
-                    "Pilih tanggal",
-                    options=all_dates,
-                    format_func=lambda d: datetime.strptime(d,"%Y-%m-%d").strftime("%d %b %Y"),
-                    key="del_dates",
-                )
+               # =========================================
+# FILTER TAHUN
+# =========================================
+
+avail_years = sorted(
+    df_hapus["date"].dt.year.dropna().unique(),
+    reverse=True
+)
+
+sel_year = st.selectbox(
+    "📅 Tahun",
+    avail_years,
+    key="del_year"
+)
+
+# =========================================
+# FILTER BULAN
+# =========================================
+
+df_year = df_hapus[
+    df_hapus["date"].dt.year == sel_year
+]
+
+avail_months = sorted(
+    df_year["date"].dt.month.unique()
+)
+
+month_map = {
+    1:"Januari",
+    2:"Februari",
+    3:"Maret",
+    4:"April",
+    5:"Mei",
+    6:"Juni",
+    7:"Juli",
+    8:"Agustus",
+    9:"September",
+    10:"Oktober",
+    11:"November",
+    12:"Desember"
+}
+
+sel_month = st.selectbox(
+    "📅 Bulan",
+    avail_months,
+    format_func=lambda x: month_map[x],
+    key="del_month"
+)
+
+# =========================================
+# FILTER TANGGAL
+# =========================================
+
+df_month = df_year[
+    df_year["date"].dt.month == sel_month
+]
+
+avail_dates = sorted(
+    df_month["date_str"].dropna().unique(),
+    reverse=True
+)
+
+sel_dates = st.multiselect(
+    "📅 Pilih tanggal",
+    options=avail_dates,
+    format_func=lambda d: datetime.strptime(
+        d,"%Y-%m-%d"
+    ).strftime("%d %B %Y"),
+    key="del_dates",
+)
                 if sel_dates:
                     df_prev = df_hapus[df_hapus["date_str"].isin(sel_dates)]
                     n_del   = len(df_prev)
