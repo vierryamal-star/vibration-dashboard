@@ -100,11 +100,11 @@ sel_unit     = all_units if sel_unit_btn == "All" else [sel_unit_btn]
 
 # ── Filter Equipment & Direction ─────────────────────────────────────────────
 with st.expander("⚙️ Filter Equipment & Direction", expanded=False):
-fc1, fc2 = st.columns([3, 1])
-with fc1:
-    sel_equip = st.multiselect("Equipment", all_equip, default=all_equip, key="mon_equip")
-with fc2:
-    sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="mon_dir")
+    fc1, fc2 = st.columns([3, 1])
+    with fc1:
+        sel_equip = st.multiselect("Equipment", all_equip, default=all_equip, key="mon_equip")
+    with fc2:
+        sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="mon_dir")
 
 # ── Filter baris 3: Mode tanggal ─────────────────────────────────────────────
 st.markdown("**Tampilkan data pengukuran:**")
