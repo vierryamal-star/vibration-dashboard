@@ -260,7 +260,7 @@ border-left:4px solid {border};
 border-radius:0 10px 10px 0;
 padding:12px 14px;
 margin-bottom:10px;
-background:var(--color-background-secondary)
+background:rgba(255,255,255,0.03)
 ">
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
   <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">{r['eq']}</div>
