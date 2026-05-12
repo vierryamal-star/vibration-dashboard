@@ -228,10 +228,13 @@ for i in range(0, len(eq_rows), 3):
 <div style="
 background:var(--color-background-secondary);
 padding:12px 14px;
-margin-bottom:4px;
-border-radius:10px;
-box-shadow: inset 6px 0 0 {border};
-border:1px solid var(--color-border-tertiary);
+margin-bottom:10px;
+border-radius:12px;
+box-shadow:
+    inset 6px 0 0 {border},
+    0 4px 14px rgba(0,0,0,0.12);
+border:1px solid rgba(255,255,255,0.06);
+transition: all 0.2s ease;
 ">
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
   <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">{r['eq']}</div>
