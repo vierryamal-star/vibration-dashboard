@@ -32,16 +32,18 @@ section[data-testid="stSidebar"]>div:first-child{
     cursor:pointer;
 
     box-shadow:
-        0 1px 3px rgba(0,0,0,0.08),
-        0 4px 12px rgba(0,0,0,0.06);
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 4px 14px rgba(0,0,0,0.35);
+
+    backdrop-filter: blur(6px);
 }
 
 .eq-card:hover{
     transform: translateY(-3px);
 
     box-shadow:
-        0 8px 20px rgba(0,0,0,0.14),
-        0 14px 32px rgba(0,0,0,0.10);
+        0 0 0 1px rgba(255,255,255,0.08),
+        0 10px 28px rgba(0,0,0,0.45);
 
     border-left-width:6px;
 }
