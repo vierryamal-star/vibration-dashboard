@@ -252,12 +252,12 @@ for i in range(0, len(eq_rows), 3):
         border = CBORDER.get(r["zk"],"#94a3b8")
         ztc    = CBORDER.get(r["zk"],"#94a3b8")
         col.markdown(f"""
-<div style="
+<div class="eq-card" style="
 border:0.5px solid var(--color-border-tertiary);
 border-left:4px solid {border};
 border-radius:0 10px 10px 0;
 padding:12px 14px;
-margin-bottom:4px;
+margin-bottom:10px;
 background:var(--color-background-secondary)
 ">
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
