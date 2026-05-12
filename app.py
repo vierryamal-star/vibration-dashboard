@@ -161,66 +161,12 @@ st.markdown("### Status per Equipment")
 CBORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
 
 def dir_block(label, val, thr):
-
     if val is None or pd.isna(val):
-        return f'''
-        <div style="
-            flex:1;
-            text-align:center;
-            background:var(--color-background-tertiary);
-            border-radius:8px;
-            padding:8px 4px;
-        ">
-            <div style="
-                font-size:13px;
-                font-weight:600;
-                color:var(--color-text-secondary);
-                margin-bottom:2px;
-            ">
-                {label}
-            </div>
-
-            <div style="
-                font-size:20px;
-                font-weight:700;
-                color:var(--color-text-secondary);
-                line-height:1.1;
-            ">
-                –
-            </div>
-        </div>
-        '''
-
+        return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:9px;color:var(--color-text-secondary)">{label}</div><div style="font-size:12px;color:var(--color-text-secondary)">–</div></div>'
     zk2 = get_zone(val, thr)[0]
-    c2  = CBORDER.get(zk2, "#94a3b8")
+    c2  = CBORDER.get(zk2,"#94a3b8")
+    return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:9px;color:var(--color-text-secondary)">{label}</div><div style="font-size:12px;font-weight:500;color:{c2}">{val:.3f}</div></div>'
 
-    return f'''
-    <div style="
-        flex:1;
-        text-align:center;
-        background:var(--color-background-tertiary);
-        border-radius:8px;
-        padding:8px 4px;
-    ">
-        <div style="
-            font-size:13px;
-            font-weight:600;
-            color:var(--color-text-secondary);
-            margin-bottom:2px;
-        ">
-            {label}
-        </div>
-
-        <div style="
-            font-size:20px;
-            font-weight:700;
-            color:{c2};
-            line-height:1.1;
-        ">
-            {val:.3f}
-        </div>
-    </div>
-    '''
 # Card equipment: pakai SEMUA histori tanpa filter direction
 # agar semua equipment tampil dengan nilai H/V/A yang lengkap
 df_card_base = df_hist[
@@ -279,17 +225,9 @@ for i in range(0, len(eq_rows), 3):
         border = CBORDER.get(r["zk"],"#94a3b8")
         ztc    = CBORDER.get(r["zk"],"#94a3b8")
         col.markdown(f"""
-<div style="
-background:var(--color-background-secondary);
-padding:12px 14px;
-margin-bottom:10px;
-border-radius:12px;
-box-shadow:
-    inset 6px 0 0 {border},
-    0 4px 14px rgba(0,0,0,0.12);
-border:1px solid rgba(255,255,255,0.06);
-transition: all 0.2s ease;
-">
+<div style="border-left:4px solid {border};border-radius:0 10px 10px 0;
+border:0.5px solid var(--color-border-tertiary);
+padding:12px 14px;margin-bottom:4px;background:var(--color-background-secondary)">
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
   <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">{r['eq']}</div>
   <div style="font-size:10px;color:var(--color-text-secondary)">{r['tgl']}</div>
@@ -355,6 +293,9 @@ for c in dir_cols_d:
     pivot_det[c] = pivot_det[c].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
 pivot_det["Max (mm/s)"] = pivot_det["Max (mm/s)"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
 pivot_det = pivot_det.rename(columns={"titik":"Titik Ukur"})
+
+show_cols = ["Titik Ukur"] + dir_cols_d + ["Max (mm/s)", "Status"]
+st.dataframe(pivot_det[show_cols], use_container_width=True, hide_index=True)
 
 show_cols = ["Titik Ukur"] + dir_cols_d + ["Max (mm/s)", "Status"]
 st.dataframe(pivot_det[show_cols], use_container_width=True, hide_index=True)
