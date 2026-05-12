@@ -161,12 +161,65 @@ st.markdown("### Status per Equipment")
 CBORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
 
 def dir_block(label, val, thr):
-    if val is None or pd.isna(val):
-        return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:15px;color:var(--color-text-secondary)">{label}</div><div style="font-size:15px;color:var(--color-text-secondary)">–</div></div>'
-    zk2 = get_zone(val, thr)[0]
-    c2  = CBORDER.get(zk2,"#94a3b8")
-    return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:15px;color:var(--color-text-secondary)">{label}</div><div style="font-size:15px;font-weight:500;color:{c2}">{val:.3f}</div></div>'
+   if val is None or pd.isna(val):
+    return f'''
+    <div style="
+        flex:1;
+        text-align:center;
+        background:var(--color-background-tertiary);
+        border-radius:8px;
+        padding:8px 4px;
+    ">
+        <div style="
+            font-size:13px;
+            font-weight:600;
+            color:var(--color-text-secondary);
+            margin-bottom:2px;
+        ">
+            {label}
+        </div>
 
+        <div style="
+            font-size:20px;
+            font-weight:700;
+            color:var(--color-text-secondary);
+            line-height:1.1;
+        ">
+            –
+        </div>
+    </div>
+    '''
+
+zk2 = get_zone(val, thr)[0]
+c2  = CBORDER.get(zk2,"#94a3b8")
+
+return f'''
+<div style="
+    flex:1;
+    text-align:center;
+    background:var(--color-background-tertiary);
+    border-radius:8px;
+    padding:8px 4px;
+">
+    <div style="
+        font-size:13px;
+        font-weight:600;
+        color:var(--color-text-secondary);
+        margin-bottom:2px;
+    ">
+        {label}
+    </div>
+
+    <div style="
+        font-size:20px;
+        font-weight:700;
+        color:{c2};
+        line-height:1.1;
+    ">
+        {val:.3f}
+    </div>
+</div>
+'''
 # Card equipment: pakai SEMUA histori tanpa filter direction
 # agar semua equipment tampil dengan nilai H/V/A yang lengkap
 df_card_base = df_hist[
