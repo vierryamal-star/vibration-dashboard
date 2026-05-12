@@ -60,7 +60,7 @@ with st.sidebar:
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
     st.markdown("### Navigasi")
-    st.page_link("app.py",                  label="📊 Monitor")
+    st.page_link("app.py",                  label="📊 Monitor Vibrasi")
     st.page_link("pages/1_Analisis.py",      label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py",   label="🗄️ Data & Kelola")
     render_login_sidebar()
@@ -91,7 +91,7 @@ all_equip = sorted(df_hist["equipment"].dropna().unique())
 all_dates_sorted = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 all_dates_str    = [str(d) for d in all_dates_sorted]
 
-st.markdown("## 📊 Monitor")
+st.markdown("## 📊 Monitor Vibrasi")
 
 # ── Filter baris 1: Unit ──────────────────────────────────────────────────────
 unit_opts    = ["All"] + all_units
