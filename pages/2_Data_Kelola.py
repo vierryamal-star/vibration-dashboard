@@ -146,116 +146,132 @@ with tab_hapus:
 
             with h_tab1:
 
-    st.markdown(
-        "Pilih tanggal — **semua data pada tanggal tersebut akan dihapus**."
-    )
+                st.markdown(
+                "Pilih tanggal — **semua data pada tanggal tersebut akan dihapus**."
+                )
 
-    # =========================================
-    # FILTER TAHUN
-    # =========================================
+                # =========================================
+                # FILTER TAHUN
+                # =========================================
 
-    avail_years = sorted(
-        df_hapus["date"].dt.year.dropna().unique(),
-        reverse=True
-    )
+                avail_years = sorted(
+                    df_hapus["date"].dt.year.dropna().unique(),
+                    reverse=True
+                )
 
-    sel_year = st.selectbox(
-        "📅 Tahun",
-        avail_years,
-        key="del_year"
-    )
+                sel_year = st.selectbox(
+                    "📅 Tahun",
+                    avail_years,
+                    key="del_year"
+                )
 
-    # =========================================
-    # FILTER BULAN
-    # =========================================
+                # =========================================
+                # FILTER BULAN
+                # =========================================
 
-    df_year = df_hapus[
-        df_hapus["date"].dt.year == sel_year
-    ]
+                df_year = df_hapus[
+                    df_hapus["date"].dt.year == sel_year
+                ]
 
-    avail_months = sorted(
-        df_year["date"].dt.month.unique()
-    )
+                avail_months = sorted(
+                    df_year["date"].dt.month.unique()
+                )
 
-    month_map = {
-        1:"Januari",
-        2:"Februari",
-        3:"Maret",
-        4:"April",
-        5:"Mei",
-        6:"Juni",
-        7:"Juli",
-        8:"Agustus",
-        9:"September",
-        10:"Oktober",
-        11:"November",
-        12:"Desember"
-    }
+                month_map = {
+                    1:"Januari",
+                    2:"Februari",
+                    3:"Maret",
+                    4:"April",
+                    5:"Mei",
+                    6:"Juni",
+                    7:"Juli",
+                    8:"Agustus",
+                    9:"September",
+                    10:"Oktober",
+                    11:"November",
+                    12:"Desember"
+                }
 
-    sel_month = st.selectbox(
-        "📅 Bulan",
-        avail_months,
-        format_func=lambda x: month_map[x],
-        key="del_month"
-    )
+                sel_month = st.selectbox(
+                    "📅 Bulan",
+                    avail_months,
+                    format_func=lambda x: month_map[x],
+                    key="del_month"
+                )
 
-    # =========================================
-    # FILTER TANGGAL
-    # =========================================
+                # =========================================
+                # FILTER TANGGAL
+                # =========================================
+            
+                df_month = df_year[
+                    df_year["date"].dt.month == sel_month
+                ]
 
-    df_month = df_year[
-        df_year["date"].dt.month == sel_month
-    ]
+                avail_dates = sorted(
+                        df_month["date_str"].dropna().unique(),
+                        reverse=True
+                )
 
-    avail_dates = sorted(
-        df_month["date_str"].dropna().unique(),
-        reverse=True
-    )
+                sel_dates = st.multiselect(
+                    "📅 Pilih tanggal",
+                    options=avail_dates,
+                    format_func=lambda d:
+                        datetime.strptime(
+                            d,"%Y-%m-%d"
+                        ).strftime("%d %B %Y"),
+                    key="del_dates",
+                )
 
-    sel_dates = st.multiselect(
-        "📅 Pilih tanggal",
-        options=avail_dates,
-        format_func=lambda d:
-            datetime.strptime(d,"%Y-%m-%d").strftime("%d %B %Y"),
-        key="del_dates",
-    )
-
-# =========================================
-# FILTER TANGGAL
-# =========================================
-
-df_month = df_year[
-    df_year["date"].dt.month == sel_month
-]
-
-avail_dates = sorted(
-    df_month["date_str"].dropna().unique(),
-    reverse=True
-)
-
-sel_dates = st.multiselect(
-    "📅 Pilih tanggal",
-    options=avail_dates,
-    format_func=lambda d: datetime.strptime(
-        d,"%Y-%m-%d"
-    ).strftime("%d %B %Y"),
-    key="del_dates",
-)
                 if sel_dates:
-                    df_prev = df_hapus[df_hapus["date_str"].isin(sel_dates)]
-                    n_del   = len(df_prev)
-                    st.warning(f"⚠️ Akan menghapus **{n_del} baris** dari {len(sel_dates)} tanggal.")
-                    summ = df_prev.groupby("date_str").size().reset_index(name="Jumlah Baris")
-                    summ["Tanggal"] = summ["date_str"].apply(lambda d: datetime.strptime(d,"%Y-%m-%d").strftime("%d %b %Y"))
-                    st.dataframe(summ[["Tanggal","Jumlah Baris"]], use_container_width=True, hide_index=True)
-                    if st.button(f"🗑️ Hapus {n_del} baris", key="btn_del_date", type="secondary"):
+
+                    df_prev = df_hapus[
+                        df_hapus["date_str"].isin(sel_dates)
+                    ]
+
+                    n_del = len(df_prev)
+
+                    st.warning(
+                        f"⚠️ Akan menghapus **{n_del} baris** "
+                        f"dari {len(sel_dates)} tanggal."
+                    )
+
+                    summ = (
+                        df_prev
+                        .groupby("date_str")
+                        .size()
+                        .reset_index(name="Jumlah Baris")
+                    )
+
+                    summ["Tanggal"] = summ["date_str"].apply(
+                        lambda d:
+                            datetime.strptime(
+                                d,"%Y-%m-%d"
+                            ).strftime("%d %B %Y")
+                    )
+
+                    st.dataframe(
+                        summ[["Tanggal","Jumlah Baris"]],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    if st.button(
+                        f"🗑️ Hapus {n_del} baris",
+                        key="btn_del_date",
+                        type="secondary"
+                    ):
+
                         with st.spinner("Menghapus..."):
-                            deleted = delete_by_dates(sel_dates)
-                        st.success(f"✅ Data berhasil dihapus.")
+                            delete_by_dates(sel_dates)
+            
+                        st.success("✅ Data berhasil dihapus.")
+            
                         st.cache_data.clear()
+            
                         st.rerun()
-                else:
-                    st.info("Pilih minimal satu tanggal.")
+
+                    else:
+                        st.info("Pilih minimal satu tanggal.")
 
             with h_tab2:
                 total_rows = len(df_hapus)
