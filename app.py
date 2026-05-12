@@ -17,8 +17,35 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-[data-testid="stSidebarNav"]{display:none;}
-section[data-testid="stSidebar"]>div:first-child{padding-top:1rem;}
+
+[data-testid="stSidebarNav"]{
+    display:none;
+}
+
+section[data-testid="stSidebar"]>div:first-child{
+    padding-top:1rem;
+}
+
+/* CARD EFFECT */
+.eq-card{
+    transition: all 0.2s ease;
+    cursor:pointer;
+
+    box-shadow:
+        0 1px 3px rgba(0,0,0,0.08),
+        0 4px 12px rgba(0,0,0,0.06);
+}
+
+.eq-card:hover{
+    transform: translateY(-3px);
+
+    box-shadow:
+        0 8px 20px rgba(0,0,0,0.14),
+        0 14px 32px rgba(0,0,0,0.10);
+
+    border-left-width:6px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
