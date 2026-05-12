@@ -255,69 +255,78 @@ for i in range(0, len(eq_rows), 3):
         border = CBORDER.get(r["zk"],"#94a3b8")
         ztc    = CBORDER.get(r["zk"],"#94a3b8")
         col.markdown(f"""
-col.markdown(f"""
-<div style="
-background:var(--color-background-secondary);
-border-radius:12px;
-padding:12px 14px;
-margin-bottom:8px;
-border:1px solid rgba(255,255,255,0.08);
-border-left:5px solid {border};
-box-shadow:0 2px 8px rgba(0,0,0,0.15);
-">
+col.markdown(
+    f"""
+    <div style="
+        background:var(--color-background-secondary);
+        border-radius:12px;
+        padding:12px 14px;
+        margin-bottom:8px;
+        border:1px solid rgba(255,255,255,0.08);
+        border-left:5px solid {border};
+        box-shadow:0 2px 8px rgba(0,0,0,0.15);
+    ">
 
-<div style="
-display:flex;
-justify-content:space-between;
-align-items:flex-start;
-margin-bottom:2px">
+        <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            margin-bottom:2px;
+        ">
 
-  <div style="
-  font-size:13px;
-  font-weight:600;
-  color:var(--color-text-primary)">
-    {r['eq']}
-  </div>
+            <div style="
+                font-size:13px;
+                font-weight:600;
+                color:var(--color-text-primary);
+            ">
+                {r['eq']}
+            </div>
 
-  <div style="
-  font-size:10px;
-  color:var(--color-text-secondary)">
-    {r['tgl']}
-  </div>
+            <div style="
+                font-size:10px;
+                color:var(--color-text-secondary);
+            ">
+                {r['tgl']}
+            </div>
 
-</div>
+        </div>
 
-<div style="
-font-size:11px;
-color:var(--color-text-secondary);
-margin-bottom:10px">
-    {r['unit']}
-</div>
+        <div style="
+            font-size:11px;
+            color:var(--color-text-secondary);
+            margin-bottom:10px;
+        ">
+            {r['unit']}
+        </div>
 
-<div style="
-display:flex;
-gap:6px;
-margin-bottom:12px">
+        <div style="
+            display:flex;
+            gap:6px;
+            margin-bottom:12px;
+        ">
 
-{dir_block("H",r['H'],r['thr'])}
-{dir_block("V",r['V'],r['thr'])}
-{dir_block("A",r['A'],r['thr'])}
+            {dir_block("H", r['H'], r['thr'])}
+            {dir_block("V", r['V'], r['thr'])}
+            {dir_block("A", r['A'], r['thr'])}
 
-</div>
+        </div>
 
-<div style="
-display:inline-block;
-padding:5px 12px;
-border-radius:999px;
-background:{ztc};
-color:white;
-font-size:11px;
-font-weight:700">
-    ● {r['zi']} {r['zl']}
-</div>
+        <div style="
+            display:inline-block;
+            padding:5px 12px;
+            border-radius:999px;
+            background:{ztc};
+            color:white;
+            font-size:11px;
+            font-weight:700;
+        ">
+            ● {r['zi']} {r['zl']}
+        </div>
 
-</div>
-""", unsafe_allow_html=True)
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 padding:12px 14px;margin-bottom:4px;background:var(--color-background-secondary)">
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
   <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">{r['eq']}</div>
