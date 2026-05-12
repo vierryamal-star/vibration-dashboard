@@ -191,10 +191,10 @@ CBORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#e
 
 def dir_block(label, val, thr):
     if val is None or pd.isna(val):
-        return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:13px;color:var(--color-text-secondary)">{label}</div><div style="font-size:12px;color:var(--color-text-secondary)">–</div></div>'
+        return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:16px;color:var(--color-text-secondary)">{label}</div><div style="font-size:14px;color:var(--color-text-secondary)">–</div></div>'
     zk2 = get_zone(val, thr)[0]
     c2  = CBORDER.get(zk2,"#94a3b8")
-    return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:13px;color:var(--color-text-secondary)">{label}</div><div style="font-size:12px;font-weight:500;color:{c2}">{val:.3f}</div></div>'
+    return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:16px;color:var(--color-text-secondary)">{label}</div><div style="font-size:14px;font-weight:500;color:{c2}">{val:.3f}</div></div>'
 
 # Card equipment: pakai SEMUA histori tanpa filter direction
 # agar semua equipment tampil dengan nilai H/V/A yang lengkap
