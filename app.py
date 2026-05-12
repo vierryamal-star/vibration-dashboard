@@ -98,7 +98,8 @@ unit_opts    = ["All"] + all_units
 sel_unit_btn = st.radio("Unit", unit_opts, horizontal=True, key="mon_unit", label_visibility="collapsed")
 sel_unit     = all_units if sel_unit_btn == "All" else [sel_unit_btn]
 
-# ── Filter baris 2: Equipment + Direction ────────────────────────────────────
+# ── Filter Equipment & Direction ─────────────────────────────────────────────
+with st.expander("⚙️ Filter Equipment & Direction", expanded=False):
 fc1, fc2 = st.columns([3, 1])
 with fc1:
     sel_equip = st.multiselect("Equipment", all_equip, default=all_equip, key="mon_equip")
