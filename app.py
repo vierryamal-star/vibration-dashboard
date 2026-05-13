@@ -51,7 +51,11 @@ section[data-testid="stSidebar"]>div:first-child{
 </style>
 """, unsafe_allow_html=True)
 
-df_hist = load_history()
+@st.cache_data(ttl=60)
+def get_history():
+    return load_history()
+
+df_hist = get_history()
 
 with st.sidebar:
     try: st.image("assets/logo_pln_ip.png", width=200)
