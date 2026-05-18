@@ -117,6 +117,9 @@ if mode == "📈 Trend Detail":
             custom_from = st.date_input("Dari", value=min_date, key="td_from")
         with col_ct:
             custom_to   = st.date_input("Sampai", value=max_date, key="td_to")
+        if custom_from > custom_to:
+           st.error("Tanggal awal tidak boleh lebih besar dari tanggal akhir.")
+           st.stop()
  
     df_tr = df_hist[df_hist["equipment"]==sel_eq].copy()
     df_tr = apply_range(df_tr, "date", rng, custom_from, custom_to)
