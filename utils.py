@@ -115,8 +115,7 @@ def load_history() -> pd.DataFrame:
 
             df["date"] = pd.to_datetime(
                 df["date"],
-                errors="coerce",
-                dayfirst=True
+                errors="coerce"
             )
 
             return df
