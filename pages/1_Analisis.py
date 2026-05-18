@@ -297,80 +297,114 @@ elif mode == "⚖️ Bandingkan 2 Equipment":
             st.dataframe(lat[["Titik","Dir","mm/s","Status","Tanggal"]], use_container_width=True, hide_index=True)
  
 # ── MODE 3: Prediksi Trend ────────────────────────────────────────────────────
+# ── MODE 3: Prediksi Trend ────────────────────────────────────────────────────
 else:
-    st.divider()
-    pc1, pc2, pc3 = st.columns([2,2,1])
-    with pc1:
-        sel_eq_p  = st.selectbox("Equipment", sorted(df_hist["equipment"].unique()), key="pred_eq")
-    with pc2:
-        titik_p   = sorted(df_hist[df_hist["equipment"]==sel_eq_p]["titik"].unique())
-        sel_titik_p = st.selectbox("Titik Ukur", titik_p, key="pred_titik")
-    with pc3:
-        sel_dir_p = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="pred_dir")
- # ── Filter histori prediksi ─────────────────────────────
 
- pred_rng = st.radio(
-     "Basis histori",
-     ["7 Hari", "30 Hari", "Custom"],
-     index=1,
-     horizontal=True,
-     key="pred_rng",
-     label_visibility="collapsed"
- )
- 
- pred_from = pred_to = None
- 
- if pred_rng == "Custom":
- 
-     min_date = df_hist["date"].min().date()
-     max_date = df_hist["date"].max().date()
- 
-     p1, p2, _ = st.columns([1,1,2])
- 
-     with p1:
-         pred_from = st.date_input(
-             "Dari",
-             value=min_date,
-             key="pred_from"
-         )
- 
-     with p2:
-         pred_to = st.date_input(
-             "Sampai",
-             value=max_date,
-             key="pred_to"
-         )
- 
-     if pred_from > pred_to:
-         st.error("Tanggal awal tidak boleh lebih besar dari tanggal akhir.")
-         st.stop()
-     
-    n_days = st.slider("Hari prediksi ke depan", 1, 7, 3)
- 
+    st.divider()
+
+    pc1, pc2, pc3 = st.columns([2,2,1])
+
+    with pc1:
+        sel_eq_p = st.selectbox(
+            "Equipment",
+            sorted(df_hist["equipment"].unique()),
+            key="pred_eq"
+        )
+
+    with pc2:
+        titik_p = sorted(
+            df_hist[df_hist["equipment"] == sel_eq_p]["titik"].unique()
+        )
+
+        sel_titik_p = st.selectbox(
+            "Titik Ukur",
+            titik_p,
+            key="pred_titik"
+        )
+
+    with pc3:
+        sel_dir_p = st.multiselect(
+            "Direction",
+            ["H","V","A"],
+            default=["H","V","A"],
+            key="pred_dir"
+        )
+
+    # ── Filter histori prediksi ─────────────────────────────
+
+    pred_rng = st.radio(
+        "Basis histori",
+        ["7 Hari", "30 Hari", "Custom"],
+        index=1,
+        horizontal=True,
+        key="pred_rng",
+        label_visibility="collapsed"
+    )
+
+    pred_from = None
+    pred_to = None
+
+    if pred_rng == "Custom":
+
+        min_date = df_hist["date"].min().date()
+        max_date = df_hist["date"].max().date()
+
+        p1, p2, _ = st.columns([1,1,2])
+
+        with p1:
+            pred_from = st.date_input(
+                "Dari",
+                value=min_date,
+                key="pred_from"
+            )
+
+        with p2:
+            pred_to = st.date_input(
+                "Sampai",
+                value=max_date,
+                key="pred_to"
+            )
+
+        if pred_from > pred_to:
+            st.error("Tanggal awal tidak boleh lebih besar dari tanggal akhir.")
+            st.stop()
+
+    n_days = st.slider(
+        "Hari prediksi ke depan",
+        1,
+        7,
+        3
+    )
+
     df_sel = df_hist[
-        (df_hist["equipment"]==sel_eq_p) &
-        (df_hist["titik"]==sel_titik_p) &
+        (df_hist["equipment"] == sel_eq_p) &
+        (df_hist["titik"] == sel_titik_p) &
         (df_hist["direction"].isin(sel_dir_p))
     ].copy()
 
     df_sel = apply_range(
-         df_sel,
-         "date",
-         pred_rng,
-         pred_from,
-         pred_to
+        df_sel,
+        "date",
+        pred_rng,
+        pred_from,
+        pred_to
     )
- 
+
     if df_sel.empty:
         st.warning("Tidak ada data untuk pilihan ini.")
         st.stop()
- 
+
     if df_sel.groupby("direction").size().min() < 3:
         st.warning("Data historis terlalu sedikit (minimum 3 titik per direction).")
         st.stop()
- 
+
     thr_p = get_threshold(sel_eq_p)
-    colors_pred = {"H":"#93c5fd","V":"#6ee7b7","A":"#fcd34d"}
+
+    colors_pred = {
+        "H":"#93c5fd",
+        "V":"#6ee7b7",
+        "A":"#fcd34d"
+    }
  
     def predict(df_d, n):
         df_s = df_d.sort_values("date").copy()
