@@ -75,12 +75,54 @@ import streamlit as st
 
 @st.cache_data(ttl=60)
 def load_history() -> pd.DataFrame:
+
     try:
+
         sb = get_supabase()
-        res = sb.table("vibration").select("*").limit(50000).order("date", desc=True).execute()
-        if res.data:
-            return pd.DataFrame(res.data)
+
+        all_rows = []
+
+        batch_size = 1000
+        start = 0
+
+        while True:
+
+            end = start + batch_size - 1
+
+            res = (
+                sb.table("vibration")
+                .select("*")
+                .order("date", desc=False)
+                .range(start, end)
+                .execute()
+            )
+
+            # stop jika tidak ada data
+            if not res.data:
+                break
+
+            all_rows.extend(res.data)
+
+            # stop jika batch terakhir
+            if len(res.data) < batch_size:
+                break
+
+            start += batch_size
+
+        if all_rows:
+
+            df = pd.DataFrame(all_rows)
+
+            df["date"] = pd.to_datetime(
+                df["date"],
+                errors="coerce",
+                dayfirst=True
+            )
+
+            return df
+
         return pd.DataFrame()
+
     except Exception as e:
         st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
