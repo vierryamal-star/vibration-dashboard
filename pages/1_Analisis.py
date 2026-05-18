@@ -307,7 +307,44 @@ else:
         sel_titik_p = st.selectbox("Titik Ukur", titik_p, key="pred_titik")
     with pc3:
         sel_dir_p = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="pred_dir")
- 
+ # ── Filter histori prediksi ─────────────────────────────
+
+pred_rng = st.radio(
+    "Basis histori",
+    ["7 Hari", "30 Hari", "Custom"],
+    index=1,
+    horizontal=True,
+    key="pred_rng",
+    label_visibility="collapsed"
+)
+
+pred_from = pred_to = None
+
+if pred_rng == "Custom":
+
+    min_date = df_hist["date"].min().date()
+    max_date = df_hist["date"].max().date()
+
+    p1, p2, _ = st.columns([1,1,2])
+
+    with p1:
+        pred_from = st.date_input(
+            "Dari",
+            value=min_date,
+            key="pred_from"
+        )
+
+    with p2:
+        pred_to = st.date_input(
+            "Sampai",
+            value=max_date,
+            key="pred_to"
+        )
+
+    if pred_from > pred_to:
+        st.error("Tanggal awal tidak boleh lebih besar dari tanggal akhir.")
+        st.stop()
+     
     n_days = st.slider("Hari prediksi ke depan", 1, 7, 3)
  
     df_sel = df_hist[
@@ -315,6 +352,14 @@ else:
         (df_hist["titik"]==sel_titik_p) &
         (df_hist["direction"].isin(sel_dir_p))
     ].copy()
+
+    df_sel = apply_range(
+         df_sel,
+         "date",
+         pred_rng,
+         pred_from,
+         pred_to
+    )
  
     if df_sel.empty:
         st.warning("Tidak ada data untuk pilihan ini.")
