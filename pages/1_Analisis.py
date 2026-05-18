@@ -54,13 +54,41 @@ def add_threshold_lines(fig, thr):
 DAYS_MAP = {"7 Hari":7,"30 Hari":30,"90 Hari":90,"180 Hari":180}
  
 def apply_range(df, col, rng, custom_from=None, custom_to=None):
-    if df.empty: return df
-    if rng == "Custom" and custom_from and custom_to:
-        return df[(df[col].dt.date >= custom_from) & (df[col].dt.date <= custom_to)]
-    if rng == "All": return df
-    end   = df[col].max()
+
+    if df.empty:
+        return df
+
+    # MODE CUSTOM
+    if rng == "Custom":
+
+        if custom_from is None or custom_to is None:
+            return df
+
+        start_date = pd.to_datetime(custom_from)
+
+        end_date = (
+            pd.to_datetime(custom_to)
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(seconds=1)
+        )
+
+        return df[
+            (df[col] >= start_date) &
+            (df[col] <= end_date)
+        ]
+
+    # MODE ALL
+    if rng == "All":
+        return df
+
+    # MODE NORMAL
+    end = df[col].max()
     start = end - timedelta(days=DAYS_MAP[rng])
-    return df[(df[col]>=start)&(df[col]<=end)]
+
+    return df[
+        (df[col] >= start) &
+        (df[col] <= end)
+    ]
  
 # ── MODE 1: Trend Detail ──────────────────────────────────────────────────────
 if mode == "📈 Trend Detail":
