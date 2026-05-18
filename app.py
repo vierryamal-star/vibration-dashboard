@@ -202,7 +202,10 @@ st.markdown("### Status per Equipment")
 CBORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
 
 def dir_block(label, val, titik, thr):
-
+    """
+    Menampilkan blok per direction (H/V/A).
+    titik  : nama lokasi titik ukur tertinggi (mis. 'DE Motor', 'NDE Pump')
+    """
     if val is None or pd.isna(val):
         return f'''
         <div style="
@@ -210,26 +213,25 @@ def dir_block(label, val, titik, thr):
             text-align:center;
             background:var(--color-background-tertiary);
             border-radius:6px;
-            padding:5px 2px
+            padding:6px 4px
         ">
-            <div style="
-                font-size:16px;
-                color:var(--color-text-secondary)
-            ">
+            <div style="font-size:11px;font-weight:600;
+                        color:var(--color-text-secondary);
+                        letter-spacing:.04em">
                 {label}
             </div>
-
-            <div style="
-                font-size:14px;
-                color:var(--color-text-secondary)
-            ">
+            <div style="font-size:13px;color:var(--color-text-secondary);
+                        margin:2px 0">–</div>
+            <div style="font-size:9px;color:var(--color-text-secondary)">
                 –
             </div>
         </div>
         '''
 
     zk2 = get_zone(val, thr)[0]
-    c2  = CBORDER.get(zk2,"#94a3b8")
+    c2  = CBORDER.get(zk2, "#94a3b8")
+    # Potong nama titik jika terlalu panjang untuk muat di card
+    titik_display = titik if len(titik) <= 18 else titik[:16] + "…"
 
     return f'''
     <div style="
@@ -237,35 +239,33 @@ def dir_block(label, val, titik, thr):
         text-align:center;
         background:var(--color-background-tertiary);
         border-radius:6px;
-        padding:5px 2px
+        padding:6px 4px
     ">
-
-        <div style="
-            font-size:16px;
-            color:var(--color-text-secondary)
-        ">
+        <div style="font-size:11px;font-weight:600;
+                    color:var(--color-text-secondary);
+                    letter-spacing:.04em">
             {label}
         </div>
 
-        <div style="
-            font-size:14px;
-            font-weight:600;
-            color:{c2}
-        ">
+        <div style="font-size:14px;font-weight:700;
+                    color:{c2};margin:2px 0">
             {val:.3f}
         </div>
 
         <div style="
-            font-size:10px;
+            font-size:9px;
             color:var(--color-text-secondary);
-            margin-top:2px;
+            background:rgba(255,255,255,0.06);
+            border-radius:4px;
+            padding:1px 4px;
+            margin-top:3px;
             white-space:nowrap;
             overflow:hidden;
             text-overflow:ellipsis;
+            title="{titik}";
         ">
-            {titik}
+            📍 {titik_display}
         </div>
-
     </div>
     '''
 
@@ -305,17 +305,13 @@ for eq in sorted(df_card_latest["equipment"].dropna().unique()):
 
     # Nilai max per direction — dari SEMUA titik ukur di equipment tersebut
     def max_dir_info(d, _df=df_eq):
-
         sub = _df[
             (_df["direction"] == d) &
             (_df["value"].notna())
         ]
-    
         if sub.empty:
             return None, None
-    
         row = sub.loc[sub["value"].idxmax()]
-    
         return float(row["value"]), str(row["titik"])
 
     h_val, h_titik = max_dir_info("H")
@@ -344,7 +340,9 @@ for eq in sorted(df_card_latest["equipment"].dropna().unique()):
         "zi": zi,
         "zl": zl,
         "thr": thr,
-        "tgl": tgl_eq
+        "tgl": tgl_eq,
+        # Kumpulkan semua titik ukur unik untuk ditampilkan di card
+        "titik_list": sorted(df_eq["titik"].dropna().unique().tolist()),
     })
 
 for i in range(0, len(eq_rows), 3):
@@ -353,6 +351,22 @@ for i in range(0, len(eq_rows), 3):
     for col, r in zip(cols, chunk):
         border = CBORDER.get(r["zk"],"#94a3b8")
         ztc    = CBORDER.get(r["zk"],"#94a3b8")
+
+        # Bangun baris lokasi titik ukur
+        titik_items_html = "".join([
+            f'<span style="'
+            f'display:inline-block;'
+            f'background:rgba(255,255,255,0.06);'
+            f'border-radius:4px;'
+            f'padding:1px 6px;'
+            f'margin:2px 2px;'
+            f'font-size:9px;'
+            f'color:var(--color-text-secondary);'
+            f'white-space:nowrap'
+            f'">📍 {t}</span>'
+            for t in r["titik_list"]
+        ])
+
         col.markdown(f"""
 <div class="eq-card" style="
 border:0.5px solid var(--color-border-tertiary);
@@ -367,14 +381,18 @@ background:rgba(255,255,255,0.03)
   <div style="font-size:10px;color:var(--color-text-secondary)">{r['tgl']}</div>
 </div>
 
-<div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px">
+<div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:6px">
 {r['unit']}
 </div>
 
+<div style="margin-bottom:8px;line-height:1.6">
+{titik_items_html}
+</div>
+
 <div style="display:flex;gap:6px;margin-bottom:10px">
-{dir_block("H", r['H'], r['H_titik'], r['thr'])}
-{dir_block("V", r['V'], r['V_titik'], r['thr'])}
-{dir_block("A", r['A'], r['A_titik'], r['thr'])}
+{dir_block("H", r['H'], r['H_titik'] or "–", r['thr'])}
+{dir_block("V", r['V'], r['V_titik'] or "–", r['thr'])}
+{dir_block("A", r['A'], r['A_titik'] or "–", r['thr'])}
 </div>
 
 <div style="font-size:12px;font-weight:500;color:{ztc}">
