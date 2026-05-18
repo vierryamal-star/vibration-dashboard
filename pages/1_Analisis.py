@@ -196,88 +196,88 @@ elif mode == "⚖️ Bandingkan 2 Equipment":
  
     # ── Grafik terpisah ─────────────────────────────────────────────
 
-g1, g2 = st.columns(2)
-
-compare_data = [
-    (g1, eq1, t1, d1, "#3b82f6"),
-    (g2, eq2, t2, d2, "#ef4444"),
-]
-
-for col_graph, eq, titik, dirs, main_color in compare_data:
-
-    df_eq = df_hist[df_hist["equipment"] == eq].copy()
-
-    df_eq = apply_range(
-        df_eq,
-        "date",
-        rng_cmp,
-        cmp_from,
-        cmp_to
-    )
-
-    if titik != "Semua Titik":
-        df_eq = df_eq[df_eq["titik"] == titik]
-
-    if dirs:
-        df_eq = df_eq[df_eq["direction"].isin(dirs)]
-
-    df_eq = df_eq.sort_values("date")
-
-    thr_eq = get_threshold(eq)
-
-    fig_eq = go.Figure()
-
-    for i, titik_val in enumerate(sorted(df_eq["titik"].unique())):
-
-        for d in dirs:
-
-            sub = df_eq[
-                (df_eq["titik"] == titik_val) &
-                (df_eq["direction"] == d)
-            ]
-
-            if sub.empty:
-                continue
-
-            fig_eq.add_trace(
-                go.Scatter(
-                    x=sub["date"],
-                    y=sub["value"],
-                    mode="lines+markers",
-                    name=f"{titik_val} ({d})",
-                    line=dict(
-                        width=2,
-                        dash=ls_list[i % 4],
-                        color=colors_dir.get(d, main_color)
-                    ),
-                    marker=dict(size=6),
-                    hovertemplate=(
-                        f"<b>{eq}</b><br>"
-                        f"{titik_val} ({d})<br>"
-                        "%{x|%d-%b-%Y}<br>"
-                        "%{y:.3f} mm/s"
-                        "<extra></extra>"
-                    ),
+    g1, g2 = st.columns(2)
+    
+    compare_data = [
+        (g1, eq1, t1, d1, "#3b82f6"),
+        (g2, eq2, t2, d2, "#ef4444"),
+    ]
+    
+    for col_graph, eq, titik, dirs, main_color in compare_data:
+    
+        df_eq = df_hist[df_hist["equipment"] == eq].copy()
+    
+        df_eq = apply_range(
+            df_eq,
+            "date",
+            rng_cmp,
+            cmp_from,
+            cmp_to
+        )
+    
+        if titik != "Semua Titik":
+            df_eq = df_eq[df_eq["titik"] == titik]
+    
+        if dirs:
+            df_eq = df_eq[df_eq["direction"].isin(dirs)]
+    
+        df_eq = df_eq.sort_values("date")
+    
+        thr_eq = get_threshold(eq)
+    
+        fig_eq = go.Figure()
+    
+        for i, titik_val in enumerate(sorted(df_eq["titik"].unique())):
+    
+            for d in dirs:
+    
+                sub = df_eq[
+                    (df_eq["titik"] == titik_val) &
+                    (df_eq["direction"] == d)
+                ]
+    
+                if sub.empty:
+                    continue
+    
+                fig_eq.add_trace(
+                    go.Scatter(
+                        x=sub["date"],
+                        y=sub["value"],
+                        mode="lines+markers",
+                        name=f"{titik_val} ({d})",
+                        line=dict(
+                            width=2,
+                            dash=ls_list[i % 4],
+                            color=colors_dir.get(d, main_color)
+                        ),
+                        marker=dict(size=6),
+                        hovertemplate=(
+                            f"<b>{eq}</b><br>"
+                            f"{titik_val} ({d})<br>"
+                            "%{x|%d-%b-%Y}<br>"
+                            "%{y:.3f} mm/s"
+                            "<extra></extra>"
+                        ),
+                    )
                 )
-            )
-
-    fig_eq = add_threshold_lines(fig_eq, thr_eq)
-
-    fig_eq.update_layout(
-        title=eq,
-        xaxis_title="Tanggal",
-        yaxis_title="Vibrasi (mm/s)",
-        height=450,
-        hovermode="x unified",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02
-        ),
-    )
-
-    with col_graph:
-        st.plotly_chart(fig_eq, use_container_width=True)
+    
+        fig_eq = add_threshold_lines(fig_eq, thr_eq)
+    
+        fig_eq.update_layout(
+            title=eq,
+            xaxis_title="Tanggal",
+            yaxis_title="Vibrasi (mm/s)",
+            height=450,
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02
+            ),
+        )
+    
+        with col_graph:
+            st.plotly_chart(fig_eq, use_container_width=True)
  
     # Tabel nilai terbaru kedua equipment
     st.markdown("**Nilai terbaru**")
