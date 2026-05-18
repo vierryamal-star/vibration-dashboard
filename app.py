@@ -318,9 +318,9 @@ for eq in sorted(df_card_latest["equipment"].dropna().unique()):
     
         return float(row["value"]), str(row["titik"])
 
-        h_val, h_titik = max_dir_info("H")
-        v_val, v_titik = max_dir_info("V")
-        a_val, a_titik = max_dir_info("A")
+    h_val, h_titik = max_dir_info("H")
+    v_val, v_titik = max_dir_info("V")
+    a_val, a_titik = max_dir_info("A")
 
     # Zone ditentukan dari nilai max di semua direction yang tersedia
     all_vals = [v for v in [h_val, v_val, a_val] if v is not None and not pd.isna(v)]
