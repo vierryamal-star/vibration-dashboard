@@ -344,26 +344,179 @@ else:
 
 st.divider()
 
-# ── Detail per Equipment ──────────────────────────────────────────────────────
-st.markdown("### 🔍 Detail per Equipment")
+# ── Detail Semua Equipment ────────────────────────────────────────────────────
+st.markdown("### 🔍 Detail Pengukuran — Semua Equipment")
 
-sel_det = st.selectbox("Pilih Equipment", sorted(latest["equipment"].unique()), key="mon_det")
-thr_det = get_threshold(sel_det)
-df_det  = latest[latest["equipment"]==sel_det].copy().sort_values(["titik","direction"])
+# Filter Unit
+det_unit_opts = ["All"] + sorted(latest["unit"].dropna().unique())
+det_unit_sel  = st.radio(
+    "Filter Unit", det_unit_opts, horizontal=True, key="det_unit",
+    label_visibility="collapsed"
+)
 
-pivot_det = df_det.pivot_table(
-    index="titik", columns="direction", values="value", aggfunc="last"
-).reset_index()
-pivot_det.columns.name = None
-dir_cols_d = [c for c in ["H","V","A"] if c in pivot_det.columns]
-pivot_det["Max (mm/s)"] = pivot_det[dir_cols_d].max(axis=1)
-pivot_det["Status"]     = pivot_det["Max (mm/s)"].apply(
-    lambda v: get_zone(v,thr_det)[1]+" "+get_zone(v,thr_det)[2])
+# Filter Direction
+dfc1, dfc2 = st.columns([4,1])
+with dfc2:
+    det_dir_sel = st.multiselect(
+        "Direction", ["H","V","A"], default=["H","V","A"], key="det_dir"
+    )
 
-for c in dir_cols_d:
-    pivot_det[c] = pivot_det[c].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
-pivot_det["Max (mm/s)"] = pivot_det["Max (mm/s)"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
-pivot_det = pivot_det.rename(columns={"titik":"Titik Ukur"})
+# Terapkan filter unit
+df_det_base = latest.copy()
+if det_unit_sel != "All":
+    df_det_base = df_det_base[df_det_base["unit"] == det_unit_sel]
 
-show_cols = ["Titik Ukur"] + dir_cols_d + ["Max (mm/s)", "Status"]
-st.dataframe(pivot_det[show_cols], use_container_width=True, hide_index=True)
+if df_det_base.empty:
+    st.warning("Tidak ada data untuk unit yang dipilih.")
+    st.stop()
+
+# Helper: warna & badge zone
+ZONE_BG  = {"ZONE A":"rgba(59,130,246,0.12)","ZONE B":"rgba(34,197,94,0.12)",
+             "ZONE C":"rgba(234,179,8,0.14)","ZONE D":"rgba(239,68,68,0.14)","N/A":"rgba(148,163,184,0.10)"}
+ZONE_TC  = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
+ZONE_ICO = {"ZONE A":"🔵","ZONE B":"🟢","ZONE C":"🟡","ZONE D":"🔴","N/A":"⬜"}
+
+def val_cell(val, thr, show=True):
+    """HTML cell untuk nilai direction."""
+    if not show or val is None or pd.isna(val):
+        return '<td style="text-align:center;color:var(--color-text-secondary);padding:8px 6px">–</td>'
+    zk  = get_zone(val, thr)[0]
+    tc  = ZONE_TC.get(zk,"#94a3b8")
+    bg  = ZONE_BG.get(zk,"transparent")
+    return (
+        f'<td style="text-align:center;padding:8px 6px;background:{bg};'
+        f'font-weight:500;color:{tc};font-variant-numeric:tabular-nums">'
+        f'{val:.3f}</td>'
+    )
+
+def status_badge(zk, zi, zl):
+    tc = ZONE_TC.get(zk,"#94a3b8")
+    bg = ZONE_BG.get(zk,"transparent")
+    return (
+        f'<td style="padding:8px 10px">'
+        f'<span style="display:inline-flex;align-items:center;gap:4px;'
+        f'background:{bg};color:{tc};border:1px solid {tc}33;'
+        f'border-radius:99px;padding:2px 10px;font-size:11px;font-weight:600;white-space:nowrap">'
+        f'{zi} {zl}</span></td>'
+    )
+
+def render_equipment_table(df_unit, unit_label):
+    """Render satu blok tabel untuk unit tertentu."""
+    equips = sorted(df_unit["equipment"].dropna().unique())
+    if not equips:
+        return ""
+
+    html_rows = ""
+    for eq in equips:
+        df_eq  = df_unit[df_unit["equipment"]==eq].sort_values("titik")
+        thr    = get_threshold(eq)
+        titiks = sorted(df_eq["titik"].dropna().unique())
+        n_rows = len(titiks)
+
+        for i, titik in enumerate(titiks):
+            df_titik = df_eq[df_eq["titik"]==titik]
+            def gv(d):
+                sub = df_titik[df_titik["direction"]==d]["value"].dropna()
+                return float(sub.iloc[0]) if not sub.empty else None
+
+            h = gv("H") if "H" in det_dir_sel else None
+            v = gv("V") if "V" in det_dir_sel else None
+            a = gv("A") if "A" in det_dir_sel else None
+
+            # nilai terbaru dari direction manapun untuk zone
+            all_v = [gv(d) for d in ["H","V","A"] if gv(d) is not None]
+            max_v = max(all_v) if all_v else float("nan")
+            zk,zi,zl = get_zone(max_v, thr)
+            tc = ZONE_TC.get(zk,"#94a3b8")
+            bg_row = "rgba(239,68,68,0.04)" if zk=="ZONE D" else ("rgba(234,179,8,0.03)" if zk=="ZONE C" else "transparent")
+
+            # Equipment cell (rowspan di baris pertama)
+            if i == 0:
+                eq_cell = (
+                    f'<td rowspan="{n_rows}" style="'
+                    f'padding:10px 12px;font-size:12px;font-weight:600;'
+                    f'color:var(--color-text-primary);vertical-align:middle;'
+                    f'border-left:3px solid {tc};white-space:nowrap;'
+                    f'background:rgba(255,255,255,0.02)">{eq}</td>'
+                )
+            else:
+                eq_cell = ""
+
+            tgl_str = ""
+            if "date" in df_titik.columns:
+                tgl_val = df_titik["date"].max()
+                tgl_str = pd.to_datetime(tgl_val).strftime("%d %b %Y") if pd.notna(tgl_val) else "–"
+
+            html_rows += (
+                f'<tr style="background:{bg_row};border-bottom:1px solid rgba(255,255,255,0.04)">'
+                f'{eq_cell}'
+                f'<td style="padding:8px 12px;font-size:12px;color:var(--color-text-primary)">{titik}</td>'
+                + val_cell(h, thr, "H" in det_dir_sel)
+                + val_cell(v, thr, "V" in det_dir_sel)
+                + val_cell(a, thr, "A" in det_dir_sel)
+                + val_cell(max_v, thr)
+                + status_badge(zk,zi,zl)
+                + f'<td style="padding:8px 10px;font-size:11px;color:var(--color-text-secondary);white-space:nowrap">{tgl_str}</td>'
+                + '</tr>'
+            )
+
+    # Header direction sesuai pilihan
+    dir_headers = ""
+    for d in ["H","V","A"]:
+        if d in det_dir_sel:
+            dir_headers += f'<th style="{th_style}text-align:center">{d} (mm/s)</th>'
+
+    th_style = (
+        "padding:10px 12px;font-size:11px;font-weight:600;text-transform:uppercase;"
+        "letter-spacing:0.05em;color:var(--color-text-secondary);"
+        "border-bottom:2px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);"
+    )
+    dir_headers = ""
+    for d in ["H","V","A"]:
+        if d in det_dir_sel:
+            dir_headers += f'<th style="{th_style}text-align:center">{d} (mm/s)</th>'
+
+    table_html = f"""
+<div style="margin-bottom:24px">
+<div style="
+  font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
+  color:var(--color-text-secondary);margin-bottom:8px;padding-left:4px
+">
+  {unit_label}
+</div>
+<div style="
+  border-radius:10px;overflow:hidden;
+  border:1px solid rgba(255,255,255,0.07);
+  box-shadow:0 2px 12px rgba(0,0,0,0.3)
+">
+<table style="width:100%;border-collapse:collapse;font-size:12px">
+<thead>
+<tr>
+  <th style="{th_style}text-align:left">Equipment</th>
+  <th style="{th_style}text-align:left">Titik Ukur</th>
+  {dir_headers}
+  <th style="{th_style}text-align:center">Max (mm/s)</th>
+  <th style="{th_style}text-align:left">Status</th>
+  <th style="{th_style}text-align:left">Tanggal</th>
+</tr>
+</thead>
+<tbody>
+{html_rows}
+</tbody>
+</table>
+</div>
+</div>
+"""
+    return table_html
+
+# Render — per unit atau semua
+if det_unit_sel == "All":
+    for u in sorted(df_det_base["unit"].dropna().unique()):
+        df_u   = df_det_base[df_det_base["unit"]==u]
+        block  = render_equipment_table(df_u, f"Unit · {u}")
+        if block:
+            st.markdown(block, unsafe_allow_html=True)
+else:
+    block = render_equipment_table(df_det_base, f"Unit · {det_unit_sel}")
+    if block:
+        st.markdown(block, unsafe_allow_html=True)
