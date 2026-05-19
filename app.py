@@ -347,19 +347,36 @@ st.divider()
 # ── Detail Semua Equipment ────────────────────────────────────────────────────
 st.markdown("### 🔍 Detail Pengukuran — Semua Equipment")
 
-# Filter Unit
-det_unit_opts = ["All"] + sorted(latest["unit"].dropna().unique())
-det_unit_sel  = st.radio(
-    "Filter Unit", det_unit_opts, horizontal=True, key="det_unit",
-    label_visibility="collapsed"
-)
+st.markdown("""
+<style>
+/* toggle pill untuk direction */
+div[data-testid="stCheckbox"] > label {
+    display:inline-flex;align-items:center;justify-content:center;
+    width:36px;height:28px;border-radius:6px;cursor:pointer;
+    font-size:12px;font-weight:700;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# Filter Direction
-dfc1, dfc2 = st.columns([4,1])
-with dfc2:
-    det_dir_sel = st.multiselect(
-        "Direction", ["H","V","A"], default=["H","V","A"], key="det_dir"
+det_unit_opts = ["All"] + sorted(latest["unit"].dropna().unique())
+
+# Satu baris: Unit (lebar) | Direction (sempit)
+fcol_u, fcol_d = st.columns([6, 2])
+with fcol_u:
+    st.caption("🏭 **Unit**")
+    det_unit_sel = st.radio(
+        "Unit", det_unit_opts, horizontal=True, key="det_unit",
+        label_visibility="collapsed"
     )
+with fcol_d:
+    st.caption("📐 **Direction**")
+    d_cols = st.columns(3)
+    det_dir_sel = [
+        d for d, col in zip(["H","V","A"], d_cols)
+        if col.checkbox(d, value=True, key=f"det_dir_{d}")
+    ]
+    if not det_dir_sel:
+        det_dir_sel = ["H","V","A"]
 
 # Terapkan filter unit
 df_det_base = latest.copy()
@@ -379,24 +396,28 @@ ZONE_ICO = {"ZONE A":"🔵","ZONE B":"🟢","ZONE C":"🟡","ZONE D":"🔴","N/A
 def val_cell(val, thr, show=True):
     """HTML cell untuk nilai direction."""
     if not show or val is None or pd.isna(val):
-        return '<td style="text-align:center;color:var(--color-text-secondary);padding:8px 6px">–</td>'
+        return '<td style="text-align:center;padding:10px 8px;color:#475569;font-size:13px">–</td>'
     zk  = get_zone(val, thr)[0]
     tc  = ZONE_TC.get(zk,"#94a3b8")
     bg  = ZONE_BG.get(zk,"transparent")
+    bar_w = min(int((val / 4.5) * 100), 100)
     return (
-        f'<td style="text-align:center;padding:8px 6px;background:{bg};'
-        f'font-weight:500;color:{tc};font-variant-numeric:tabular-nums">'
-        f'{val:.3f}</td>'
+        f'<td style="text-align:center;padding:10px 8px;background:{bg};font-variant-numeric:tabular-nums">'
+        f'<span style="font-size:13px;font-weight:700;color:{tc}">{val:.3f}</span>'
+        f'<div style="margin-top:4px;height:2px;border-radius:2px;background:rgba(255,255,255,0.05)">'
+        f'<div style="height:2px;border-radius:2px;width:{bar_w}%;background:{tc};opacity:0.6"></div>'
+        f'</div></td>'
     )
 
 def status_badge(zk, zi, zl):
     tc = ZONE_TC.get(zk,"#94a3b8")
     bg = ZONE_BG.get(zk,"transparent")
     return (
-        f'<td style="padding:8px 10px">'
-        f'<span style="display:inline-flex;align-items:center;gap:4px;'
-        f'background:{bg};color:{tc};border:1px solid {tc}33;'
-        f'border-radius:99px;padding:2px 10px;font-size:11px;font-weight:600;white-space:nowrap">'
+        f'<td style="padding:9px 12px;text-align:center">'
+        f'<span style="display:inline-flex;align-items:center;gap:5px;'
+        f'background:{bg};color:{tc};border:1px solid {tc}40;'
+        f'border-radius:99px;padding:3px 11px;font-size:10.5px;font-weight:700;'
+        f'letter-spacing:0.03em;white-space:nowrap">'
         f'{zi} {zl}</span></td>'
     )
 
@@ -434,10 +455,10 @@ def render_equipment_table(df_unit, unit_label):
             if i == 0:
                 eq_cell = (
                     f'<td rowspan="{n_rows}" style="'
-                    f'padding:10px 12px;font-size:12px;font-weight:600;'
-                    f'color:var(--color-text-primary);vertical-align:middle;'
-                    f'border-left:3px solid {tc};white-space:nowrap;'
-                    f'background:rgba(255,255,255,0.02)">{eq}</td>'
+                    f'padding:12px 14px;font-size:12px;font-weight:700;'
+                    f'color:#e2e8f0;vertical-align:middle;'
+                    f'border-left:4px solid {tc};white-space:nowrap;'
+                    f'background:rgba(255,255,255,0.025)">{eq}</td>'
                 )
             else:
                 eq_cell = ""
@@ -447,51 +468,60 @@ def render_equipment_table(df_unit, unit_label):
                 tgl_val = df_titik["date"].max()
                 tgl_str = pd.to_datetime(tgl_val).strftime("%d %b %Y") if pd.notna(tgl_val) else "–"
 
+            row_bg = bg_row if bg_row else ("rgba(255,255,255,0.018)" if i % 2 == 1 else "transparent")
             html_rows += (
-                f'<tr style="background:{bg_row};border-bottom:1px solid rgba(255,255,255,0.04)">'
+                f'<tr style="background:{row_bg};border-bottom:1px solid rgba(255,255,255,0.05)">'
                 f'{eq_cell}'
-                f'<td style="padding:8px 12px;font-size:12px;color:var(--color-text-primary)">{titik}</td>'
+                f'<td style="padding:10px 14px;font-size:12px;color:#cbd5e1;letter-spacing:0.01em">{titik}</td>'
                 + val_cell(h, thr, "H" in det_dir_sel)
                 + val_cell(v, thr, "V" in det_dir_sel)
                 + val_cell(a, thr, "A" in det_dir_sel)
                 + val_cell(max_v, thr)
                 + status_badge(zk,zi,zl)
-                + f'<td style="padding:8px 10px;font-size:11px;color:var(--color-text-secondary);white-space:nowrap">{tgl_str}</td>'
+                + f'<td style="padding:10px 14px;font-size:11px;color:#475569;white-space:nowrap;text-align:right">{tgl_str}</td>'
                 + '</tr>'
             )
 
     th_style = (
-        "padding:10px 12px;font-size:11px;font-weight:600;text-transform:uppercase;"
-        "letter-spacing:0.05em;color:var(--color-text-secondary);"
-        "border-bottom:2px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);"
+        "padding:11px 14px;font-size:10.5px;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:0.07em;color:#64748b;"
+        "border-bottom:1px solid rgba(255,255,255,0.08);background:#0f172a;"
     )
     dir_headers = ""
     for d in ["H","V","A"]:
         if d in det_dir_sel:
-            dir_headers += f'<th style="{th_style}text-align:center">{d} (mm/s)</th>'
+            dir_headers += f'<th style="{th_style}text-align:center;min-width:90px">{d} <span style="font-size:9px;opacity:0.7">mm/s</span></th>'
 
     table_html = f"""
-<div style="margin-bottom:24px">
+<div style="margin-bottom:32px">
 <div style="
-  font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
-  color:var(--color-text-secondary);margin-bottom:8px;padding-left:4px
+  display:flex;align-items:center;gap:10px;
+  margin-bottom:10px;padding-left:2px
 ">
-  {unit_label}
+  <div style="
+    width:3px;height:18px;border-radius:2px;
+    background:linear-gradient(180deg,#3b82f6,#06b6d4)
+  "></div>
+  <span style="
+    font-size:11px;font-weight:700;letter-spacing:0.1em;
+    text-transform:uppercase;color:#94a3b8
+  ">{unit_label}</span>
 </div>
 <div style="
-  border-radius:10px;overflow:hidden;
-  border:1px solid rgba(255,255,255,0.07);
-  box-shadow:0 2px 12px rgba(0,0,0,0.3)
+  border-radius:12px;overflow:hidden;
+  border:1px solid rgba(255,255,255,0.06);
+  box-shadow:0 4px 24px rgba(0,0,0,0.4);
+  background:#0f172a
 ">
-<table style="width:100%;border-collapse:collapse;font-size:12px">
+<table style="width:100%;border-collapse:collapse;font-size:12.5px">
 <thead>
 <tr>
-  <th style="{th_style}text-align:left">Equipment</th>
-  <th style="{th_style}text-align:left">Titik Ukur</th>
+  <th style="{th_style}text-align:left;min-width:160px">Equipment</th>
+  <th style="{th_style}text-align:left;min-width:130px">Titik Ukur</th>
   {dir_headers}
-  <th style="{th_style}text-align:center">Max (mm/s)</th>
-  <th style="{th_style}text-align:left">Status</th>
-  <th style="{th_style}text-align:left">Tanggal</th>
+  <th style="{th_style}text-align:center;min-width:100px">Max <span style="font-size:9px;opacity:0.7">mm/s</span></th>
+  <th style="{th_style}text-align:center;min-width:130px">Status</th>
+  <th style="{th_style}text-align:right;min-width:110px">Tanggal</th>
 </tr>
 </thead>
 <tbody>
