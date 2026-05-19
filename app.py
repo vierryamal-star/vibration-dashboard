@@ -460,12 +460,6 @@ def render_equipment_table(df_unit, unit_label):
                 + '</tr>'
             )
 
-    # Header direction sesuai pilihan
-    dir_headers = ""
-    for d in ["H","V","A"]:
-        if d in det_dir_sel:
-            dir_headers += f'<th style="{th_style}text-align:center">{d} (mm/s)</th>'
-
     th_style = (
         "padding:10px 12px;font-size:11px;font-weight:600;text-transform:uppercase;"
         "letter-spacing:0.05em;color:var(--color-text-secondary);"
