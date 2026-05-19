@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime
 
-# ── Threshold ─────────────────────────────────────────────────────────────────
+# ── Threshold baru ────────────────────────────────────────────────────────────
 # A (Accepted)   : < 1.4
 # B (Pre Warning): 1.4 - 2.8
 # C (Warning)    : 2.8 - 4.5
@@ -33,7 +33,6 @@ ZONE_ICON = {
     "ZONE D": "🔴",
 }
 
-
 def get_supabase(service_role=False):
     import streamlit as st
     from supabase import create_client
@@ -41,13 +40,11 @@ def get_supabase(service_role=False):
     key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-
 def get_threshold(equipment: str):
     name = equipment.upper()
     if "TURBINE" in name:
         return THRESHOLD["Turbine"]
     return THRESHOLD["Pump/Fan"]
-
 
 def get_turbine_unit(equipment: str) -> str:
     name = equipment.upper()
@@ -58,13 +55,8 @@ def get_turbine_unit(equipment: str) -> str:
             return "TBK #2"
     return None
 
-
 def get_zone(value, thr):
     """Return (zone_key, icon, label)"""
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return "N/A", "⬜", "N/A"
     if pd.isna(value):
         return "N/A", "⬜", "N/A"
     if value < thr["A"]:
@@ -76,129 +68,55 @@ def get_zone(value, thr):
     else:
         return "ZONE D", "🔴", "Danger"
 
-
 def init_db():
     pass
 
-
-def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Sanitasi DataFrame hasil load dari Supabase.
-    - Paksa kolom 'value' jadi numerik; buang baris yang value-nya bukan angka
-      (termasuk yang mengandung string HTML seperti '<div ...>').
-    - Pastikan kolom wajib ada.
-    """
-    if df.empty:
-        return df
-
-    # Paksa numeric — string HTML / teks apapun akan jadi NaN lalu dibuang
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df = df[df["value"].notna()].copy()
-
-    # Pastikan value adalah float bersih
-    df["value"] = df["value"].astype(float)
-
-    # Pastikan kolom teks tidak mengandung karakter aneh
-    for col in ["equipment", "unit", "titik", "direction"]:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-            # Buang baris yang kolom kunci-nya mengandung '<' (indikasi HTML masuk ke sini)
-            df = df[~df[col].str.contains("<", na=False)]
-
-    return df.reset_index(drop=True)
-
-
 import streamlit as st
-
 
 @st.cache_data(ttl=60)
 def load_history() -> pd.DataFrame:
     try:
         sb = get_supabase()
-        all_rows = []
-        batch_size = 1000
-        start = 0
-
-        while True:
-            end = start + batch_size - 1
-            res = (
-                sb.table("vibration")
-                .select("*")
-                .order("date", desc=False)
-                .range(start, end)
-                .execute()
-            )
-            if not res.data:
-                break
-            all_rows.extend(res.data)
-            if len(res.data) < batch_size:
-                break
-            start += batch_size
-
-        if all_rows:
-            df = pd.DataFrame(all_rows)
-            df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-            # ── FIX: sanitasi data kotor dari DB ─────────────────────────────
-            df = _sanitize_df(df)
-            # ─────────────────────────────────────────────────────────────────
-
-            return df
-
+        res = sb.table("vibration").select("*").limit(50000).order("date", desc=True).execute()
+        if res.data:
+            return pd.DataFrame(res.data)
         return pd.DataFrame()
-
     except Exception as e:
         st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
-
 
 def save_to_db(df: pd.DataFrame) -> int:
     try:
         sb = get_supabase(service_role=True)
         now = datetime.now().isoformat()
-
         res = sb.table("vibration").select("equipment,unit,titik,direction,date").execute()
         existing_keys = set()
         if res.data:
             for row in res.data:
                 key = f"{row['equipment']}|{row['unit']}|{row['titik']}|{row['direction']}|{str(row['date'])[:10]}"
                 existing_keys.add(key)
-
         rows_to_insert = []
         for _, r in df.iterrows():
             date_str = str(r["date"])[:10] if pd.notna(r["date"]) else ""
             key = f"{r['equipment']}|{r['unit']}|{r['titik']}|{r['direction']}|{date_str}"
             if key not in existing_keys:
-                # Pastikan value benar-benar float sebelum simpan
-                try:
-                    val = float(r["value"]) if pd.notna(r["value"]) else None
-                except (TypeError, ValueError):
-                    val = None  # skip nilai tidak valid
-
-                if val is None:
-                    continue  # jangan simpan baris tanpa nilai numerik
-
                 rows_to_insert.append({
                     "equipment":   str(r["equipment"]),
                     "unit":        str(r["unit"]),
                     "titik":       str(r["titik"]),
                     "direction":   str(r["direction"]),
                     "date":        date_str,
-                    "value":       val,
+                    "value":       float(r["value"]) if pd.notna(r["value"]) else None,
                     "uploaded_at": now,
                 })
-
         if rows_to_insert:
             batch_size = 500
             for i in range(0, len(rows_to_insert), batch_size):
-                sb.table("vibration").insert(rows_to_insert[i:i + batch_size]).execute()
-
+                sb.table("vibration").insert(rows_to_insert[i:i+batch_size]).execute()
         return len(rows_to_insert)
-
     except Exception as e:
         st.error(f"Gagal simpan data: {e}")
         return 0
-
 
 def delete_by_dates(dates: list) -> int:
     try:
@@ -213,7 +131,6 @@ def delete_by_dates(dates: list) -> int:
         st.error(f"Gagal hapus data: {e}")
         return 0
 
-
 def delete_all() -> int:
     try:
         sb = get_supabase(service_role=True)
@@ -223,73 +140,60 @@ def delete_all() -> int:
         st.error(f"Gagal hapus semua data: {e}")
         return 0
 
-
 def parse_excel(file) -> pd.DataFrame:
+    import streamlit as st
     try:
         df = pd.read_excel(file, sheet_name="Vibration_Data")
     except Exception as e:
         st.error(f"Gagal baca file {getattr(file, 'name', 'unknown')}: {e}")
         return pd.DataFrame()
-
     df.columns = [c.strip() for c in df.columns]
     col_map = {}
     for c in df.columns:
         cl = c.lower()
-        if "equipment" in cl:   col_map[c] = "equipment"
-        elif "unit" in cl:      col_map[c] = "unit"
-        elif "titik" in cl:     col_map[c] = "titik"
-        elif "direction" in cl: col_map[c] = "direction"
-        elif "date" in cl:      col_map[c] = "date"
-        elif "value" in cl:     col_map[c] = "value"
+        if "equipment" in cl:    col_map[c] = "equipment"
+        elif "unit" in cl:       col_map[c] = "unit"
+        elif "titik" in cl:      col_map[c] = "titik"
+        elif "direction" in cl:  col_map[c] = "direction"
+        elif "date" in cl:       col_map[c] = "date"
+        elif "value" in cl:      col_map[c] = "value"
     df = df.rename(columns=col_map)
-
     required = {"equipment", "unit", "titik", "direction", "date", "value"}
     missing = required - set(df.columns)
     if missing:
         st.error(f"Kolom tidak ditemukan: {missing}")
         return pd.DataFrame()
-
     df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     df = df.dropna(subset=["value"])
-
     return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
-
 
 def load_filtered(df_hist, units, equips, directions):
     if df_hist.empty:
         return pd.DataFrame()
     df = df_hist.copy()
-    df["date"]  = pd.to_datetime(df["date"],  errors="coerce")
-    df["value"] = pd.to_numeric(df["value"],  errors="coerce")
-    return df[
-        df["unit"].isin(units) &
-        df["equipment"].isin(equips) &
-        df["direction"].isin(directions)
-    ].copy()
-
+    df["date"]  = pd.to_datetime(df["date"], errors="coerce")
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    return df[df["unit"].isin(units) & df["equipment"].isin(equips) & df["direction"].isin(directions)].copy()
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["thr_type"]   = df["equipment"].apply(
-        lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan"
-    )
-    df["zone"]       = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
-    df["zone_icon"]  = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
-    df["zone_label"] = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[2], axis=1)
+    df["thr_type"]  = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
+    df["zone"]      = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
+    df["zone_icon"] = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
+    df["zone_label"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[2], axis=1)
     return df
 
-
-EDITOR_PASSWORD = "pltu2026"
-
+EDITOR_PASSWORD = "pltu2024"
 
 def check_role():
+    import streamlit as st
     if "role" not in st.session_state:
         st.session_state["role"] = "viewer"
     return st.session_state["role"]
 
-
 def render_login_sidebar():
+    import streamlit as st
     role = check_role()
     st.sidebar.divider()
     if role == "editor":
@@ -308,8 +212,8 @@ def render_login_sidebar():
                 else:
                     st.error("Password salah.")
 
-
 def require_editor():
+    import streamlit as st
     if check_role() != "editor":
         st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
         return False
