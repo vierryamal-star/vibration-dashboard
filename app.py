@@ -197,12 +197,25 @@ st.markdown("### Status per Equipment")
 
 CBORDER = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#eab308","ZONE D":"#ef4444","N/A":"#94a3b8"}
 
-def dir_block(label, val, thr):
+def dir_block(label, val, thr, titik=None):
+    titik_html = f'<div style="font-size:9px;color:var(--color-text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="{titik or ""}">{titik or ""}</div>'
     if val is None or pd.isna(val):
-        return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:16px;color:var(--color-text-secondary)">{label}</div><div style="font-size:14px;color:var(--color-text-secondary)">–</div></div>'
+        return (
+            f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);'
+            f'border-radius:6px;padding:5px 2px">'
+            f'<div style="font-size:16px;color:var(--color-text-secondary)">{label}</div>'
+            f'<div style="font-size:14px;color:var(--color-text-secondary)">–</div>'
+            f'{titik_html}</div>'
+        )
     zk2 = get_zone(val, thr)[0]
     c2  = CBORDER.get(zk2,"#94a3b8")
-    return f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);border-radius:6px;padding:5px 2px"><div style="font-size:16px;color:var(--color-text-secondary)">{label}</div><div style="font-size:14px;font-weight:500;color:{c2}">{val:.3f}</div></div>'
+    return (
+        f'<div style="flex:1;text-align:center;background:var(--color-background-tertiary);'
+        f'border-radius:6px;padding:5px 2px">'
+        f'<div style="font-size:16px;color:var(--color-text-secondary)">{label}</div>'
+        f'<div style="font-size:14px;font-weight:500;color:{c2}">{val:.3f}</div>'
+        f'{titik_html}</div>'
+    )
 
 # Card equipment: pakai SEMUA histori tanpa filter direction
 # agar semua equipment tampil dengan nilai H/V/A yang lengkap
@@ -238,21 +251,27 @@ for eq in sorted(df_card_latest["equipment"].dropna().unique()):
     unit  = df_eq["unit"].iloc[0]
     thr   = get_threshold(eq)
 
-    # Nilai max per direction — dari SEMUA titik ukur di equipment tersebut
-    def max_dir(d, _df=df_eq):
-        sub = _df[_df["direction"]==d]["value"].dropna()
-        return float(sub.max()) if not sub.empty else None
+    # Nilai max per direction + nama titik yang jadi sumber max
+    def max_dir_info(d, _df=df_eq):
+        sub = _df[_df["direction"]==d][["value","titik"]].dropna(subset=["value"])
+        if sub.empty:
+            return None, None
+        idx = sub["value"].idxmax()
+        return float(sub.loc[idx,"value"]), str(sub.loc[idx,"titik"])
 
-    h_val = max_dir("H")
-    v_val = max_dir("V")
-    a_val = max_dir("A")
+    h_val, h_titik = max_dir_info("H")
+    v_val, v_titik = max_dir_info("V")
+    a_val, a_titik = max_dir_info("A")
 
     # Zone ditentukan dari nilai max di semua direction yang tersedia
     all_vals = [v for v in [h_val, v_val, a_val] if v is not None and not pd.isna(v)]
     max_val  = max(all_vals) if all_vals else float("nan")
     zk,zi,zl = get_zone(max_val, thr)
     tgl_eq   = pd.to_datetime(df_eq["date"].max()).strftime("%d-%b-%Y") if pd.notna(df_eq["date"].max()) else "–"
-    eq_rows.append({"eq":eq,"unit":unit,"H":h_val,"V":v_val,"A":a_val,
+    eq_rows.append({"eq":eq,"unit":unit,
+                    "H":h_val,"H_titik":h_titik,
+                    "V":v_val,"V_titik":v_titik,
+                    "A":a_val,"A_titik":a_titik,
                     "zk":zk,"zi":zi,"zl":zl,"thr":thr,"tgl":tgl_eq})
 
 for i in range(0, len(eq_rows), 3):
@@ -280,9 +299,9 @@ background:rgba(255,255,255,0.03)
 </div>
 
 <div style="display:flex;gap:6px;margin-bottom:10px">
-{dir_block("H",r['H'],r['thr'])}
-{dir_block("V",r['V'],r['thr'])}
-{dir_block("A",r['A'],r['thr'])}
+{dir_block("H",r['H'],r['thr'],r['H_titik'])}
+{dir_block("V",r['V'],r['thr'],r['V_titik'])}
+{dir_block("A",r['A'],r['thr'],r['A_titik'])}
 </div>
 
 <div style="font-size:12px;font-weight:500;color:{ztc}">
