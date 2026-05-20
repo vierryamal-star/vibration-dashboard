@@ -77,10 +77,35 @@ import streamlit as st
 def load_history() -> pd.DataFrame:
     try:
         sb = get_supabase()
-        res = sb.table("vibration").select("*").limit(50000).order("date", desc=True).execute()
-        if res.data:
-            return pd.DataFrame(res.data)
-        return pd.DataFrame()
+
+        all_rows = []
+        batch_size = 1000
+        start = 0
+
+        while True:
+
+            res = (
+                sb.table("vibration")
+                .select("*")
+                .order("date", desc=True)
+                .range(start, start + batch_size - 1)
+                .execute()
+            )
+
+            rows = res.data if res.data else []
+
+            if not rows:
+                break
+
+            all_rows.extend(rows)
+
+            if len(rows) < batch_size:
+                break
+
+            start += batch_size
+
+        return pd.DataFrame(all_rows)
+
     except Exception as e:
         st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
