@@ -148,8 +148,19 @@ if df_base.empty:
     st.stop()
 
 df_base = add_zone_cols(df_base)
-latest  = df_base.sort_values("date").groupby(
-    ["unit","equipment","titik","direction"], as_index=False).last()
+
+# Hitung latest hanya sekali
+latest_all = (
+    df_base
+    .sort_values("date")
+    .groupby(
+        ["unit", "equipment", "titik", "direction"],
+        as_index=False
+    )
+    .last()
+)
+
+latest = latest_all.copy()
 
 total = len(latest)
 n_d = int((latest["zone"]=="ZONE D").sum())
@@ -221,9 +232,8 @@ if df_card.empty:
     st.warning("Tidak ada data equipment.")
     st.stop()
 
-df_card_lat = df_card.sort_values("date").groupby(
-    ["unit","equipment","titik","direction"], as_index=False).last()
-df_card_lat = add_zone_cols(df_card_lat)
+# Reuse hasil latest sebelumnya
+df_card_lat = latest.copy()
 
 def _max_dir(df_eq, d):
     sub = df_eq[df_eq["direction"]==d][["value","titik"]].dropna(subset=["value"])
