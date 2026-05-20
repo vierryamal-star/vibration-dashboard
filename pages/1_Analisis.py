@@ -340,12 +340,8 @@ if mode == "📈 Trend Detail":
                            file_name=f"trend_{sel_eq.replace(' ','_')}.csv",
                            mime="text/csv", use_container_width=True)
     with ex2:
-        # Download chart config image via plotly
-        img_bytes = fig.to_image(format="png", width=1200, height=500, scale=2) if hasattr(fig,"to_image") else None
-        if img_bytes:
-            st.download_button("🖼️ Download Chart", img_bytes,
-                               file_name=f"chart_{sel_eq.replace(' ','_')}.png",
-                               mime="image/png", use_container_width=True)
+        # Kaleido tidak selalu tersedia di cloud — gunakan config Plotly bawaan
+        st.caption("💡 Gunakan tombol 📷 di sudut kanan atas grafik untuk download chart.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODE 2 — BANDINGKAN EQUIPMENT
@@ -631,7 +627,7 @@ else:
     for d in sel_dir_p:
         if d not in roc_summaries: continue
         pred_dates, pred_vals, *rest = roc_summaries[d]
-        slope_d = rest[1]  # roc_per_day
+        slope_d = rest[3]  # index: 0=pred_upper,1=pred_lower,2=slope,3=roc_per_day
         for dt, val in zip(pred_dates, pred_vals):
             zk,zi,zl = get_zone(val, thr_p)
             pred_rows.append({
