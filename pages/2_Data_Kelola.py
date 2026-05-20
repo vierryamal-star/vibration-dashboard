@@ -301,7 +301,7 @@ with tab_hapus:
 
                 # Tanggal yang tersedia dalam rentang 5 hari ke belakang
                 avail_dates_all = sorted(df_hapus["date_str"].dropna().unique(), reverse=True)
-                avail_dates     = [d for d in avail_dates_all if d >= min_allow_str]
+                avail_dates     = avail_dates_all
 
                 st.markdown(f"""
 <div class="info-box">
