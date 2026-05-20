@@ -296,7 +296,7 @@ with tab_hapus:
 
                 # Batasi hanya 5 hari ke belakang dari hari ini
                 today     = date.today()
-                min_allow = today - timedelta(days=5)
+                min_allow = today - timedelta(days=365)
                 min_allow_str = min_allow.strftime("%Y-%m-%d")
 
                 # Tanggal yang tersedia dalam rentang 5 hari ke belakang
