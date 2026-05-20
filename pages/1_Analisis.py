@@ -333,15 +333,14 @@ if mode == "📈 Trend Detail":
     st.markdown(render_zone_table(df_tbl, thr, show_cols), unsafe_allow_html=True)
 
     # Export
-    ex1, ex2, _ = st.columns([1,1,4])
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+    ex1, _ = st.columns([1, 3])
     with ex1:
         csv_bytes = df_to_csv(df_tbl[show_cols])
         st.download_button("⬇️ Download CSV", csv_bytes,
                            file_name=f"trend_{sel_eq.replace(' ','_')}.csv",
                            mime="text/csv", use_container_width=True)
-    with ex2:
-        # Kaleido tidak selalu tersedia di cloud — gunakan config Plotly bawaan
-        st.caption("💡 Gunakan tombol 📷 di sudut kanan atas grafik untuk download chart.")
+    st.caption("💡 Download chart: gunakan tombol 📷 di sudut kanan atas grafik.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODE 2 — BANDINGKAN EQUIPMENT
@@ -603,9 +602,21 @@ else:
 
     fig_pred = add_threshold_lines(fig_pred, thr_p)
     fig_pred.update_layout(
-        title=dict(text=f"Prediksi {n_days} hari — {sel_eq_p} · {sel_titik_p}", font_size=14),
-        xaxis_title="Tanggal", yaxis_title="Vibrasi (mm/s)", height=460,
-        **plotly_theme()
+        title=dict(text=f"Prediksi {n_days} hari — {sel_eq_p} · {sel_titik_p}",
+                   font_size=14, pad=dict(b=8)),
+        xaxis_title="Tanggal", yaxis_title="Vibrasi (mm/s)",
+        height=520,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(size=12),
+        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.1)", zeroline=False),
+        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.1)", zeroline=False),
+        hovermode="x unified",
+        margin=dict(l=0, r=0, t=50, b=140),
+        legend=dict(
+            orientation="h", yanchor="top", y=-0.22,
+            xanchor="left", x=0, font_size=11,
+            bgcolor="rgba(0,0,0,0)", borderwidth=0,
+        ),
     )
     st.plotly_chart(fig_pred, use_container_width=True)
 
