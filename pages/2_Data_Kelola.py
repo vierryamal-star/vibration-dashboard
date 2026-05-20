@@ -294,37 +294,21 @@ with tab_hapus:
             with h_tab1:
                 st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
-                # Batasi hanya 5 hari ke belakang dari hari ini
-                today     = date.today()
-                min_allow = today - timedelta(days=5)
-                min_allow_str = min_allow.strftime("%Y-%m-%d")
-
-                # Tanggal yang tersedia dalam rentang 5 hari ke belakang
-                avail_dates_all = sorted(df_hapus["date_str"].dropna().unique(), reverse=True)
-                avail_dates     = [d for d in avail_dates_all if d >= min_allow_str]
-
-                st.markdown(f"""
-<div class="info-box">
-🗓️ Hanya data <b>5 hari ke belakang</b> yang dapat dihapus per tanggal
-(<b>{min_allow.strftime('%d %b %Y')}</b> – <b>{today.strftime('%d %b %Y')}</b>).<br>
-Untuk menghapus data lebih lama, gunakan tab <b>Hapus Semua</b>.
-</div>""", unsafe_allow_html=True)
-                st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+                avail_dates = sorted(df_hapus["date_str"].dropna().unique(), reverse=True)
 
                 if not avail_dates:
-                    st.markdown('<div class="warn-box">⚠️ Tidak ada data dalam 5 hari terakhir yang bisa dihapus.</div>',
+                    st.markdown('<div class="warn-box">⚠️ Tidak ada data yang bisa dihapus.</div>',
                                 unsafe_allow_html=True)
                 else:
                     # Tampilkan ringkasan tanggal yang tersedia
                     summ_avail = (
-                        df_hapus[df_hapus["date_str"].isin(avail_dates)]
-                        .groupby("date_str").size().reset_index(name="Jumlah Baris")
+                        df_hapus.groupby("date_str").size().reset_index(name="Jumlah Baris")
                         .sort_values("date_str", ascending=False)
                     )
                     summ_avail["Tanggal"] = summ_avail["date_str"].apply(
                         lambda d: datetime.strptime(d,"%Y-%m-%d").strftime("%d %B %Y"))
 
-                    sec_header("Tanggal Tersedia (5 Hari Terakhir)")
+                    sec_header(f"Tanggal Tersedia ({len(avail_dates)} tanggal)")
                     # Tabel ringkasan tersedia
                     rows_s = ""
                     for i, (_, r) in enumerate(summ_avail.iterrows()):
