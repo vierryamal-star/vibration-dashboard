@@ -23,8 +23,8 @@ st.markdown("""
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-.eq-card{ transition: transform .18s, box-shadow .18s; cursor:pointer; }
-.eq-card:hover{ transform:translateY(-3px); border-left-width:5px !important; }
+.eq-card{ cursor:pointer; }
+.eq-card:hover{ border-left-width:5px !important; }
 
 /* Tabel: pakai inherit supaya ikut tema Streamlit */
 .vt-wrap{
@@ -34,7 +34,7 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
     box-shadow:0 2px 16px rgba(0,0,0,.15);
 }
 .vt{
-    width:100%; border-collapse:collapse; font-size:12.5px;
+    width:100%; border-collapse:collapse; font-size:13px;
     background: color-mix(in srgb, var(--background-color) 95%, transparent);
     color: inherit;
 }
@@ -43,7 +43,7 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
     border-bottom:2px solid color-mix(in srgb, currentColor 10%, transparent);
 }
 .vt thead th{
-    padding:11px 14px; font-size:10px; font-weight:700;
+    padding:12px 14px; font-size:11px; font-weight:700;
     text-transform:uppercase; letter-spacing:.09em;
     color:inherit; opacity:.55; white-space:nowrap;
 }
@@ -115,8 +115,12 @@ with fa:
     sel_unit = all_units if sel_unit_btn=="All" else [sel_unit_btn]
 with fb:
     st.caption("**⚙️ Equipment**")
-    sel_equip = st.multiselect("Equipment", all_equip, default=all_equip,
-                               key="mon_equip", label_visibility="collapsed")
+    with st.expander(f"Filter ({len(all_equip)} equipment)", expanded=False):
+        col_selall, _ = st.columns([1,3])
+        if col_selall.button("Pilih Semua", key="eq_selall", use_container_width=True):
+            st.session_state["mon_equip"] = all_equip
+        sel_equip = st.multiselect("Equipment", all_equip, default=all_equip,
+                                   key="mon_equip", label_visibility="collapsed")
 with fc:
     st.caption("**📅 Tampilkan**")
     date_mode = st.radio("Mode", ["🕐 Terbaru","📅 Pilih tanggal"],
@@ -231,18 +235,18 @@ def _dir_pill(label, val, thr, titik):
     if val is None or pd.isna(val):
         return (f'<div style="flex:1;display:flex;flex-direction:column;align-items:center;'
                 f'background:rgba(128,128,128,.1);border-radius:8px;padding:6px 4px;gap:1px">'
-                f'<span style="font-size:10px;font-weight:700;opacity:.4">{label}</span>'
-                f'<span style="font-size:13px;opacity:.3">–</span>'
-                f'<span style="font-size:8px;opacity:.25">–</span></div>')
+                f'<span style="font-size:12px;font-weight:700;opacity:.4">{label}</span>'
+                f'<span style="font-size:15px;opacity:.3">–</span>'
+                f'<span style="font-size:10px;opacity:.25">–</span></div>')
     zk = get_zone(val, thr)[0]
     c  = ZC.get(zk,"#6b7280")
     bg = ZB.get(zk,"transparent")
     ts = (titik[:10]+"…") if titik and len(titik)>11 else (titik or "")
     return (f'<div style="flex:1;display:flex;flex-direction:column;align-items:center;'
             f'background:{bg};border-radius:8px;padding:6px 4px;gap:1px">'
-            f'<span style="font-size:10px;font-weight:700;color:{c};opacity:.8">{label}</span>'
-            f'<span style="font-size:13px;font-weight:700;color:{c}">{val:.3f}</span>'
-            f'<span style="font-size:8px;color:{c};opacity:.65;white-space:nowrap;'
+            f'<span style="font-size:12px;font-weight:700;color:{c};opacity:.8">{label}</span>'
+            f'<span style="font-size:15px;font-weight:700;color:{c}">{val:.3f}</span>'
+            f'<span style="font-size:10px;color:{c};opacity:.65;white-space:nowrap;'
             f'overflow:hidden;text-overflow:ellipsis;max-width:100%">{ts}</span></div>')
 
 eq_rows = []
@@ -273,18 +277,18 @@ for i in range(0, len(eq_rows), 3):
   border-radius:0 12px 12px 0; padding:14px; margin-bottom:10px;
   background:{bg};">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
-    <div style="font-size:13px;font-weight:700;line-height:1.3">{r['eq']}</div>
-    <div style="font-size:9px;opacity:.45;white-space:nowrap;margin-left:6px">{r['tgl']}</div>
+    <div style="font-size:15px;font-weight:700;line-height:1.3">{r['eq']}</div>
+    <div style="font-size:11px;opacity:.45;white-space:nowrap;margin-left:6px">{r['tgl']}</div>
   </div>
-  <div style="font-size:10px;opacity:.45;margin-bottom:10px">{r['unit']}</div>
+  <div style="font-size:12px;opacity:.45;margin-bottom:10px">{r['unit']}</div>
   <div style="display:flex;gap:5px;margin-bottom:10px">
     {_dir_pill("H",r['H'],r['thr'],r['Ht'])}
     {_dir_pill("V",r['V'],r['thr'],r['Vt'])}
     {_dir_pill("A",r['A'],r['thr'],r['At'])}
   </div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-    <span style="font-size:11px;font-weight:700;color:{bc}">{r['zi']} {r['zl']}</span>
-    <span style="font-size:10px;font-weight:600;color:{bc};opacity:.8">{r['mx']:.3f} mm/s</span>
+    <span style="font-size:13px;font-weight:700;color:{bc}">{r['zi']} {r['zl']}</span>
+    <span style="font-size:12px;font-weight:600;color:{bc};opacity:.8">{r['mx']:.3f} mm/s</span>
   </div>
   <div style="height:3px;border-radius:2px;background:rgba(128,128,128,.2);overflow:hidden">
     <div style="height:3px;width:{bar}%;background:{bc};border-radius:2px"></div>
@@ -389,7 +393,7 @@ def _val_td(val, thr, show=True):
     bar = min(int((val/4.5)*100),100)
     return (
         f'<td style="text-align:center;padding:9px 10px;background:{bg}">'
-        f'<span style="font-size:13px;font-weight:700;color:{tc};font-variant-numeric:tabular-nums">'
+        f'<span style="font-size:14px;font-weight:700;color:{tc};font-variant-numeric:tabular-nums">'
         f'{val:.3f}</span>'
         f'<div style="margin-top:3px;height:2px;border-radius:1px;background:rgba(128,128,128,.2)">'
         f'<div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div>'
@@ -403,7 +407,7 @@ def _badge_td(zk, zi, zl):
         f'<td style="padding:9px 12px;text-align:center">'
         f'<span style="display:inline-flex;align-items:center;gap:4px;'
         f'background:{bg};color:{tc};border:1px solid {tc}50;'
-        f'border-radius:99px;padding:3px 10px;font-size:10px;font-weight:700;'
+        f'border-radius:99px;padding:4px 12px;font-size:12px;font-weight:700;'
         f'letter-spacing:.04em;white-space:nowrap">{zi} {zl}</span></td>'
     )
 
@@ -449,7 +453,7 @@ def _render_tbl(df_unit, unit_label):
             if i == 0:
                 eq_td = (
                     f'<td rowspan="{len(titiks)}" style="'
-                    f'padding:10px 14px;font-size:12px;font-weight:700;'
+                    f'padding:10px 14px;font-size:13px;font-weight:700;'
                     f'vertical-align:middle;border-left:4px solid {tc};'
                     f'background:rgba(128,128,128,.04);white-space:nowrap">{eq}</td>'
                 )
@@ -457,7 +461,7 @@ def _render_tbl(df_unit, unit_label):
             rows += (
                 f'<tr style="background:{rb};border-bottom:1px solid rgba(128,128,128,.07)">'
                 + eq_td
-                + f'<td style="padding:9px 14px;font-size:12px;opacity:.8">{titik}</td>'
+                + f'<td style="padding:9px 14px;font-size:13px;opacity:.8">{titik}</td>'
                 + _val_td(h, thr, "H" in det_dir_sel)
                 + _val_td(v, thr, "V" in det_dir_sel)
                 + _val_td(a, thr, "A" in det_dir_sel)
