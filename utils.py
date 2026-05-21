@@ -209,7 +209,7 @@ def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
     df["zone_label"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[2], axis=1)
     return df
 
-EDITOR_PASSWORD = "pltu2024"
+EDITOR_PASSWORD = "pltu2026"
 
 def check_role():
     import streamlit as st
