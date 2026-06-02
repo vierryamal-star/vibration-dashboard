@@ -3,7 +3,7 @@ import pandas as pd
 from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
-    render_login_sidebar, check_role
+    render_login_sidebar,
 )
 
 st.set_page_config(
@@ -62,6 +62,12 @@ ZC = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#d97706","ZONE D":"#dc2626
 ZB = {"ZONE A":"rgba(59,130,246,.13)","ZONE B":"rgba(34,197,94,.13)",
       "ZONE C":"rgba(217,119,6,.14)","ZONE D":"rgba(220,38,38,.14)","N/A":"rgba(107,114,128,.1)"}
 
+# FIX 3: Helper bar progress — scale ke threshold ZONE D agar representatif per equipment
+def bar_pct(val, thr):
+    """Hitung persentase bar berdasarkan threshold ZONE D (batas kritis) equipment."""
+    max_scale = thr.get("C", 4.5) * 1.2  # 20% di atas batas Warning sebagai skala max
+    return min(int((val / max(max_scale, 0.001)) * 100), 100)
+
 # ── Data ──────────────────────────────────────────────────────────────────────
 df_hist = load_history()
 
@@ -83,11 +89,11 @@ with st.sidebar:
         df_chk["value"] = pd.to_numeric(df_chk["value"], errors="coerce")
         lc = df_chk.sort_values("date").groupby(
             ["unit","equipment","titik","direction"], as_index=False).last()
-        def _z(r):
-            t = "Turbine" if "turbine" in str(r["equipment"]).lower() else "Pump/Fan"
-            return get_zone(r["value"], THRESHOLD[t])[0]
-        nd = sum(1 for _,r in lc.iterrows() if _z(r)=="ZONE D")
-        nc = sum(1 for _,r in lc.iterrows() if _z(r)=="ZONE C")
+        # FIX: pakai get_threshold(equipment) agar konsisten dengan main page
+        nd = sum(1 for _,r in lc.iterrows()
+                 if get_zone(r["value"], get_threshold(r["equipment"]))[0]=="ZONE D")
+        nc = sum(1 for _,r in lc.iterrows()
+                 if get_zone(r["value"], get_threshold(r["equipment"]))[0]=="ZONE C")
         if nd>0:   st.error(f"🔴 {nd} titik Danger")
         elif nc>0: st.warning(f"🟡 {nc} titik Warning")
         else:      st.success("✅ Semua titik normal")
@@ -99,7 +105,6 @@ if df_hist.empty:
 df_hist["date"]  = pd.to_datetime(df_hist["date"],  errors="coerce")
 df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
 all_units = sorted(df_hist["unit"].dropna().unique())
-all_equip = sorted(df_hist["equipment"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -113,13 +118,26 @@ with fa:
     sel_unit_btn = st.radio("Unit", ["All"]+all_units, horizontal=True,
                             key="mon_unit", label_visibility="collapsed")
     sel_unit = all_units if sel_unit_btn=="All" else [sel_unit_btn]
+
+# FIX 4: Equipment list filter per unit yang dipilih
+all_equip = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
+
+# FIX 8: Reset session_state equipment saat unit berubah
+_prev_unit_key = f"_prev_unit_{sel_unit_btn}"
+if st.session_state.get("_last_unit") != sel_unit_btn:
+    st.session_state["mon_equip"] = all_equip
+    st.session_state["_last_unit"] = sel_unit_btn
+
 with fb:
     st.caption("**⚙️ Equipment**")
     with st.expander(f"Filter ({len(all_equip)} equipment)", expanded=False):
         col_selall, _ = st.columns([1,3])
         if col_selall.button("Pilih Semua", key="eq_selall", use_container_width=True):
             st.session_state["mon_equip"] = all_equip
-        sel_equip = st.multiselect("Equipment", all_equip, default=all_equip,
+        # Pastikan default hanya dari equipment yang valid untuk unit ini
+        default_equip = [e for e in st.session_state.get("mon_equip", all_equip)
+                         if e in all_equip]
+        sel_equip = st.multiselect("Equipment", all_equip, default=default_equip,
                                    key="mon_equip", label_visibility="collapsed")
 with fc:
     st.caption("**📅 Tampilkan**")
@@ -132,9 +150,10 @@ if date_mode == "📅 Pilih tanggal":
                             min_value=min(all_dates), max_value=max(all_dates),
                             key="mon_tgl")
     sel_tgl_str = pd.to_datetime(sel_tgl).strftime("%Y-%m-%d")
+    # FIX 6: pakai date comparison bukan string agar tidak rawan locale issue
     df_base = df_hist[
         df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
-        (df_hist["date"].dt.strftime("%Y-%m-%d")==sel_tgl_str)
+        (df_hist["date"].dt.date == sel_tgl)
     ].copy()
     st.caption(f"Data **{pd.to_datetime(sel_tgl_str).strftime('%d %b %Y')}**")
 else:
@@ -280,7 +299,7 @@ for i in range(0, len(eq_rows), 3):
     for col, r in zip(cols, eq_rows[i:i+3]):
         bc  = ZC.get(r["zk"],"#6b7280")
         bg  = ZB.get(r["zk"],"transparent")
-        bar = min(int((r["mx"]/4.5)*100),100) if not pd.isna(r["mx"]) else 0
+        bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
         col.markdown(f"""
 <div class="eq-card" style="
   border:1px solid {bc}30; border-left:4px solid {bc};
@@ -325,9 +344,10 @@ else:
     def _alarm_tbl(df_alarm, accent):
         rows = ""
         for _,r in df_alarm.sort_values(["equipment","titik"]).iterrows():
-            val = r["value"]
-            bar = min(int((val/4.5)*100),100)
-            tc  = ZC.get(r["zone"],"#6b7280")
+            val  = r["value"]
+            thr  = get_threshold(r["equipment"])
+            bar  = bar_pct(val, thr)
+            tc   = ZC.get(r["zone"],"#6b7280")
             rows += f"""<tr>
   <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
   <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
@@ -400,7 +420,7 @@ def _val_td(val, thr, show=True):
     zk  = get_zone(val, thr)[0]
     tc  = ZC.get(zk,"#6b7280")
     bg  = ZB.get(zk,"transparent")
-    bar = min(int((val/4.5)*100),100)
+    bar = bar_pct(val, thr)
     return (
         f'<td style="text-align:center;padding:9px 10px;background:{bg}">'
         f'<span style="font-size:14px;font-weight:700;color:{tc};font-variant-numeric:tabular-nums">'
@@ -438,11 +458,24 @@ def _render_tbl(df_unit, unit_label):
         thr    = get_threshold(eq)
         titiks = sorted(df_eq["titik"].dropna().unique())
 
+        # FIX 5: Hitung zone terburuk dari SEMUA titik equipment untuk warna border kiri
+        _all_vals_eq = df_eq["value"].dropna().tolist()
+        _worst_zone  = "ZONE A"
+        _zone_order  = {"ZONE D":4,"ZONE C":3,"ZONE B":2,"ZONE A":1,"N/A":0}
+        for _v in _all_vals_eq:
+            _zk = get_zone(_v, thr)[0]
+            if _zone_order.get(_zk,0) > _zone_order.get(_worst_zone,0):
+                _worst_zone = _zk
+        eq_border_color = ZC.get(_worst_zone, "#6b7280")
+
         for i, titik in enumerate(titiks):
             df_t = df_eq[df_eq["titik"]==titik]
-            def gv(d, _df=df_t):
-                sub = _df[_df["direction"]==d]["value"].dropna()
-                return float(sub.iloc[0]) if not sub.empty else None
+
+            # FIX 2: gv sebagai lambda inline, hindari redefinisi fungsi tiap iterasi
+            gv = lambda d, _df=df_t: (
+                float(_df[_df["direction"]==d]["value"].dropna().iloc[0])
+                if not _df[_df["direction"]==d]["value"].dropna().empty else None
+            )
 
             h,v,a  = gv("H"), gv("V"), gv("A")
             all_v  = [x for x in [h,v,a] if x is not None]
@@ -461,10 +494,11 @@ def _render_tbl(df_unit, unit_label):
 
             eq_td = ""
             if i == 0:
+                # FIX 5: pakai eq_border_color (zone terburuk) bukan tc (zone titik pertama)
                 eq_td = (
                     f'<td rowspan="{len(titiks)}" style="'
                     f'padding:10px 14px;font-size:13px;font-weight:700;'
-                    f'vertical-align:middle;border-left:4px solid {tc};'
+                    f'vertical-align:middle;border-left:4px solid {eq_border_color};'
                     f'background:rgba(128,128,128,.04);white-space:nowrap">{eq}</td>'
                 )
 
