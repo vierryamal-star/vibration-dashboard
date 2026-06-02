@@ -458,10 +458,11 @@ elif mode == "⚖️ Bandingkan Equipment":
 else:
     pc1, pc2, pc3 = st.columns([2,2,1])
     with pc1:
+        # FIX: filter equipment per unit yang sama dengan df_hist (tidak ada filter unit di sini)
         sel_eq_p = st.selectbox("Equipment", sorted(df_hist["equipment"].unique()), key="pred_eq")
     with pc2:
-        titik_p  = sorted(df_hist[df_hist["equipment"]==sel_eq_p]["titik"].unique())
-        sel_titik_p = st.selectbox("Titik Ukur", titik_p, key="pred_titik")
+        titik_p_opts = ["Semua Titik"] + sorted(df_hist[df_hist["equipment"]==sel_eq_p]["titik"].unique())
+        sel_titik_p  = st.selectbox("Titik Ukur", titik_p_opts, key="pred_titik")
     with pc3:
         sel_dir_p = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="pred_dir")
 
@@ -473,17 +474,67 @@ else:
     thr_p  = get_threshold(sel_eq_p)
     df_sel = df_hist[
         (df_hist["equipment"]==sel_eq_p)&
-        (df_hist["titik"]==sel_titik_p)&
         (df_hist["direction"].isin(sel_dir_p))
     ].copy()
-    df_sel = apply_range(df_sel, "date", pred_rng, pred_from, pred_to)
+    # Filter titik ukur jika bukan "Semua Titik"
+    if sel_titik_p != "Semua Titik":
+        df_sel = df_sel[df_sel["titik"]==sel_titik_p]
+
+    # FIX: apply_range pakai global max date dari equipment tsb (bukan dari subset titik)
+    # supaya window 30/90 hari konsisten untuk semua titik ukur, termasuk DE Pump
+    # yang mungkin jarang diukur sehingga max date-nya lebih lama dari titik lain
+    df_eq_all = df_hist[df_hist["equipment"]==sel_eq_p]
+    global_end = df_eq_all["date"].max()
+
+    def apply_range_fixed(df, end_date, rng, cf=None, ct=None):
+        if df.empty: return df
+        if rng == "Custom":
+            if cf is None or ct is None: return df
+            s = pd.to_datetime(cf)
+            e = pd.to_datetime(ct) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            return df[(df["date"]>=s)&(df["date"]<=e)]
+        if rng == "All": return df
+        return df[(df["date"] >= end_date - timedelta(days=DAYS_MAP[rng])) &
+                  (df["date"] <= end_date)]
+
+    df_sel = apply_range_fixed(df_sel, global_end, pred_rng, pred_from, pred_to)
 
     if df_sel.empty:
         st.warning("Tidak ada data untuk pilihan ini.")
         st.stop()
-    if df_sel.groupby("direction").size().min() < 3:
-        st.warning("Data historis terlalu sedikit (minimum 3 titik per direction).")
+
+    # Hitung jumlah data per direction untuk diagnostik
+    dir_counts = {d: len(df_sel[df_sel["direction"]==d]) for d in sel_dir_p}
+
+    # Filter hanya direction yang punya data cukup (≥ 3 titik)
+    dir_valid   = [d for d in sel_dir_p if dir_counts.get(d, 0) >= 3]
+    dir_skipped = [d for d in sel_dir_p if d not in dir_valid]
+
+    if not dir_valid:
+        # Tampilkan diagnostik lengkap agar user tahu penyebabnya
+        st.warning(
+            f"⚠️ Data historis terlalu sedikit dalam rentang **{pred_rng}** "
+            f"untuk semua direction yang dipilih.\n\n"
+            + "\n".join(
+                f"- Direction **{d}**: ditemukan **{dir_counts.get(d,0)}** titik "
+                f"{'✅' if dir_counts.get(d,0)>=3 else '❌ (min 3)'}"
+                for d in sel_dir_p
+            )
+            + "\n\n💡 Coba perluas rentang waktu ke **90 Hari**, **180 Hari**, atau **All**."
+        )
         st.stop()
+
+    if dir_skipped:
+        skipped_info = ", ".join(
+            f"**{d}** ({dir_counts.get(d,0)} titik)" for d in dir_skipped
+        )
+        st.info(
+            f"ℹ️ Direction {skipped_info} dilewati karena data < 3 titik "
+            f"dalam rentang **{pred_rng}**. Perluas rentang waktu jika ingin "
+            f"menyertakan direction ini."
+        )
+
+    sel_dir_p = dir_valid  # hanya proses direction yang valid
 
     # ── Fungsi prediksi linier ────────────────────────────────────────────────
     def predict(df_d, n):
@@ -509,7 +560,8 @@ else:
         def days_to_thr(level):
             target = thr_p[level]
             last_v = y[-1]
-            if slope <= 0 or last_v >= target: return None
+            if last_v >= target: return -1   # sudah melewati threshold
+            if slope <= 0: return None        # trend menurun / flat, tidak akan tercapai
             return (target - last_v) / slope
         eta_b = days_to_thr("B")
         eta_c = days_to_thr("C")
@@ -533,7 +585,13 @@ else:
         arr = "↑" if roc_per_day>0.001 else ("↓" if roc_per_day<-0.001 else "→")
         # ETA badge
         eta_html = ""
-        if eta_c is not None:
+        if eta_c == -1:
+            eta_html += ('<div style="margin-top:6px;font-size:11px;color:#dc2626;font-weight:600">'
+                         '🚨 Sudah melewati batas <b>Warning</b></div>')
+        elif eta_b == -1:
+            eta_html += ('<div style="margin-top:6px;font-size:11px;color:#d97706;font-weight:600">'
+                         '⚠️ Sudah melewati batas <b>Pre Warning</b></div>')
+        elif eta_c is not None:
             eta_html += (f'<div style="margin-top:6px;font-size:11px;color:#dc2626;font-weight:600">'
                          f'⚠️ Est. masuk Warning: <b>~{int(eta_c)} hari</b></div>')
         elif eta_b is not None:
@@ -602,7 +660,8 @@ else:
 
     fig_pred = add_threshold_lines(fig_pred, thr_p)
     fig_pred.update_layout(
-        title=dict(text=f"Prediksi {n_days} hari — {sel_eq_p} · {sel_titik_p}",
+        title=dict(text=f"Prediksi {n_days} hari — {sel_eq_p} · "
+                        f"{'Semua Titik' if sel_titik_p=='Semua Titik' else sel_titik_p}",
                    font_size=14, pad=dict(b=8)),
         xaxis_title="Tanggal", yaxis_title="Vibrasi (mm/s)",
         height=520,
@@ -638,7 +697,10 @@ else:
     for d in sel_dir_p:
         if d not in roc_summaries: continue
         pred_dates, pred_vals, *rest = roc_summaries[d]
-        slope_d = rest[3]  # index: 0=pred_upper,1=pred_lower,2=slope,3=roc_per_day
+        # roc_summaries[d] = (pred_dates, pred_vals, pred_upper, pred_lower,
+        #                      slope, roc_per_day, roc_pct, eta_b, eta_c)
+        # rest[0]=pred_upper, rest[1]=pred_lower, rest[2]=slope, rest[3]=roc_per_day
+        slope_d = rest[3]  # roc_per_day (mm/s per hari)
         for dt, val in zip(pred_dates, pred_vals):
             zk,zi,zl = get_zone(val, thr_p)
             pred_rows.append({
