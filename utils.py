@@ -14,9 +14,17 @@ THRESHOLD = {
 ZONE_COLOR = {
     "ZONE A": "#3b82f6",
     "ZONE B": "#22c55e",
-    "ZONE C": "#eab308",
-    "ZONE D": "#ef4444",
-    "N/A":    "#94a3b8",
+    "ZONE C": "#d97706",
+    "ZONE D": "#dc2626",
+    "N/A":    "#6b7280",
+}
+
+ZONE_BG = {
+    "ZONE A": "rgba(59,130,246,.13)",
+    "ZONE B": "rgba(34,197,94,.13)",
+    "ZONE C": "rgba(217,119,6,.14)",
+    "ZONE D": "rgba(220,38,38,.14)",
+    "N/A":    "rgba(107,114,128,.1)",
 }
 
 ZONE_LABEL = {
@@ -24,6 +32,7 @@ ZONE_LABEL = {
     "ZONE B": "Pre Warning",
     "ZONE C": "Warning",
     "ZONE D": "Danger",
+    "N/A":    "N/A",
 }
 
 ZONE_ICON = {
@@ -31,7 +40,12 @@ ZONE_ICON = {
     "ZONE B": "🟢",
     "ZONE C": "🟡",
     "ZONE D": "🔴",
+    "N/A":    "⬜",
 }
+
+# Alias pendek untuk kompatibilitas — diimport di app.py & 1_Analisis.py
+ZC = ZONE_COLOR
+ZB = ZONE_BG
 
 def get_supabase(service_role=False):
     import streamlit as st

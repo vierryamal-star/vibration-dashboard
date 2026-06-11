@@ -4,6 +4,7 @@ from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
     render_login_sidebar,
+    ZC, ZB, ZONE_LABEL, ZONE_ICON,
 )
 
 st.set_page_config(
@@ -56,11 +57,7 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Warna zone (solid, terlihat di dark & light) ──────────────────────────────
-ZC = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#d97706","ZONE D":"#dc2626","N/A":"#6b7280"}
-# Background zone: alpha rendah supaya teks tetap terbaca di kedua tema
-ZB = {"ZONE A":"rgba(59,130,246,.13)","ZONE B":"rgba(34,197,94,.13)",
-      "ZONE C":"rgba(217,119,6,.14)","ZONE D":"rgba(220,38,38,.14)","N/A":"rgba(107,114,128,.1)"}
+# ── Warna zone — diimport dari utils.py (ZC, ZB, ZONE_LABEL, ZONE_ICON) ─────
 
 # FIX 3: Helper bar progress — scale ke threshold ZONE D agar representatif per equipment
 def bar_pct(val, thr):
@@ -79,9 +76,23 @@ with st.sidebar:
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
     st.markdown("### Navigasi")
+    # UX #1: Highlight halaman aktif
+    st.markdown("""
+<style>
+[data-testid="stPageLink"]:has(p:contains("📊 Monitor Vibrasi")) {
+    background: rgba(59,130,246,.12);
+    border-radius: 8px;
+    border-left: 3px solid #3b82f6;
+}
+</style>""", unsafe_allow_html=True)
     st.page_link("app.py",                 label="📊 Monitor Vibrasi")
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
+    # UX #12: Tombol refresh manual
+    st.divider()
+    if st.button("🔄 Refresh Data", key="sb_refresh", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
     render_login_sidebar()
     st.divider()
     if not df_hist.empty:
@@ -160,10 +171,16 @@ else:
     df_base = df_hist[
         df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip)
     ].copy()
-    st.caption("Nilai **terbaru** per titik ukur")
+    _last_date = df_hist["date"].max()
+    _last_date_str = pd.to_datetime(_last_date).strftime("%d %b %Y") if pd.notna(_last_date) else "–"
+    st.caption(f"Nilai **terbaru** per titik ukur · Data terakhir: **{_last_date_str}**")
 
 if df_base.empty:
-    st.warning("Tidak ada data sesuai filter.")
+    st.warning(
+        "Tidak ada data sesuai filter.\n\n"
+        "💡 Coba ubah rentang tanggal, pilih unit lain, atau periksa apakah data sudah diupload "
+        "di halaman **Data & Kelola**."
+    )
     st.stop()
 
 df_base = add_zone_cols(df_base)
@@ -225,13 +242,69 @@ st.markdown(f"""
     <div style="width:{pct['D']}%;background:#dc2626"></div>
   </div>
   <div style="display:flex;gap:14px;font-size:11px;margin-top:6px;flex-wrap:wrap">
-    <span style="color:#2563eb;font-weight:600">🔵 Accepted {pct['A']}%</span>
-    <span style="color:#16a34a;font-weight:600">🟢 Pre Warning {pct['B']}%</span>
-    <span style="color:#d97706;font-weight:600">🟡 Warning {pct['C']}%</span>
-    <span style="color:#dc2626;font-weight:600">🔴 Danger {pct['D']}%</span>
+    <span style="color:#2563eb;font-weight:600">🔵 Accepted {pct['A']}% ({n_a})</span>
+    <span style="color:#16a34a;font-weight:600">🟢 Pre Warning {pct['B']}% ({n_b})</span>
+    <span style="color:#d97706;font-weight:600">🟡 Warning {pct['C']}% ({n_c})</span>
+    <span style="color:#dc2626;font-weight:600">🔴 Danger {pct['D']}% ({n_d})</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ALARM AKTIF — ditampilkan setelah KPI agar langsung terlihat
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("### 🚨 Alarm Aktif")
+
+latest["zone_label"] = latest.apply(
+    lambda r: get_zone(r["value"],THRESHOLD[r["thr_type"]])[1]+" "+
+              get_zone(r["value"],THRESHOLD[r["thr_type"]])[2], axis=1)
+
+df_d = latest[latest["zone"]=="ZONE D"]
+df_c = latest[latest["zone"]=="ZONE C"]
+
+if df_d.empty and df_c.empty:
+    st.success("✅ Tidak ada alarm aktif — semua titik dalam batas normal.")
+else:
+    def _alarm_tbl(df_alarm, accent):
+        rows = ""
+        for _,r in df_alarm.sort_values(["equipment","titik"]).iterrows():
+            val  = r["value"]
+            thr  = get_threshold(r["equipment"])
+            bar  = bar_pct(val, thr)
+            tc   = ZC.get(r["zone"],"#6b7280")
+            rows += f"""<tr>
+  <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
+  <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
+  <td style="padding:9px 12px">{r['titik']}</td>
+  <td style="padding:9px 12px;text-align:center;font-weight:700">{r['direction']}</td>
+  <td style="padding:9px 12px;text-align:center">
+    <span style="font-size:13px;font-weight:800;color:{tc}">{val:.3f}</span>
+    <div style="margin-top:3px;height:2px;border-radius:1px;background:rgba(128,128,128,.2)">
+      <div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>
+  <td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">
+    {pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>
+</tr>"""
+        return f"""
+<div class="vt-wrap" style="border-color:{accent}40">
+<table class="vt">
+<thead><tr>
+  <th style="text-align:left">Unit</th>
+  <th style="text-align:left">Equipment</th>
+  <th style="text-align:left">Titik Ukur</th>
+  <th style="text-align:center">Dir</th>
+  <th style="text-align:center;min-width:100px">mm/s</th>
+  <th style="text-align:left">Tanggal</th>
+</tr></thead>
+<tbody>{rows}</tbody></table></div>"""
+
+    if not df_d.empty:
+        st.error(f"🔴 **Danger** — {len(df_d)} titik melebihi batas kritis")
+        st.markdown(_alarm_tbl(df_d,"#dc2626"), unsafe_allow_html=True)
+    if not df_c.empty:
+        st.warning(f"🟡 **Warning** — {len(df_c)} titik perlu dipantau")
+        st.markdown(_alarm_tbl(df_c,"#d97706"), unsafe_allow_html=True)
 
 st.divider()
 
@@ -271,8 +344,9 @@ def _dir_pill(label, val, thr, titik):
     c  = ZC.get(zk,"#6b7280")
     bg = ZB.get(zk,"transparent")
     ts = (titik[:10]+"…") if titik and len(titik)>11 else (titik or "")
-    return (f'<div style="flex:1;display:flex;flex-direction:column;align-items:center;'
-            f'background:{bg};border-radius:8px;padding:6px 4px;gap:1px">'
+    # UX #6: title attribute untuk tooltip nama titik penuh
+    return (f'<div title="{titik}" style="flex:1;display:flex;flex-direction:column;align-items:center;'
+            f'background:{bg};border-radius:8px;padding:6px 4px;gap:1px;cursor:default">'
             f'<span style="font-size:12px;font-weight:700;color:{c};opacity:.8">{label}</span>'
             f'<span style="font-size:15px;font-weight:700;color:{c}">{val:.3f}</span>'
             f'<span style="font-size:10px;color:{c};opacity:.65;white-space:nowrap;'
@@ -324,63 +398,6 @@ for i in range(0, len(eq_rows), 3):
   </div>
 </div>""", unsafe_allow_html=True)
 
-st.divider()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ALARM AKTIF
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("### 🚨 Alarm Aktif")
-
-latest["zone_label"] = latest.apply(
-    lambda r: get_zone(r["value"],THRESHOLD[r["thr_type"]])[1]+" "+
-              get_zone(r["value"],THRESHOLD[r["thr_type"]])[2], axis=1)
-
-df_d = latest[latest["zone"]=="ZONE D"]
-df_c = latest[latest["zone"]=="ZONE C"]
-
-if df_d.empty and df_c.empty:
-    st.success("✅ Tidak ada alarm aktif — semua titik dalam batas normal.")
-else:
-    def _alarm_tbl(df_alarm, accent):
-        rows = ""
-        for _,r in df_alarm.sort_values(["equipment","titik"]).iterrows():
-            val  = r["value"]
-            thr  = get_threshold(r["equipment"])
-            bar  = bar_pct(val, thr)
-            tc   = ZC.get(r["zone"],"#6b7280")
-            rows += f"""<tr>
-  <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
-  <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
-  <td style="padding:9px 12px">{r['titik']}</td>
-  <td style="padding:9px 12px;text-align:center;font-weight:700">{r['direction']}</td>
-  <td style="padding:9px 12px;text-align:center">
-    <span style="font-size:13px;font-weight:800;color:{tc}">{val:.3f}</span>
-    <div style="margin-top:3px;height:2px;border-radius:1px;background:rgba(128,128,128,.2)">
-      <div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>
-  <td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">
-    {pd.to_datetime(r['date']).strftime('%d %b %Y')}</td>
-</tr>"""
-        return f"""
-<div class="vt-wrap" style="border-color:{accent}40">
-<table class="vt">
-<thead><tr>
-  <th style="text-align:left">Unit</th>
-  <th style="text-align:left">Equipment</th>
-  <th style="text-align:left">Titik Ukur</th>
-  <th style="text-align:center">Dir</th>
-  <th style="text-align:center;min-width:100px">mm/s</th>
-  <th style="text-align:left">Tanggal</th>
-</tr></thead>
-<tbody>{rows}</tbody></table></div>"""
-
-    if not df_d.empty:
-        st.error(f"🔴 **Danger** — {len(df_d)} titik melebihi batas kritis")
-        st.markdown(_alarm_tbl(df_d,"#dc2626"), unsafe_allow_html=True)
-    if not df_c.empty:
-        st.warning(f"🟡 **Warning** — {len(df_c)} titik perlu dipantau")
-        st.markdown(_alarm_tbl(df_c,"#d97706"), unsafe_allow_html=True)
-
-st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DETAIL PENGUKURAN — SEMUA EQUIPMENT
@@ -395,9 +412,11 @@ with da:
                              key="det_unit", label_visibility="collapsed")
 with db:
     st.caption("**📐 Direction**")
-    dc1,dc2,dc3 = st.columns(3)
-    det_dir_sel = [d for d,col in zip(["H","V","A"],[dc1,dc2,dc3])
-                   if col.checkbox(d, value=True, key=f"ddir_{d}")]
+    # UX #9: pakai multiselect agar konsisten dengan halaman Analisis
+    det_dir_sel = st.multiselect(
+        "Direction", ["H","V","A"], default=["H","V","A"],
+        key="det_dir_multi", label_visibility="collapsed"
+    )
     if not det_dir_sel: det_dir_sel = ["H","V","A"]
 
 df_det = latest.copy()
@@ -405,7 +424,7 @@ if det_unit_sel != "All":
     df_det = df_det[df_det["unit"]==det_unit_sel]
 
 if df_det.empty:
-    st.warning("Tidak ada data untuk unit yang dipilih.")
+    st.warning("Tidak ada data untuk unit yang dipilih. 💡 Coba pilih unit lain atau **All**.")
     st.stop()
 
 # ── Helper sel nilai ──────────────────────────────────────────────────────────
@@ -431,14 +450,18 @@ def _val_td(val, thr, show=True):
     )
 
 def _badge_td(zk, zi, zl):
-    tc = ZC.get(zk,"#6b7280")
-    bg = ZB.get(zk,"transparent")
+    tc  = ZC.get(zk,"#6b7280")
+    bg  = ZB.get(zk,"transparent")
+    # UX #8: tampilkan zone key + label untuk konsistensi
+    from utils import ZONE_LABEL
+    full_lbl = ZONE_LABEL.get(zk, zl)
+    short_key = zk.replace("ZONE ","") if zk.startswith("ZONE") else zk
     return (
         f'<td style="padding:9px 12px;text-align:center">'
         f'<span style="display:inline-flex;align-items:center;gap:4px;'
         f'background:{bg};color:{tc};border:1px solid {tc}50;'
         f'border-radius:99px;padding:4px 12px;font-size:12px;font-weight:700;'
-        f'letter-spacing:.04em;white-space:nowrap">{zi} {zl}</span></td>'
+        f'letter-spacing:.04em;white-space:nowrap">{zi} {short_key} · {full_lbl}</span></td>'
     )
 
 def _render_tbl(df_unit, unit_label):
