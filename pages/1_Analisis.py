@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 from datetime import timedelta
 import io, sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils import load_history, get_zone, get_threshold, THRESHOLD, add_zone_cols, render_login_sidebar
+from utils import load_history, get_zone, get_threshold, THRESHOLD, add_zone_cols, render_login_sidebar, ZC, ZB, ZONE_LABEL, ZONE_ICON
 
 st.set_page_config(page_title="Analisis — PLTU TBK", page_icon="📈", layout="wide")
 
@@ -63,9 +63,7 @@ div[data-testid="stRadio"] > div { gap: 8px; }
 """, unsafe_allow_html=True)
 
 # ── Konstanta ─────────────────────────────────────────────────────────────────
-ZC = {"ZONE A":"#2563eb","ZONE B":"#16a34a","ZONE C":"#d97706","ZONE D":"#dc2626","N/A":"#6b7280"}
-ZB = {"ZONE A":"rgba(37,99,235,.12)","ZONE B":"rgba(22,163,74,.12)",
-      "ZONE C":"rgba(217,119,6,.14)","ZONE D":"rgba(220,38,38,.14)","N/A":"rgba(107,114,128,.1)"}
+# ZC dan ZB diimport dari utils.py agar konsisten di semua halaman
 COLORS_DIR = {"H":"#3b82f6","V":"#10b981","A":"#f59e0b"}
 LS_LIST    = ["solid","dash","dot","dashdot"]
 DAYS_MAP   = {"7 Hari":7,"30 Hari":30,"90 Hari":90,"180 Hari":180}
@@ -78,9 +76,22 @@ with st.sidebar:
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
     st.markdown("### Navigasi")
+    # UX #1: Highlight halaman Analisis sebagai aktif
+    st.markdown("""
+<style>
+[data-testid="stPageLink"]:has(p:contains("📈 Analisis")) {
+    background: rgba(59,130,246,.12);
+    border-radius: 8px;
+    border-left: 3px solid #3b82f6;
+}
+</style>""", unsafe_allow_html=True)
     st.page_link("app.py",                 label="📊 Monitor")
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
+    st.divider()
+    if st.button("🔄 Refresh Data", key="sb_refresh_a", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
     render_login_sidebar()
 
 st.markdown("## 📈 Analisis Vibrasi")
@@ -100,6 +111,13 @@ mode = st.radio(
     "Mode", ["📈 Trend Detail","⚖️ Bandingkan Equipment","🔮 Prediksi Trend"],
     horizontal=True, key="analisis_mode", label_visibility="collapsed"
 )
+# UX #2: Deskripsi singkat sesuai mode aktif
+_mode_desc = {
+    "📈 Trend Detail":       "Lihat grafik dan tabel historis untuk satu equipment & titik ukur.",
+    "⚖️ Bandingkan Equipment": "Bandingkan vibrasi dua equipment secara berdampingan.",
+    "🔮 Prediksi Trend":     "Proyeksi nilai vibrasi ke depan menggunakan regresi linier.",
+}
+st.caption(_mode_desc.get(mode, ""))
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -158,9 +176,12 @@ def rng_filter_ui(key_prefix):
     return rng, cf, ct
 
 def zone_badge(zk, zi, zl):
-    tc = ZC.get(zk,"#6b7280"); bg = ZB.get(zk,"transparent")
+    tc  = ZC.get(zk,"#6b7280"); bg = ZB.get(zk,"transparent")
+    # UX #8: tampilkan key singkat + label lengkap untuk konsistensi
+    full_lbl  = ZONE_LABEL.get(zk, zl)
+    short_key = zk.replace("ZONE ","") if zk.startswith("ZONE") else zk
     return (f'<span class="zbadge" style="background:{bg};color:{tc};border-color:{tc}40">'
-            f'{zi} {zl}</span>')
+            f'{zi} {short_key} · {full_lbl}</span>')
 
 def zone_row_bg(zk, i):
     if zk=="ZONE D": return "rgba(220,38,38,.07)"
