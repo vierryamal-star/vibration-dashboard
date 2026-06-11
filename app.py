@@ -4,7 +4,6 @@ from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
     render_login_sidebar,
-    ZC, ZB, ZONE_LABEL, ZONE_ICON,
 )
 
 st.set_page_config(
@@ -57,7 +56,12 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Warna zone — diimport dari utils.py (ZC, ZB, ZONE_LABEL, ZONE_ICON) ─────
+# ── Warna zone (solid, terlihat di dark & light) ──────────────────────────────
+ZC = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#d97706","ZONE D":"#dc2626","N/A":"#6b7280"}
+ZB = {"ZONE A":"rgba(59,130,246,.13)","ZONE B":"rgba(34,197,94,.13)",
+      "ZONE C":"rgba(217,119,6,.14)","ZONE D":"rgba(220,38,38,.14)","N/A":"rgba(107,114,128,.1)"}
+ZONE_LABEL = {"ZONE A":"Accepted","ZONE B":"Pre Warning","ZONE C":"Warning","ZONE D":"Danger","N/A":"N/A"}
+ZONE_ICON  = {"ZONE A":"🔵","ZONE B":"🟢","ZONE C":"🟡","ZONE D":"🔴","N/A":"⬜"}
 
 # FIX 3: Helper bar progress — scale ke threshold ZONE D agar representatif per equipment
 def bar_pct(val, thr):
@@ -453,7 +457,6 @@ def _badge_td(zk, zi, zl):
     tc  = ZC.get(zk,"#6b7280")
     bg  = ZB.get(zk,"transparent")
     # UX #8: tampilkan zone key + label untuk konsistensi
-    from utils import ZONE_LABEL
     full_lbl = ZONE_LABEL.get(zk, zl)
     short_key = zk.replace("ZONE ","") if zk.startswith("ZONE") else zk
     return (
