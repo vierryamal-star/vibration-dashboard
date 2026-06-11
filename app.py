@@ -254,64 +254,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.divider()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ALARM AKTIF — ditampilkan setelah KPI agar langsung terlihat
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("### 🚨 Alarm Aktif")
-
-latest["zone_label"] = latest.apply(
-    lambda r: get_zone(r["value"],THRESHOLD[r["thr_type"]])[1]+" "+
-              get_zone(r["value"],THRESHOLD[r["thr_type"]])[2], axis=1)
-
-df_d = latest[latest["zone"]=="ZONE D"]
-df_c = latest[latest["zone"]=="ZONE C"]
-
-if df_d.empty and df_c.empty:
-    st.success("✅ Tidak ada alarm aktif — semua titik dalam batas normal.")
-else:
-    def _alarm_tbl(df_alarm, accent):
-        rows = ""
-        for _,r in df_alarm.sort_values(["equipment","titik"]).iterrows():
-            val  = r["value"]
-            thr  = get_threshold(r["equipment"])
-            bar  = bar_pct(val, thr)
-            tc   = ZC.get(r["zone"],"#6b7280")
-            rows += f"""<tr>
-  <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
-  <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
-  <td style="padding:9px 12px">{r['titik']}</td>
-  <td style="padding:9px 12px;text-align:center;font-weight:700">{r['direction']}</td>
-  <td style="padding:9px 12px;text-align:center">
-    <span style="font-size:13px;font-weight:800;color:{tc}">{val:.3f}</span>
-    <div style="margin-top:3px;height:2px;border-radius:1px;background:rgba(128,128,128,.2)">
-      <div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>
-  <td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">
-    {pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>
-</tr>"""
-        return f"""
-<div class="vt-wrap" style="border-color:{accent}40">
-<table class="vt">
-<thead><tr>
-  <th style="text-align:left">Unit</th>
-  <th style="text-align:left">Equipment</th>
-  <th style="text-align:left">Titik Ukur</th>
-  <th style="text-align:center">Dir</th>
-  <th style="text-align:center;min-width:100px">mm/s</th>
-  <th style="text-align:left">Tanggal</th>
-</tr></thead>
-<tbody>{rows}</tbody></table></div>"""
-
-    if not df_d.empty:
-        st.error(f"🔴 **Danger** — {len(df_d)} titik melebihi batas kritis")
-        st.markdown(_alarm_tbl(df_d,"#dc2626"), unsafe_allow_html=True)
-    if not df_c.empty:
-        st.warning(f"🟡 **Warning** — {len(df_c)} titik perlu dipantau")
-        st.markdown(_alarm_tbl(df_c,"#d97706"), unsafe_allow_html=True)
-
-st.divider()
-
 # ══════════════════════════════════════════════════════════════════════════════
 # STATUS CARD PER EQUIPMENT
 # ══════════════════════════════════════════════════════════════════════════════
@@ -328,8 +270,11 @@ if df_card.empty:
     st.warning("Tidak ada data equipment.")
     st.stop()
 
-# Reuse hasil latest sebelumnya
-df_card_lat = latest.copy()
+# Filter latest sesuai unit & equipment yang dipilih
+df_card_lat = latest[
+    latest["unit"].isin(sel_unit) &
+    latest["equipment"].isin(sel_equip)
+].copy()
 
 def _max_dir(df_eq, d):
     sub = df_eq[df_eq["direction"]==d][["value","titik"]].dropna(subset=["value"])
@@ -402,6 +347,64 @@ for i in range(0, len(eq_rows), 3):
   </div>
 </div>""", unsafe_allow_html=True)
 
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ALARM AKTIF
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("### 🚨 Alarm Aktif")
+
+latest["zone_label"] = latest.apply(
+    lambda r: get_zone(r["value"],THRESHOLD[r["thr_type"]])[1]+" "+
+              get_zone(r["value"],THRESHOLD[r["thr_type"]])[2], axis=1)
+
+df_d = latest[latest["zone"]=="ZONE D"]
+df_c = latest[latest["zone"]=="ZONE C"]
+
+if df_d.empty and df_c.empty:
+    st.success("✅ Tidak ada alarm aktif — semua titik dalam batas normal.")
+else:
+    def _alarm_tbl(df_alarm, accent):
+        rows = ""
+        for _,r in df_alarm.sort_values(["equipment","titik"]).iterrows():
+            val  = r["value"]
+            thr  = get_threshold(r["equipment"])
+            bar  = bar_pct(val, thr)
+            tc   = ZC.get(r["zone"],"#6b7280")
+            rows += f"""<tr>
+  <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
+  <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
+  <td style="padding:9px 12px">{r['titik']}</td>
+  <td style="padding:9px 12px;text-align:center;font-weight:700">{r['direction']}</td>
+  <td style="padding:9px 12px;text-align:center">
+    <span style="font-size:13px;font-weight:800;color:{tc}">{val:.3f}</span>
+    <div style="margin-top:3px;height:2px;border-radius:1px;background:rgba(128,128,128,.2)">
+      <div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>
+  <td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">
+    {pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>
+</tr>"""
+        return f"""
+<div class="vt-wrap" style="border-color:{accent}40">
+<table class="vt">
+<thead><tr>
+  <th style="text-align:left">Unit</th>
+  <th style="text-align:left">Equipment</th>
+  <th style="text-align:left">Titik Ukur</th>
+  <th style="text-align:center">Dir</th>
+  <th style="text-align:center;min-width:100px">mm/s</th>
+  <th style="text-align:left">Tanggal</th>
+</tr></thead>
+<tbody>{rows}</tbody></table></div>"""
+
+    if not df_d.empty:
+        st.error(f"🔴 **Danger** — {len(df_d)} titik melebihi batas kritis")
+        st.markdown(_alarm_tbl(df_d,"#dc2626"), unsafe_allow_html=True)
+    if not df_c.empty:
+        st.warning(f"🟡 **Warning** — {len(df_c)} titik perlu dipantau")
+        st.markdown(_alarm_tbl(df_c,"#d97706"), unsafe_allow_html=True)
+
+st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DETAIL PENGUKURAN — SEMUA EQUIPMENT
