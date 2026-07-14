@@ -6,7 +6,10 @@ from plotly.subplots import make_subplots
 from datetime import timedelta
 import io, sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils import load_history, get_zone, get_threshold, THRESHOLD, add_zone_cols, render_login_sidebar
+from utils import (
+    load_history, get_zone, get_threshold, THRESHOLD, add_zone_cols, render_login_sidebar,
+    get_temp_threshold, get_zone_temp,
+)
 
 st.set_page_config(page_title="Analisis — PLTU TBK", page_icon="📈", layout="wide")
 
@@ -253,6 +256,70 @@ def render_zone_table(df_tbl, thr, cols_show):
 
 def df_to_csv(df): return df.to_csv(index=False).encode("utf-8")
 
+# ── Helper KHUSUS SUHU ──────────────────────────────────────────────────────
+# Threshold suhu tergantung TITIK UKUR (bukan cuma equipment seperti vibrasi),
+# jadi fungsi render di bawah menerima thr per-baris (callable), bukan 1 dict statis.
+def zone_badge_temp(zk, zi, zl):
+    """Badge suhu — TIDAK pakai ZONE_LABEL global (itu label vibrasi: Accepted/Pre Warning/dst)."""
+    tc = ZC.get(zk,"#6b7280"); bg = ZB.get(zk,"transparent")
+    short_key = zk.replace("ZONE ","") if zk.startswith("ZONE") else zk
+    return (f'<span class="zbadge" style="background:{bg};color:{tc};border-color:{tc}40">'
+            f'{zi} {short_key} · {zl}</span>')
+
+def render_zone_table_temp(df_tbl, thr_lookup, cols_show):
+    """Tabel HTML suhu. thr_lookup: callable(row) -> {'normal':.., 'danger':..} per baris."""
+    header = "".join(f'<th style="text-align:{"center" if c=="°C" else "left"}">{c}</th>' for c in cols_show)
+    rows = ""
+    for i, (_, r) in enumerate(df_tbl.iterrows()):
+        thr = thr_lookup(r)
+        try: v = float(str(r.get("°C","")).replace("–",""))
+        except: v = float("nan")
+        zk,zi,zl = get_zone_temp(v, thr) if not pd.isna(v) else ("N/A","⬜","N/A")
+        rb = zone_row_bg(zk, i)
+        tc = ZC.get(zk,"#6b7280"); bg = ZB.get(zk,"transparent")
+        cells = ""
+        for c in cols_show:
+            val_raw = r.get(c,"")
+            if c == "°C":
+                try:
+                    fv = float(str(val_raw).replace("–",""))
+                    scale = max(thr["danger"]*1.15, 1)
+                    bar = min(int((fv/scale)*100),100)
+                    cells += (f'<td style="text-align:center;background:{bg};padding:9px 10px">'
+                              f'<span style="font-weight:700;color:{tc};font-variant-numeric:tabular-nums">{val_raw}°C</span>'
+                              f'<div style="margin-top:3px;height:2px;background:rgba(128,128,128,.15);border-radius:1px">'
+                              f'<div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>')
+                except:
+                    cells += f'<td style="text-align:center;padding:9px 10px">{val_raw}</td>'
+            elif c == "Status":
+                cells += f'<td style="padding:9px 10px;text-align:left">{zone_badge_temp(zk,zi,zl)}</td>'
+            elif c == "Δ (°C)":
+                try:
+                    dv = float(str(val_raw).replace("+","").replace("–",""))
+                    dc = "#dc2626" if dv>0 else ("#16a34a" if dv<0 else "#6b7280")
+                    sym = "↑" if dv>0 else ("↓" if dv<0 else "→")
+                    cells += f'<td style="text-align:center;padding:9px 10px;font-weight:600;color:{dc}">{sym} {val_raw}</td>'
+                except:
+                    cells += f'<td style="text-align:center;padding:9px 10px">{val_raw}</td>'
+            else:
+                cells += f'<td style="padding:9px 10px">{val_raw}</td>'
+        rows += f'<tr style="background:{rb};border-bottom:1px solid rgba(128,128,128,.07)">{cells}</tr>'
+    return (f'<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(128,128,128,.15);'
+            f'box-shadow:0 2px 12px rgba(0,0,0,.1)"><table class="zt"><thead><tr>{header}</tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>')
+
+def add_threshold_lines_temp(fig, thr):
+    """2 garis (Normal/Danger) — beda dari vibrasi yg 3 garis (A/B/C), karena suhu cuma 3 tier."""
+    styles = [
+        (thr["normal"], "#2563eb", "dot",  1,   f"Normal ≤{thr['normal']}°C"),
+        (thr["danger"], "#dc2626", "dash", 1.5, f"Danger >{thr['danger']}°C"),
+    ]
+    for y, col, dash, w, lbl in styles:
+        fig.add_hline(y=y, line_dash=dash, line_color=col, line_width=w,
+                      annotation_text=lbl, annotation_position="top left",
+                      annotation_font_size=10, annotation_font_color=col)
+    return fig
+
 def sec_header(title):
     st.markdown(f'<div class="sec-head"><div class="sec-bar"></div>'
                 f'<span class="sec-title">{title}</span></div>', unsafe_allow_html=True)
@@ -262,19 +329,34 @@ def sec_header(title):
 # ══════════════════════════════════════════════════════════════════════════════
 if mode == "📈 Trend Detail":
 
+    dtype = st.radio("Jenis Data", ["📳 Vibrasi (mm/s)", "🌡️ Suhu (°C)"],
+                     horizontal=True, key="td_dtype")
+    is_temp = dtype.startswith("🌡️")
+    df_type = (df_hist[df_hist["direction"]=="T"] if is_temp
+              else df_hist[df_hist["direction"].isin(["H","V","A"])])
+
+    if df_type.empty:
+        st.info("📂 Belum ada data suhu. Upload dulu di halaman **Data & Kelola**."
+                if is_temp else "📂 Belum ada data vibrasi.")
+        st.stop()
+
     c1, c2, c3 = st.columns([2,2,1])
     with c1:
-        sel_eq = st.selectbox("Equipment", sorted(df_hist["equipment"].unique()), key="td_eq")
+        sel_eq = st.selectbox("Equipment", sorted(df_type["equipment"].unique()), key="td_eq")
     with c2:
-        titik_opts = ["Semua Titik"] + sorted(df_hist[df_hist["equipment"]==sel_eq]["titik"].unique())
+        titik_opts = ["Semua Titik"] + sorted(df_type[df_type["equipment"]==sel_eq]["titik"].unique())
         sel_titik  = st.selectbox("Titik Ukur", titik_opts, key="td_titik")
     with c3:
-        sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="td_dir")
+        if is_temp:
+            st.caption("Direction")
+            st.markdown("🌡️ **T**")
+            sel_dir = ["T"]
+        else:
+            sel_dir = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="td_dir")
 
     rng, cf, ct = rng_filter_ui("td")
 
-    thr   = get_threshold(sel_eq)
-    df_tr = df_hist[df_hist["equipment"]==sel_eq].copy()
+    df_tr = df_type[df_type["equipment"]==sel_eq].copy()
     df_tr = apply_range(df_tr, "date", rng, cf, ct)
     if sel_titik != "Semua Titik":
         df_tr = df_tr[df_tr["titik"]==sel_titik]
@@ -286,39 +368,73 @@ if mode == "📈 Trend Detail":
         st.warning("Tidak ada data untuk pilihan ini.")
         st.stop()
 
+    # Threshold: vibrasi tergantung equipment saja; suhu tergantung TITIK juga
+    # (bearing vs winding beda kategori) — jadi bisa campur kalau "Semua Titik" dipilih.
+    if not is_temp:
+        thr = get_threshold(sel_eq)
+    elif sel_titik != "Semua Titik":
+        thr = get_temp_threshold(sel_eq, sel_titik)
+    else:
+        thr = None  # campuran — threshold dihitung per titik saat dibutuhkan
+
+    def _thr_for(titik):
+        return thr if thr is not None else get_temp_threshold(sel_eq, titik)
+
+    unit_label = "°C" if is_temp else "mm/s"
+    axis_label = f"Suhu ({unit_label})" if is_temp else f"Vibrasi ({unit_label})"
+
     # ── KPI ringkas ───────────────────────────────────────────────────────────
-    # Hitung per direction untuk titik terpilih
-    kpi_data = []
-    for d in (sel_dir or ["H","V","A"]):
-        sub = df_tr[df_tr["direction"]==d].sort_values("date")
-        if sub.empty: continue
-        last_val  = sub["value"].iloc[-1]
-        max_val   = sub["value"].max()
-        min_val   = sub["value"].min()
-        zk,zi,zl  = get_zone(last_val, thr)
-        # delta vs pengukuran sebelumnya
-        delta = last_val - sub["value"].iloc[-2] if len(sub)>=2 else None
-        kpi_data.append(dict(d=d, last=last_val, mx=max_val, mn=min_val,
-                             zk=zk, zi=zi, zl=zl, delta=delta))
+    # Vibrasi: 1 kartu per direction (H/V/A). Suhu: 1 kartu per titik ukur
+    # (direction cuma "T", jadi grouping per-direction tidak berguna untuk suhu).
+    if not is_temp:
+        kpi_data = []
+        for d in (sel_dir or ["H","V","A"]):
+            sub = df_tr[df_tr["direction"]==d].sort_values("date")
+            if sub.empty: continue
+            last_val  = sub["value"].iloc[-1]
+            max_val   = sub["value"].max()
+            min_val   = sub["value"].min()
+            zk,zi,zl  = get_zone(last_val, thr)
+            delta = last_val - sub["value"].iloc[-2] if len(sub)>=2 else None
+            kpi_data.append(dict(label=f"Direction {d}", last=last_val, mx=max_val, mn=min_val,
+                                 zk=zk, zi=zi, zl=zl, delta=delta, color=COLORS_DIR.get(d,"#6b7280")))
+    else:
+        kpi_data = []
+        for tv in sorted(df_tr["titik"].unique()):
+            sub = df_tr[df_tr["titik"]==tv].sort_values("date")
+            if sub.empty: continue
+            last_val = sub["value"].iloc[-1]
+            max_val  = sub["value"].max()
+            min_val  = sub["value"].min()
+            t_thr    = _thr_for(tv)
+            zk,zi,zl = get_zone_temp(last_val, t_thr)
+            delta = last_val - sub["value"].iloc[-2] if len(sub)>=2 else None
+            kpi_data.append(dict(label=tv, last=last_val, mx=max_val, mn=min_val,
+                                 zk=zk, zi=zi, zl=zl, delta=delta, color="#f97316"))
 
     if kpi_data:
         sec_header("Kondisi Terkini")
-        kcols = st.columns(len(kpi_data))
-        for col, k in zip(kcols, kpi_data):
+        kcols = st.columns(min(len(kpi_data),4) or 1)
+        for i, k in enumerate(kpi_data):
+            col = kcols[i % len(kcols)]
             tc  = ZC.get(k["zk"],"#6b7280")
             bg  = ZB.get(k["zk"],"transparent")
-            dc  = COLORS_DIR.get(k["d"],"#6b7280")
+            dc  = k["color"]
             delta_html = ""
             if k["delta"] is not None:
                 arrow = "↑" if k["delta"]>0 else ("↓" if k["delta"]<0 else "→")
                 dcol  = "#dc2626" if k["delta"]>0 else ("#16a34a" if k["delta"]<0 else "#6b7280")
-                delta_html = f'<div class="stat-sub" style="color:{dcol}">{arrow} {k["delta"]:+.3f} vs sebelumnya</div>'
+                delta_html = f'<div class="stat-sub" style="color:{dcol}">{arrow} {k["delta"]:+.2f} vs sebelumnya</div>'
+            badge_html = zone_badge_temp(k['zk'],k['zi'],k['zl']) if is_temp else zone_badge(k['zk'],k['zi'],k['zl'])
+            valfmt = f"{k['last']:.1f}" if is_temp else f"{k['last']:.3f}"
+            mxfmt  = f"{k['mx']:.1f}"   if is_temp else f"{k['mx']:.3f}"
+            mnfmt  = f"{k['mn']:.1f}"   if is_temp else f"{k['mn']:.3f}"
             col.markdown(f"""
 <div class="stat-card" style="background:{bg};border-color:{tc}30">
-  <div style="font-size:11px;font-weight:700;color:{dc};opacity:.8;margin-bottom:6px">Direction {k['d']}</div>
-  <div class="stat-val" style="color:{tc}">{k['last']:.3f} <span style="font-size:13px;font-weight:500;opacity:.6">mm/s</span></div>
-  <div style="margin:4px 0">{zone_badge(k['zk'],k['zi'],k['zl'])}</div>
-  <div style="font-size:10px;opacity:.5;margin-top:6px">Max: <b>{k['mx']:.3f}</b> · Min: <b>{k['mn']:.3f}</b></div>
+  <div style="font-size:11px;font-weight:700;color:{dc};opacity:.8;margin-bottom:6px">{k['label']}</div>
+  <div class="stat-val" style="color:{tc}">{valfmt} <span style="font-size:13px;font-weight:500;opacity:.6">{unit_label}</span></div>
+  <div style="margin:4px 0">{badge_html}</div>
+  <div style="font-size:10px;opacity:.5;margin-top:6px">Max: <b>{mxfmt}</b> · Min: <b>{mnfmt}</b></div>
   {delta_html}
 </div>""", unsafe_allow_html=True)
         st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
@@ -330,18 +446,30 @@ if mode == "📈 Trend Detail":
         for d in (sel_dir or []):
             sub = df_tr[(df_tr["titik"]==titik)&(df_tr["direction"]==d)]
             if sub.empty: continue
+            trace_color = "#f97316" if is_temp else COLORS_DIR.get(d,"#888")
             fig.add_trace(go.Scatter(
                 x=sub["date"], y=sub["value"],
                 mode="lines+markers",
-                name=f"{titik} – {d}",
-                line=dict(color=COLORS_DIR.get(d,"#888"), width=2, dash=LS_LIST[i%4]),
+                name=titik if is_temp else f"{titik} – {d}",
+                line=dict(color=trace_color, width=2, dash=LS_LIST[i%4]),
                 marker=dict(size=6),
-                hovertemplate=f"<b>{titik} ({d})</b><br>%{{x|%d %b %Y}}<br>%{{y:.3f}} mm/s<extra></extra>",
+                hovertemplate=(f"<b>{titik}</b><br>%{{x|%d %b %Y}}<br>%{{y:.1f}} °C<extra></extra>" if is_temp
+                              else f"<b>{titik} ({d})</b><br>%{{x|%d %b %Y}}<br>%{{y:.3f}} mm/s<extra></extra>"),
             ))
-    fig = add_threshold_lines(fig, thr)
+
+    if is_temp:
+        if thr is not None:
+            fig = add_threshold_lines_temp(fig, thr)
+        else:
+            st.caption("ℹ️ Beberapa titik ukur di sini punya kategori threshold suhu berbeda "
+                      "(mis. bearing vs winding) — garis batas Normal/Danger disembunyikan. "
+                      "Pilih 1 titik ukur spesifik untuk melihat garis batasnya.")
+    else:
+        fig = add_threshold_lines(fig, thr)
+
     fig.update_layout(
         title=dict(text=sel_eq + (f" — {sel_titik}" if sel_titik!="Semua Titik" else ""), font_size=14),
-        xaxis_title="Tanggal", yaxis_title="Vibrasi (mm/s)", height=420,
+        xaxis_title="Tanggal", yaxis_title=axis_label, height=420,
         **plotly_theme()
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -349,13 +477,22 @@ if mode == "📈 Trend Detail":
     # ── Tabel + Export ────────────────────────────────────────────────────────
     sec_header("Tabel Data")
     df_tbl = df_tr[["date","titik","direction","value"]].copy()
-    df_tbl["mm/s"]   = df_tbl["value"].map(lambda v: f"{v:.3f}")
-    df_tbl["Status"] = df_tbl.apply(lambda r: get_zone(r["value"],thr)[1]+" "+get_zone(r["value"],thr)[2], axis=1)
     df_tbl["Tanggal"]= df_tbl["date"].dt.strftime("%d %b %Y")
     df_tbl = df_tbl.rename(columns={"titik":"Titik","direction":"Dir"})
-    show_cols = ["Tanggal","Titik","Dir","mm/s","Status"]
 
-    st.markdown(render_zone_table(df_tbl, thr, show_cols), unsafe_allow_html=True)
+    if is_temp:
+        df_tbl["°C"] = df_tbl["value"].map(lambda v: f"{v:.1f}")
+        df_tbl["Status"] = df_tbl.apply(
+            lambda r: get_zone_temp(r["value"], _thr_for(r["Titik"]))[1] + " " +
+                     get_zone_temp(r["value"], _thr_for(r["Titik"]))[2], axis=1)
+        show_cols = ["Tanggal","Titik","°C","Status"]
+        st.markdown(render_zone_table_temp(df_tbl, lambda r: _thr_for(r["Titik"]), show_cols),
+                    unsafe_allow_html=True)
+    else:
+        df_tbl["mm/s"]   = df_tbl["value"].map(lambda v: f"{v:.3f}")
+        df_tbl["Status"] = df_tbl.apply(lambda r: get_zone(r["value"],thr)[1]+" "+get_zone(r["value"],thr)[2], axis=1)
+        show_cols = ["Tanggal","Titik","Dir","mm/s","Status"]
+        st.markdown(render_zone_table(df_tbl, thr, show_cols), unsafe_allow_html=True)
 
     # Export
     st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
@@ -372,21 +509,31 @@ if mode == "📈 Trend Detail":
 # ══════════════════════════════════════════════════════════════════════════════
 elif mode == "⚖️ Bandingkan Equipment":
 
+    dtype_cmp = st.radio("Jenis Data", ["📳 Vibrasi (mm/s)", "🌡️ Suhu (°C)"],
+                        horizontal=True, key="cmp_dtype")
+    is_temp_cmp = dtype_cmp.startswith("🌡️")
+    df_type_cmp = (df_hist[df_hist["direction"]=="T"] if is_temp_cmp
+                  else df_hist[df_hist["direction"].isin(["H","V","A"])])
+
+    if df_type_cmp.empty:
+        st.info("📂 Belum ada data suhu." if is_temp_cmp else "📂 Belum ada data vibrasi.")
+        st.stop()
+
     bc1, bc2 = st.columns(2)
-    eq_list  = sorted(df_hist["equipment"].unique())
+    eq_list  = sorted(df_type_cmp["equipment"].unique())
 
     with bc1:
         st.markdown("**Equipment 1**")
         eq1    = st.selectbox("Equipment 1", eq_list, key="cmp_eq1", label_visibility="collapsed")
-        t1opts = ["Semua Titik"] + sorted(df_hist[df_hist["equipment"]==eq1]["titik"].unique())
+        t1opts = ["Semua Titik"] + sorted(df_type_cmp[df_type_cmp["equipment"]==eq1]["titik"].unique())
         t1     = st.selectbox("Titik Ukur", t1opts, key="cmp_t1")
-        d1     = st.multiselect("Direction", ["H","V","A"], default=["H"], key="cmp_d1")
+        d1     = ["T"] if is_temp_cmp else st.multiselect("Direction", ["H","V","A"], default=["H"], key="cmp_d1")
     with bc2:
         st.markdown("**Equipment 2**")
         eq2    = st.selectbox("Equipment 2", eq_list, index=min(1,len(eq_list)-1), key="cmp_eq2", label_visibility="collapsed")
-        t2opts = ["Semua Titik"] + sorted(df_hist[df_hist["equipment"]==eq2]["titik"].unique())
+        t2opts = ["Semua Titik"] + sorted(df_type_cmp[df_type_cmp["equipment"]==eq2]["titik"].unique())
         t2     = st.selectbox("Titik Ukur", t2opts, key="cmp_t2")
-        d2     = st.multiselect("Direction", ["H","V","A"], default=["H"], key="cmp_d2")
+        d2     = ["T"] if is_temp_cmp else st.multiselect("Direction", ["H","V","A"], default=["H"], key="cmp_d2")
 
     rng_cmp, cmp_from, cmp_to = rng_filter_ui("cmp")
 
@@ -395,9 +542,14 @@ elif mode == "⚖️ Bandingkan Equipment":
     st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
     pairs = [(eq1,t1,d1,"#3b82f6"),(eq2,t2,d2,"#ef4444")]
+    unit_label_cmp = "°C" if is_temp_cmp else "mm/s"
+    axis_label_cmp = f"Suhu ({unit_label_cmp})" if is_temp_cmp else f"Vibrasi ({unit_label_cmp})"
+
+    def _thr_cmp(eq, titik):
+        return get_temp_threshold(eq, titik) if is_temp_cmp else get_threshold(eq)
 
     def build_traces(eq, titik, dirs, base_color):
-        df_eq = df_hist[df_hist["equipment"]==eq].copy()
+        df_eq = df_type_cmp[df_type_cmp["equipment"]==eq].copy()
         df_eq = apply_range(df_eq,"date",rng_cmp,cmp_from,cmp_to)
         if titik!="Semua Titik": df_eq = df_eq[df_eq["titik"]==titik]
         if dirs: df_eq = df_eq[df_eq["direction"].isin(dirs)]
@@ -410,45 +562,57 @@ elif mode == "⚖️ Bandingkan Equipment":
                 traces.append((sub, tv, d, LS_LIST[i%4]))
         return df_eq, traces
 
+    def _hover(label):
+        return (f"<b>{label}</b><br>%{{x|%d %b %Y}}<br>%{{y:.1f}} °C<extra></extra>" if is_temp_cmp
+               else f"<b>{label}</b><br>%{{x|%d %b %Y}}<br>%{{y:.3f}} mm/s<extra></extra>")
+
     if overlay:
         # Satu grafik bersama
         sec_header("Grafik Perbandingan (Overlay)")
         fig_ov = go.Figure()
         for eq, titik, dirs, main_col in pairs:
-            thr_eq = get_threshold(eq)
             _, traces = build_traces(eq, titik, dirs, main_col)
             for sub, tv, d, ls in traces:
+                label = f"{eq} · {tv}" if is_temp_cmp else f"{eq} · {tv} ({d})"
                 fig_ov.add_trace(go.Scatter(
                     x=sub["date"], y=sub["value"],
-                    mode="lines+markers", name=f"{eq} · {tv} ({d})",
-                    line=dict(color=COLORS_DIR.get(d,main_col), width=2, dash=ls),
+                    mode="lines+markers", name=label,
+                    line=dict(color=(main_col if is_temp_cmp else COLORS_DIR.get(d,main_col)), width=2, dash=ls),
                     marker=dict(size=5),
-                    hovertemplate=f"<b>{eq} · {tv} ({d})</b><br>%{{x|%d %b %Y}}<br>%{{y:.3f}} mm/s<extra></extra>",
+                    hovertemplate=_hover(label),
                 ))
-        # pakai threshold equipment 1 sebagai referensi
-        fig_ov = add_threshold_lines(fig_ov, get_threshold(eq1))
-        fig_ov.update_layout(title="Perbandingan Vibrasi", xaxis_title="Tanggal",
-                             yaxis_title="Vibrasi (mm/s)", height=420, **plotly_theme())
+        # pakai threshold equipment 1 sebagai referensi (kalau suhu & titik 1 spesifik)
+        if is_temp_cmp:
+            if t1 != "Semua Titik":
+                fig_ov = add_threshold_lines_temp(fig_ov, _thr_cmp(eq1, t1))
+        else:
+            fig_ov = add_threshold_lines(fig_ov, get_threshold(eq1))
+        fig_ov.update_layout(title="Perbandingan Suhu" if is_temp_cmp else "Perbandingan Vibrasi",
+                             xaxis_title="Tanggal", yaxis_title=axis_label_cmp, height=420, **plotly_theme())
         st.plotly_chart(fig_ov, use_container_width=True)
     else:
         # Dua grafik terpisah side-by-side
         sec_header("Grafik Perbandingan")
         g1, g2 = st.columns(2)
         for col_g, (eq, titik, dirs, main_col) in zip([g1,g2], pairs):
-            thr_eq = get_threshold(eq)
             df_eq, traces = build_traces(eq, titik, dirs, main_col)
             fig_eq = go.Figure()
             for sub, tv, d, ls in traces:
+                label = tv if is_temp_cmp else f"{tv} ({d})"
                 fig_eq.add_trace(go.Scatter(
                     x=sub["date"], y=sub["value"],
-                    mode="lines+markers", name=f"{tv} ({d})",
-                    line=dict(color=COLORS_DIR.get(d,main_col), width=2, dash=ls),
+                    mode="lines+markers", name=label,
+                    line=dict(color=(main_col if is_temp_cmp else COLORS_DIR.get(d,main_col)), width=2, dash=ls),
                     marker=dict(size=5),
-                    hovertemplate=f"<b>{tv} ({d})</b><br>%{{x|%d %b %Y}}<br>%{{y:.3f}} mm/s<extra></extra>",
+                    hovertemplate=_hover(label),
                 ))
-            fig_eq = add_threshold_lines(fig_eq, thr_eq)
+            if is_temp_cmp:
+                if titik != "Semua Titik":
+                    fig_eq = add_threshold_lines_temp(fig_eq, _thr_cmp(eq, titik))
+            else:
+                fig_eq = add_threshold_lines(fig_eq, get_threshold(eq))
             fig_eq.update_layout(title=eq, xaxis_title="Tanggal",
-                                 yaxis_title="Vibrasi (mm/s)", height=400, **plotly_theme())
+                                 yaxis_title=axis_label_cmp, height=400, **plotly_theme())
             with col_g:
                 st.plotly_chart(fig_eq, use_container_width=True)
 
@@ -457,20 +621,34 @@ elif mode == "⚖️ Bandingkan Equipment":
     tbl1, tbl2 = st.columns(2)
     all_export = []
     for col_t, (eq, titik, dirs, _) in zip([tbl1,tbl2], pairs):
-        thr_eq = get_threshold(eq)
-        df_eq  = df_hist[df_hist["equipment"]==eq].copy()
+        df_eq  = df_type_cmp[df_type_cmp["equipment"]==eq].copy()
         if titik!="Semua Titik": df_eq=df_eq[df_eq["titik"]==titik]
         if dirs: df_eq=df_eq[df_eq["direction"].isin(dirs)]
         lat = df_eq.sort_values("date").groupby(["titik","direction"],as_index=False).last()
-        lat["mm/s"]   = lat["value"].map(lambda v:f"{v:.3f}")
-        lat["Status"] = lat["value"].apply(lambda v:get_zone(v,thr_eq)[1]+" "+get_zone(v,thr_eq)[2])
-        lat["Tanggal"]= pd.to_datetime(lat["date"]).dt.strftime("%d %b %Y")
         lat = lat.rename(columns={"titik":"Titik","direction":"Dir"})
-        all_export.append(lat[["Titik","Dir","mm/s","Status","Tanggal"]].assign(Equipment=eq))
-        with col_t:
-            st.markdown(f"**{eq}**")
-            st.markdown(render_zone_table(lat, thr_eq, ["Titik","Dir","mm/s","Status","Tanggal"]),
-                        unsafe_allow_html=True)
+        lat["Tanggal"]= pd.to_datetime(lat["date"]).dt.strftime("%d %b %Y")
+
+        if is_temp_cmp:
+            lat["°C"] = lat["value"].map(lambda v:f"{v:.1f}")
+            lat["Status"] = lat.apply(
+                lambda r: get_zone_temp(r["value"], _thr_cmp(eq, r["Titik"]))[1] + " " +
+                         get_zone_temp(r["value"], _thr_cmp(eq, r["Titik"]))[2], axis=1)
+            cols_show = ["Titik","°C","Status","Tanggal"]
+            all_export.append(lat[cols_show].assign(Equipment=eq))
+            with col_t:
+                st.markdown(f"**{eq}**")
+                st.markdown(render_zone_table_temp(lat, lambda r, _eq=eq: _thr_cmp(_eq, r["Titik"]), cols_show),
+                            unsafe_allow_html=True)
+        else:
+            thr_eq = get_threshold(eq)
+            lat["mm/s"]   = lat["value"].map(lambda v:f"{v:.3f}")
+            lat["Status"] = lat["value"].apply(lambda v:get_zone(v,thr_eq)[1]+" "+get_zone(v,thr_eq)[2])
+            cols_show = ["Titik","Dir","mm/s","Status","Tanggal"]
+            all_export.append(lat[cols_show].assign(Equipment=eq))
+            with col_t:
+                st.markdown(f"**{eq}**")
+                st.markdown(render_zone_table(lat, thr_eq, cols_show),
+                            unsafe_allow_html=True)
 
     # Export gabungan
     ex_df = pd.concat(all_export, ignore_index=True)
