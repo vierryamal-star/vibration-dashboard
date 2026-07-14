@@ -47,48 +47,6 @@ ZONE_ICON = {
 ZC = ZONE_COLOR
 ZB = ZONE_BG
 
-# ── Threshold suhu (°C) — 3 tier: Normal / Warning / Danger ──────────────────
-# Dicocokkan lewat nama TITIK UKUR (bukan jenis equipment) — berlaku sama baik
-# equipment-nya Pump maupun Fan (mis. Bearing DE Motor Fan == Bearing DE Motor Pompa).
-#
-# KONVENSI KHUSUS MOTOR (dikonfirmasi user): titik "DE MOTOR" & "NDE MOTOR" dipakai
-# ulang dari titik vibrasi yang SAMA, tapi untuk baris suhu (direction="T") artinya beda:
-#   - DE MOTOR  -> suhu BEARING  (74/95°C)
-#   - NDE MOTOR -> suhu WINDING  (99/140°C)   <-- BUKAN bearing, meski nama titiknya "MOTOR"
-# Pompa/Fan (DE & NDE) tetap bearing biasa, karena tidak ada winding di situ.
-THRESHOLD_TEMP = {
-    "TURBIN":            {"normal": 80, "danger": 119},
-    "WINDING":           {"normal": 99, "danger": 140},
-    "BEARING DE MOTOR":  {"normal": 74, "danger": 95},
-    "BEARING DE DRIVEN":  {"normal": 74, "danger": 95},  # Bearing DE Pompa/Fan
-    "BEARING NDE DRIVEN": {"normal": 74, "danger": 95},  # Bearing NDE Pompa/Fan
-}
-
-def get_temp_threshold(equipment: str, titik: str):
-    """Pilih threshold suhu berdasarkan nama titik ukur (Turbin/Winding/Bearing DE Motor/Driven)."""
-    eq, t = str(equipment).upper(), str(titik).upper()
-    if "TURBIN" in eq and "WINDING" not in t:
-        return THRESHOLD_TEMP["TURBIN"]
-    if "WINDING" in t:
-        return THRESHOLD_TEMP["WINDING"]
-    if "MOTOR" in t:
-        # NDE Motor -> winding (bukan bearing), DE Motor -> bearing. Konvensi khusus motor.
-        return THRESHOLD_TEMP["WINDING"] if "NDE" in t else THRESHOLD_TEMP["BEARING DE MOTOR"]
-    if any(k in t for k in ["POMPA", "PUMP", "FAN"]):
-        return THRESHOLD_TEMP["BEARING NDE DRIVEN" if "NDE" in t else "BEARING DE DRIVEN"]
-    return THRESHOLD_TEMP["BEARING DE DRIVEN"]  # fallback
-
-def get_zone_temp(value, thr):
-    """Return (zone_key, icon, label) — 3 tier, reuse warna ZONE A(biru)/C(kuning)/D(merah)."""
-    if pd.isna(value):
-        return "N/A", "⬜", "N/A"
-    if value <= thr["normal"]:
-        return "ZONE A", "🔵", "Normal"
-    elif value < thr["danger"]:
-        return "ZONE C", "🟡", "Warning"
-    else:
-        return "ZONE D", "🔴", "Danger"
-
 def get_supabase(service_role=False):
     import streamlit as st
     from supabase import create_client
@@ -258,22 +216,11 @@ def load_filtered(df_hist, units, equips, directions):
     return df[df["unit"].isin(units) & df["equipment"].isin(equips) & df["direction"].isin(directions)].copy()
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Hitung zone per baris. Baris vibrasi (direction H/V/A) pakai THRESHOLD (mm/s, 4 tier).
-    Baris suhu (direction == 'T') pakai THRESHOLD_TEMP (°C, 3 tier) — dicocokkan lewat titik ukur,
-    BUKAN via thr_type equipment, karena skala & satuannya beda total dari vibrasi.
-    """
     df = df.copy()
-    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
-
-    def _zone_row(r):
-        if r["direction"] == "T":
-            thr = get_temp_threshold(r["equipment"], r["titik"])
-            return get_zone_temp(r["value"], thr)
-        return get_zone(r["value"], THRESHOLD[r["thr_type"]])
-
-    z = df.apply(_zone_row, axis=1)
-    df["zone"], df["zone_icon"], df["zone_label"] = zip(*z)
+    df["thr_type"]  = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
+    df["zone"]      = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[0], axis=1)
+    df["zone_icon"] = df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[1], axis=1)
+    df["zone_label"]= df.apply(lambda r: get_zone(r["value"], THRESHOLD[r["thr_type"]])[2], axis=1)
     return df
 
 EDITOR_PASSWORD = "pltu2026"
@@ -310,4 +257,3 @@ def require_editor():
         st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
         return False
     return True
-
