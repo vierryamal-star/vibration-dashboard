@@ -4,7 +4,6 @@ from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
     render_login_sidebar,
-    get_temp_threshold, get_zone_temp,
 )
 
 st.set_page_config(
@@ -105,14 +104,11 @@ with st.sidebar:
         df_chk["value"] = pd.to_numeric(df_chk["value"], errors="coerce")
         lc = df_chk.sort_values("date").groupby(
             ["unit","equipment","titik","direction"], as_index=False).last()
-        # FIX: baris suhu (direction=="T") pakai threshold suhu, bukan threshold vibrasi
-        def _lc_zone(r):
-            if r["direction"] == "T":
-                return get_zone_temp(r["value"], get_temp_threshold(r["equipment"], r["titik"]))[0]
-            return get_zone(r["value"], get_threshold(r["equipment"]))[0]
-        zones_lc = lc.apply(_lc_zone, axis=1)
-        nd = int((zones_lc=="ZONE D").sum())
-        nc = int((zones_lc=="ZONE C").sum())
+        # FIX: pakai get_threshold(equipment) agar konsisten dengan main page
+        nd = sum(1 for _,r in lc.iterrows()
+                 if get_zone(r["value"], get_threshold(r["equipment"]))[0]=="ZONE D")
+        nc = sum(1 for _,r in lc.iterrows()
+                 if get_zone(r["value"], get_threshold(r["equipment"]))[0]=="ZONE C")
         if nd>0:   st.error(f"🔴 {nd} titik Danger")
         elif nc>0: st.warning(f"🟡 {nc} titik Warning")
         else:      st.success("✅ Semua titik normal")
@@ -204,11 +200,7 @@ latest_all = (
     .last()
 )
 
-# Pisah vibrasi (H/V/A) vs suhu (T) — beda satuan & skala threshold total.
-# `latest` tetap khusus vibrasi supaya semua KPI/kartu/alarm/tabel di bawah
-# yang sudah ada TIDAK berubah perilakunya sama sekali.
-latest      = latest_all[latest_all["direction"] != "T"].copy()
-latest_temp = latest_all[latest_all["direction"] == "T"].copy()
+latest = latest_all.copy()
 
 total = len(latest)
 n_d = int((latest["zone"]=="ZONE D").sum())
@@ -290,37 +282,6 @@ def _max_dir(df_eq, d):
     idx = sub["value"].idxmax()
     return float(sub.loc[idx,"value"]), str(sub.loc[idx,"titik"])
 
-# Suhu terpanas per equipment (untuk kartu status) — filter sesuai unit & equipment yang dipilih
-df_temp_lat = latest_temp[
-    latest_temp["unit"].isin(sel_unit) &
-    latest_temp["equipment"].isin(sel_equip)
-].copy()
-
-def _max_temp(eq):
-    sub = df_temp_lat[df_temp_lat["equipment"]==eq][["value","titik"]].dropna(subset=["value"])
-    if sub.empty: return None, None
-    idx = sub["value"].idxmax()
-    return float(sub.loc[idx,"value"]), str(sub.loc[idx,"titik"])
-
-def _temp_pill(equipment, val, titik):
-    if val is None or pd.isna(val):
-        return (f'<div style="flex:1;display:flex;flex-direction:column;align-items:center;'
-                f'background:rgba(128,128,128,.1);border-radius:8px;padding:6px 4px;gap:1px">'
-                f'<span style="font-size:12px;font-weight:700;opacity:.4">T</span>'
-                f'<span style="font-size:15px;opacity:.3">–</span>'
-                f'<span style="font-size:10px;opacity:.25">–</span></div>')
-    thr = get_temp_threshold(equipment, titik)
-    zk  = get_zone_temp(val, thr)[0]
-    c   = ZC.get(zk,"#6b7280")
-    bg  = ZB.get(zk,"transparent")
-    ts  = (titik[:10]+"…") if titik and len(titik)>11 else (titik or "")
-    return (f'<div title="{titik}" style="flex:1;display:flex;flex-direction:column;align-items:center;'
-            f'background:{bg};border-radius:8px;padding:6px 4px;gap:1px;cursor:default">'
-            f'<span style="font-size:12px;font-weight:700;color:{c};opacity:.8">T°C</span>'
-            f'<span style="font-size:15px;font-weight:700;color:{c}">{val:.1f}</span>'
-            f'<span style="font-size:10px;color:{c};opacity:.65;white-space:nowrap;'
-            f'overflow:hidden;text-overflow:ellipsis;max-width:100%">{ts}</span></div>')
-
 def _dir_pill(label, val, thr, titik):
     if val is None or pd.isna(val):
         return (f'<div style="flex:1;display:flex;flex-direction:column;align-items:center;'
@@ -351,10 +312,9 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
     all_v  = [x for x in [hv,vv,av] if x is not None and not pd.isna(x)]
     mx     = max(all_v) if all_v else float("nan")
     zk,zi,zl = get_zone(mx, thr)
-    tv, tt = _max_temp(eq)
     tgl = pd.to_datetime(df_eq["date"].max()).strftime("%d %b %Y") if pd.notna(df_eq["date"].max()) else "–"
     eq_rows.append(dict(eq=eq, unit=df_eq["unit"].iloc[0],
-        H=hv,Ht=ht, V=vv,Vt=vt, A=av,At=at, T=tv,Tt=tt,
+        H=hv,Ht=ht, V=vv,Vt=vt, A=av,At=at,
         zk=zk,zi=zi,zl=zl, thr=thr, tgl=tgl, mx=mx))
 
 for i in range(0, len(eq_rows), 3):
@@ -377,7 +337,6 @@ for i in range(0, len(eq_rows), 3):
     {_dir_pill("H",r['H'],r['thr'],r['Ht'])}
     {_dir_pill("V",r['V'],r['thr'],r['Vt'])}
     {_dir_pill("A",r['A'],r['thr'],r['At'])}
-    {_temp_pill(r['eq'],r['T'],r['Tt'])}
   </div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
     <span style="font-size:13px;font-weight:700;color:{bc}">{r['zi']} {r['zl']}</span>
@@ -445,50 +404,6 @@ else:
         st.warning(f"🟡 **Warning** — {len(df_c)} titik perlu dipantau")
         st.markdown(_alarm_tbl(df_c,"#d97706"), unsafe_allow_html=True)
 
-# ── Alarm Suhu — terpisah dari alarm vibrasi (skala & satuan beda) ───────────
-if not df_temp_lat.empty:
-    st.markdown("### 🌡️ Alarm Suhu")
-    df_temp_lat["zone_t"] = df_temp_lat.apply(
-        lambda r: get_zone_temp(r["value"], get_temp_threshold(r["equipment"], r["titik"]))[0], axis=1)
-    df_td = df_temp_lat[df_temp_lat["zone_t"]=="ZONE D"]
-    df_tc = df_temp_lat[df_temp_lat["zone_t"]=="ZONE C"]
-
-    if df_td.empty and df_tc.empty:
-        st.success("✅ Tidak ada alarm suhu aktif — semua titik dalam batas normal.")
-    else:
-        def _alarm_tbl_temp(df_alarm, accent):
-            rows = ""
-            for _,r in df_alarm.sort_values(["equipment","titik"]).iterrows():
-                val = r["value"]
-                tc  = ZC.get(r["zone_t"],"#6b7280")
-                rows += f"""<tr>
-  <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
-  <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
-  <td style="padding:9px 12px">{r['titik']}</td>
-  <td style="padding:9px 12px;text-align:center">
-    <span style="font-size:13px;font-weight:800;color:{tc}">{val:.1f} °C</span></td>
-  <td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">
-    {pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>
-</tr>"""
-            return f"""
-<div class="vt-wrap" style="border-color:{accent}40">
-<table class="vt">
-<thead><tr>
-  <th style="text-align:left">Unit</th>
-  <th style="text-align:left">Equipment</th>
-  <th style="text-align:left">Titik Ukur</th>
-  <th style="text-align:center;min-width:100px">°C</th>
-  <th style="text-align:left">Tanggal</th>
-</tr></thead>
-<tbody>{rows}</tbody></table></div>"""
-
-        if not df_td.empty:
-            st.error(f"🔴 **Danger** — {len(df_td)} titik suhu melebihi batas kritis")
-            st.markdown(_alarm_tbl_temp(df_td,"#dc2626"), unsafe_allow_html=True)
-        if not df_tc.empty:
-            st.warning(f"🟡 **Warning** — {len(df_tc)} titik suhu perlu dipantau")
-            st.markdown(_alarm_tbl_temp(df_tc,"#d97706"), unsafe_allow_html=True)
-
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -511,14 +426,9 @@ with db:
     )
     if not det_dir_sel: det_dir_sel = ["H","V","A"]
 
-show_temp_col = st.checkbox("🌡️ Tampilkan kolom Suhu", value=True, key="det_show_temp") \
-    if not latest_temp.empty else False
-
 df_det = latest.copy()
-df_det_temp = latest_temp.copy()
 if det_unit_sel != "All":
     df_det = df_det[df_det["unit"]==det_unit_sel]
-    df_det_temp = df_det_temp[df_det_temp["unit"]==det_unit_sel]
 
 if df_det.empty:
     st.warning("Tidak ada data untuk unit yang dipilih. 💡 Coba pilih unit lain atau **All**.")
@@ -546,19 +456,6 @@ def _val_td(val, thr, show=True):
         f'</div></td>'
     )
 
-def _val_td_temp(val, thr, show=True):
-    """Sel suhu — skala & format beda dari _val_td (°C, 1 desimal, tanpa bar mm/s)."""
-    if not show or val is None or pd.isna(val):
-        return '<td style="text-align:center;padding:9px 10px;opacity:.3;font-size:13px">–</td>'
-    zk = get_zone_temp(val, thr)[0]
-    tc = ZC.get(zk,"#6b7280")
-    bg = ZB.get(zk,"transparent")
-    return (
-        f'<td style="text-align:center;padding:9px 10px;background:{bg}">'
-        f'<span style="font-size:14px;font-weight:700;color:{tc};font-variant-numeric:tabular-nums">'
-        f'{val:.1f}°C</span></td>'
-    )
-
 def _badge_td(zk, zi, zl):
     tc  = ZC.get(zk,"#6b7280")
     bg  = ZB.get(zk,"transparent")
@@ -573,7 +470,7 @@ def _badge_td(zk, zi, zl):
         f'letter-spacing:.04em;white-space:nowrap">{zi} {short_key} · {full_lbl}</span></td>'
     )
 
-def _render_tbl(df_unit, unit_label, df_unit_temp=None):
+def _render_tbl(df_unit, unit_label):
     equips = sorted(df_unit["equipment"].dropna().unique())
     if not equips: return ""
 
@@ -583,10 +480,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
         f'<span style="font-size:8px;opacity:.55">mm/s</span></th>'
         for d in ["H","V","A"] if d in det_dir_sel
     )
-    temp_th = (
-        '<th style="text-align:center;min-width:80px">Temp '
-        '<span style="font-size:8px;opacity:.55">°C</span></th>'
-    ) if show_temp_col else ""
 
     rows = ""
     for eq in equips:
@@ -619,19 +512,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
             zk,zi,zl = get_zone(max_v, thr)
             tc     = ZC.get(zk,"#6b7280")
 
-            # Nilai suhu titik ini (kalau ada) — lookup terpisah dari df_unit_temp
-            temp_td = ""
-            if show_temp_col:
-                t_val = None
-                if df_unit_temp is not None and not df_unit_temp.empty:
-                    sub_t = df_unit_temp[
-                        (df_unit_temp["equipment"]==eq) & (df_unit_temp["titik"]==titik)
-                    ]["value"].dropna()
-                    if not sub_t.empty:
-                        t_val = float(sub_t.iloc[0])
-                t_thr = get_temp_threshold(eq, titik)
-                temp_td = _val_td_temp(t_val, t_thr)
-
             # Row background: hanya zone warna tipis, TANPA warna solid
             if zk=="ZONE D":   rb = "rgba(220,38,38,.07)"
             elif zk=="ZONE C": rb = "rgba(217,119,6,.06)"
@@ -659,7 +539,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
                 + _val_td(v, thr, "V" in det_dir_sel)
                 + _val_td(a, thr, "A" in det_dir_sel)
                 + _val_td(max_v, thr)
-                + temp_td
                 + _badge_td(zk,zi,zl)
                 + f'<td style="padding:9px 14px;font-size:11px;opacity:.5;'
                   f'white-space:nowrap;text-align:right">{tgl}</td>'
@@ -681,7 +560,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
         <th style="text-align:left;min-width:120px">Titik Ukur</th>
         {dir_th}
         <th style="text-align:center;min-width:90px">Max <span style="font-size:8px;opacity:.55">mm/s</span></th>
-        {temp_th}
         <th style="text-align:center;min-width:110px">Status</th>
         <th style="text-align:right;min-width:100px">Tanggal</th>
       </tr></thead>
@@ -692,9 +570,8 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
 
 if det_unit_sel == "All":
     for u in sorted(df_det["unit"].dropna().unique()):
-        blk = _render_tbl(df_det[df_det["unit"]==u], f"Unit · {u}",
-                           df_det_temp[df_det_temp["unit"]==u])
+        blk = _render_tbl(df_det[df_det["unit"]==u], f"Unit · {u}")
         if blk: st.markdown(blk, unsafe_allow_html=True)
 else:
-    blk = _render_tbl(df_det, f"Unit · {det_unit_sel}", df_det_temp)
+    blk = _render_tbl(df_det, f"Unit · {det_unit_sel}")
     if blk: st.markdown(blk, unsafe_allow_html=True)
