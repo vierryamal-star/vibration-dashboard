@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
 from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
@@ -135,18 +134,23 @@ all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("## 📊 Monitor Vibrasi")
 
-# Jam live (auto-update tiap 1 detik) — dipakai juga untuk update running hours
-# di kartu equipment di bawah tanpa perlu refresh manual.
-st_autorefresh(interval=1_000, key="live_clock_refresh")
-_now = datetime.now()
-_hari = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"][_now.weekday()]
-_bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
-          "Agustus","September","Oktober","November","Desember"][_now.month]
-st.markdown(
-    f'<div style="font-size:13px;opacity:.6;margin-top:-8px;margin-bottom:10px">'
-    f'🕐 {_hari}, {_now.day} {_bulan} {_now.year} — '
-    f'<span style="font-variant-numeric:tabular-nums;font-weight:600">{_now.strftime("%H:%M:%S")}</span>'
-    f'</div>', unsafe_allow_html=True)
+# Jam live — DIISOLASI pakai st.fragment supaya cuma komponen jam ini yang
+# rerun tiap 1 detik, BUKAN seluruh halaman (filter, grafik, kartu, dll tetap diam).
+# Ini mengganti pendekatan lama (st_autorefresh global) yang bikin dashboard berat
+# karena seluruh script Python re-run tiap detik.
+@st.fragment(run_every="1s")
+def _live_clock():
+    _now = datetime.now()
+    _hari = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"][_now.weekday()]
+    _bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
+              "Agustus","September","Oktober","November","Desember"][_now.month]
+    st.markdown(
+        f'<div style="font-size:13px;opacity:.6;margin-top:-8px;margin-bottom:10px">'
+        f'🕐 {_hari}, {_now.day} {_bulan} {_now.year} — '
+        f'<span style="font-variant-numeric:tabular-nums;font-weight:600">{_now.strftime("%H:%M:%S")}</span>'
+        f'</div>', unsafe_allow_html=True)
+
+_live_clock()
 
 fa, fb, fc = st.columns([2, 3, 3])
 with fa:
@@ -305,11 +309,9 @@ st.markdown(f"""
 # STATUS CARD PER EQUIPMENT (vibrasi, suhu, running hours & umur pompa — 1 kartu)
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 🏭 Status per Equipment")
-
-_RT_KEYWORDS = None  # semua equipment ikut ditrack running hours-nya (tidak difilter kata kunci lagi)
-# Satu kali panggil (di-cache 15 detik di utils.py), dipakai di badge kartu equipment
-# di bawah. Edit tanggal instalasi & running hours sekarang di halaman 🛠️ Kelola Pompa.
-df_runtime_all = get_pump_runtime()
+# Catatan: get_pump_runtime() dipanggil di dalam fragment _render_equipment_cards()
+# di bawah (bukan di sini) — supaya datanya fresh tiap fragment rerun (5 detik)
+# tanpa perlu query ulang saat bagian LAIN dari halaman ini di-render.
 
 df_card = df_hist[
     df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
@@ -401,52 +403,53 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
         H=hv,Ht=ht, V=vv,Vt=vt, A=av,At=at, T=tv,Tt=tt,
         zk=zk,zi=zi,zl=zl, thr=thr, tgl=tgl, mx=mx))
 
-# Lookup running hours + umur pompa (khusus equipment pompa/motor/fan) untuk kartu.
-# Pakai df_runtime_all yang sudah di-load sekali di atas. Edit tanggal instalasi &
-# koreksi jam ada di halaman terpisah 🛠️ Kelola Pompa (bukan di sini — read-only).
-def _runtime_badge(eq, unit):
-    match = df_runtime_all[
-        (df_runtime_all["equipment"]==eq) & (df_runtime_all["unit"]==unit)
-    ] if not df_runtime_all.empty else pd.DataFrame()
-    if match.empty:
-        # Equipment ini cocok kata kunci pompa/motor/fan tapi belum pernah dibuka
-        # di halaman Kelola Pompa (belum ada baris di pump_runtime) — kasih
-        # placeholder supaya jelas, bukan hilang tanpa keterangan.
-        return (
-            '<div style="margin-bottom:8px;padding:6px 8px;border-radius:8px;'
-            'background:rgba(128,128,128,.1)">'
-            '<span style="font-size:11px;opacity:.5">⏱️ Running hours belum diisi — '
-            'buka halaman 🛠️ Kelola Pompa</span></div>'
+# Kartu equipment (termasuk badge running hours) DIISOLASI pakai st.fragment
+# supaya cuma bagian ini yang rerun tiap 5 detik untuk update jam running —
+# filter, sidebar, dan bagian lain halaman TIDAK ikut re-render. Ini yang
+# tadinya bikin dashboard berat karena autorefresh lama me-rerun seluruh script.
+@st.fragment(run_every="5s")
+def _render_equipment_cards():
+    df_runtime_now = get_pump_runtime()
+
+    def _runtime_badge(eq, unit):
+        match = df_runtime_now[
+            (df_runtime_now["equipment"]==eq) & (df_runtime_now["unit"]==unit)
+        ] if not df_runtime_now.empty else pd.DataFrame()
+        if match.empty:
+            return (
+                '<div style="margin-bottom:8px;padding:6px 8px;border-radius:8px;'
+                'background:rgba(128,128,128,.1)">'
+                '<span style="font-size:11px;opacity:.5">⏱️ Running hours belum diisi — '
+                'buka halaman 🛠️ Kelola Pompa</span></div>'
+            )
+        row_data = match.iloc[0].to_dict()
+        hours  = compute_running_hours(row_data)
+        status = row_data.get("status", "stopped")
+        age    = get_pump_age(row_data.get("install_date"))
+        rc = "#16a34a" if status == "running" else "#6b7280"
+        dot = "🟢" if status == "running" else "⚪"
+        age_html = (
+            f'<span style="font-size:10px;opacity:.55">📅 Umur: {age}</span>'
+            if age else ""
         )
-    row_data = match.iloc[0].to_dict()
-    hours  = compute_running_hours(row_data)
-    status = row_data.get("status", "stopped")
-    age    = get_pump_age(row_data.get("install_date"))
-    rc = "#16a34a" if status == "running" else "#6b7280"
-    dot = "🟢" if status == "running" else "⚪"
-    age_html = (
-        f'<span style="font-size:10px;opacity:.55">📅 Umur: {age}</span>'
-        if age else ""
-    )
-    return (
-        f'<div style="margin-bottom:8px;padding:6px 8px;border-radius:8px;background:{rc}12">'
-        f'<div style="display:flex;align-items:center;justify-content:space-between">'
-        f'<span style="font-size:11px;font-weight:600;color:{rc}">{dot} '
-        f'{"Running" if status=="running" else "Stopped"}</span>'
-        f'<span style="font-size:12px;font-weight:700;color:{rc};font-variant-numeric:tabular-nums">'
-        f'⏱️ {hours:,.1f} jam</span></div>'
-        f'{age_html}</div>'
-    )
+        return (
+            f'<div style="margin-bottom:8px;padding:6px 8px;border-radius:8px;background:{rc}12">'
+            f'<div style="display:flex;align-items:center;justify-content:space-between">'
+            f'<span style="font-size:11px;font-weight:600;color:{rc}">{dot} '
+            f'{"Running" if status=="running" else "Stopped"}</span>'
+            f'<span style="font-size:12px;font-weight:700;color:{rc};font-variant-numeric:tabular-nums">'
+            f'⏱️ {hours:,.1f} jam</span></div>'
+            f'{age_html}</div>'
+        )
 
-
-for i in range(0, len(eq_rows), 3):
-    cols = st.columns(3)
-    for col, r in zip(cols, eq_rows[i:i+3]):
-        bc  = ZC.get(r["zk"],"#6b7280")
-        bg  = ZB.get(r["zk"],"transparent")
-        bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
-        rt_html = _runtime_badge(r["eq"], r["unit"])
-        col.markdown(f"""
+    for i in range(0, len(eq_rows), 3):
+        cols = st.columns(3)
+        for col, r in zip(cols, eq_rows[i:i+3]):
+            bc  = ZC.get(r["zk"],"#6b7280")
+            bg  = ZB.get(r["zk"],"transparent")
+            bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
+            rt_html = _runtime_badge(r["eq"], r["unit"])
+            col.markdown(f"""
 <div class="eq-card" style="
   border:1px solid {bc}30; border-left:4px solid {bc};
   border-radius:0 12px 12px 0; padding:14px; margin-bottom:10px;
@@ -471,6 +474,8 @@ for i in range(0, len(eq_rows), 3):
     <div style="height:3px;width:{bar}%;background:{bc};border-radius:2px"></div>
   </div>
 </div>""", unsafe_allow_html=True)
+
+_render_equipment_cards()
 
 
 st.divider()
