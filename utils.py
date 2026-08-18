@@ -464,6 +464,48 @@ def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
     except Exception as e:
         st.error(f"Gagal simpan tanggal instalasi: {e}")
 
+# ── Umur Bearing per posisi (DE Motor / NDE Motor / DE Pompa-Fan / NDE Pompa-Fan) ──
+# Tabel Supabase: bearing_install (equipment, unit, posisi, install_date)
+# Terpisah dari install_date equipment di pump_runtime, karena tiap bearing bisa
+# diganti di waktu yang berbeda-beda meski equipment-nya sama.
+
+BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"]
+
+def get_bearing_install() -> pd.DataFrame:
+    """Baca semua tanggal instalasi bearing dari Supabase."""
+    import streamlit as st
+    cols = ["equipment", "unit", "posisi", "install_date"]
+    try:
+        sb = get_supabase()
+        res = sb.table("bearing_install").select("*").execute()
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
+    except Exception as e:
+        st.error(f"Gagal load umur bearing: {e}")
+        return pd.DataFrame(columns=cols)
+
+def update_bearing_install(equipment: str, unit: str, posisi: str, install_date) -> None:
+    """Simpan/ubah tanggal instalasi bearing untuk satu posisi tertentu.
+    Insert kalau belum ada baris (equipment, unit, posisi) tsb, update kalau sudah ada."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        existing = (
+            sb.table("bearing_install").select("id")
+            .eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi)
+            .execute()
+        )
+        if existing.data:
+            sb.table("bearing_install").update(
+                {"install_date": str(install_date)}
+            ).eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi).execute()
+        else:
+            sb.table("bearing_install").insert({
+                "equipment": equipment, "unit": unit, "posisi": posisi,
+                "install_date": str(install_date),
+            }).execute()
+    except Exception as e:
+        st.error(f"Gagal simpan tanggal instalasi bearing: {e}")
+
 def set_pump_runtime_manual(equipment: str, unit: str, status: str,
                              accumulated_hours: float, status_changed_at=None) -> None:
     """Koreksi manual accumulated_hours (dan opsional status_changed_at) — dipakai
