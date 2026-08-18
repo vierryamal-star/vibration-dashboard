@@ -15,6 +15,15 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Sembunyikan navigasi multipage bawaan Streamlit (sama seperti di app.py) —
+# tanpa ini, daftar halaman default muncul di ATAS logo/menu custom di sidebar.
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"]{ display:none; }
+section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
+</style>
+""", unsafe_allow_html=True)
+
 # ── Sidebar (konsisten dengan app.py) ─────────────────────────────────────────
 with st.sidebar:
     try: st.image("assets/logo_pln_ip.png", width=200)
