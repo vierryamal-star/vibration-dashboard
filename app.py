@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 from utils import (
     save_to_db, load_history, parse_excel,
@@ -133,6 +134,19 @@ all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 # HEADER + FILTER
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("## 📊 Monitor Vibrasi")
+
+# Jam live (auto-update tiap 1 detik) — dipakai juga untuk update running hours
+# di kartu equipment di bawah tanpa perlu refresh manual.
+st_autorefresh(interval=1_000, key="live_clock_refresh")
+_now = datetime.now()
+_hari = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"][_now.weekday()]
+_bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
+          "Agustus","September","Oktober","November","Desember"][_now.month]
+st.markdown(
+    f'<div style="font-size:13px;opacity:.6;margin-top:-8px;margin-bottom:10px">'
+    f'🕐 {_hari}, {_now.day} {_bulan} {_now.year} — '
+    f'<span style="font-variant-numeric:tabular-nums;font-weight:600">{_now.strftime("%H:%M:%S")}</span>'
+    f'</div>', unsafe_allow_html=True)
 
 fa, fb, fc = st.columns([2, 3, 3])
 with fa:
@@ -292,12 +306,9 @@ st.markdown(f"""
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 🏭 Status per Equipment")
 
-# Jam running otomatis bertambah tanpa perlu klik refresh manual — rerun tiap 30 detik
-st_autorefresh(interval=30_000, key="runtime_autorefresh")
-
-_RT_KEYWORDS = ("PUMP", "POMPA", "MOTOR", "FAN")
+_RT_KEYWORDS = None  # semua equipment ikut ditrack running hours-nya (tidak difilter kata kunci lagi)
 # Satu kali panggil (di-cache 15 detik di utils.py), dipakai di badge kartu equipment
-# di bawah. Edit tanggal instalasi & koreksi jam sekarang di halaman 🛠️ Kelola Pompa.
+# di bawah. Edit tanggal instalasi & running hours sekarang di halaman 🛠️ Kelola Pompa.
 df_runtime_all = get_pump_runtime()
 
 df_card = df_hist[
@@ -394,8 +405,6 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
 # Pakai df_runtime_all yang sudah di-load sekali di atas. Edit tanggal instalasi &
 # koreksi jam ada di halaman terpisah 🛠️ Kelola Pompa (bukan di sini — read-only).
 def _runtime_badge(eq, unit):
-    if not any(k in eq.upper() for k in _RT_KEYWORDS):
-        return ""
     match = df_runtime_all[
         (df_runtime_all["equipment"]==eq) & (df_runtime_all["unit"]==unit)
     ] if not df_runtime_all.empty else pd.DataFrame()
