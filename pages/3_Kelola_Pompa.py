@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, time as dtime
 from utils import (
     load_history, render_login_sidebar, require_editor,
-    get_pump_runtime, init_pump_runtime, toggle_pump_runtime,
+    get_pump_runtime, init_pump_runtime,
+    start_pump_runtime, stop_pump_runtime,
     compute_running_hours, get_pump_age, update_pump_install_date,
-    set_pump_runtime_manual,
 )
 
 st.set_page_config(
@@ -43,8 +43,9 @@ with st.sidebar:
     render_login_sidebar()
 
 st.markdown("## 🛠️ Kelola Pompa")
-st.caption("Edit tanggal instalasi (umur pompa) dan koreksi running hours per equipment "
-           "pompa/motor/fan. Perubahan di sini langsung terlihat di halaman **Monitor Vibrasi**.")
+st.caption("Catat tanggal & jam **mulai**/**berhenti** operasi dan tanggal instalasi (umur) "
+           "untuk setiap equipment. Berlaku untuk **semua equipment**, tidak dibatasi jenisnya. "
+           "Perubahan langsung terlihat di halaman **Monitor Vibrasi**.")
 
 # Halaman ini khusus Editor — akan menghentikan render kalau bukan Editor
 if not require_editor():
@@ -55,17 +56,10 @@ if df_hist.empty:
     st.info("📂 Belum ada data equipment. Upload dulu di halaman **Data & Kelola**.")
     st.stop()
 
-_RT_KEYWORDS = ("PUMP", "POMPA", "MOTOR", "FAN")
-
-eq_unit_pairs = df_hist[["equipment", "unit"]].dropna().drop_duplicates()
-eq_unit_pairs = eq_unit_pairs[
-    eq_unit_pairs["equipment"].str.upper().apply(lambda x: any(k in x for k in _RT_KEYWORDS))
-].sort_values(["unit", "equipment"])
-
-if eq_unit_pairs.empty:
-    st.warning("Tidak ada equipment pompa/motor/fan terdeteksi dari data vibrasi "
-               "(nama equipment harus mengandung kata PUMP/POMPA/MOTOR/FAN).")
-    st.stop()
+eq_unit_pairs = (
+    df_hist[["equipment", "unit"]].dropna().drop_duplicates()
+    .sort_values(["unit", "equipment"])
+)
 
 df_runtime_all = get_pump_runtime()
 
@@ -86,43 +80,47 @@ for _, r in eq_unit_pairs.iterrows():
     hours_now = compute_running_hours(row_data)
     age       = get_pump_age(row_data.get("install_date"))
 
-    with st.expander(f"⚙️ **{eq}** · {unit}  —  {'🟢 Running' if status=='running' else '⚪ Stopped'} · ⏱️ {hours_now:,.1f} jam · 📅 {age or 'umur belum diisi'}"):
+    with st.expander(
+        f"⚙️ **{eq}** · {unit}  —  "
+        f"{'🟢 Running' if status=='running' else '⚪ Stopped'} · "
+        f"⏱️ {hours_now:,.1f} jam · 📅 {age or 'umur belum diisi'}"
+    ):
         c1, c2, c3 = st.columns(3)
 
-        # ── Kontrol Start/Stop ────────────────────────────────────────────────
+        # ── Catat waktu MULAI ─────────────────────────────────────────────────
         with c1:
-            st.markdown("**Status Pompa**")
-            st.metric("Status saat ini", "🟢 Running" if status=="running" else "⚪ Stopped")
-            btn_label = "⏹️ Stop" if status == "running" else "▶️ Start"
-            if st.button(btn_label, key=f"kp_toggle_{eq}_{unit}", width="stretch"):
-                toggle_pump_runtime(
-                    eq, unit, status,
+            st.markdown("**▶️ Mulai Operasi**")
+            start_d = st.date_input("Tanggal mulai", value=date.today(), key=f"kp_start_d_{eq}_{unit}")
+            start_t = st.time_input("Jam mulai", value=dtime(0,0), key=f"kp_start_t_{eq}_{unit}")
+            if st.button("💾 Catat Mulai", key=f"kp_start_btn_{eq}_{unit}", width="stretch"):
+                start_dt = datetime.combine(start_d, start_t)
+                start_pump_runtime(eq, unit, start_dt)
+                st.cache_data.clear()
+                st.success(f"Dicatat mulai: {start_dt.strftime('%d %b %Y %H:%M')}")
+                st.rerun()
+
+        # ── Catat waktu BERHENTI ─────────────────────────────────────────────
+        with c2:
+            st.markdown("**⏹️ Berhenti Operasi**")
+            stop_d = st.date_input("Tanggal berhenti", value=date.today(), key=f"kp_stop_d_{eq}_{unit}")
+            stop_t = st.time_input("Jam berhenti", value=dtime(0,0), key=f"kp_stop_t_{eq}_{unit}")
+            if st.button("💾 Catat Berhenti", key=f"kp_stop_btn_{eq}_{unit}", width="stretch"):
+                stop_dt = datetime.combine(stop_d, stop_t)
+                stop_pump_runtime(
+                    eq, unit, stop_dt, status,
                     float(row_data.get("accumulated_hours", 0) or 0),
                     row_data.get("status_changed_at"),
                 )
                 st.cache_data.clear()
-                st.rerun()
-
-        # ── Koreksi running hours manual ─────────────────────────────────────
-        with c2:
-            st.markdown("**Koreksi Running Hours**")
-            st.metric("Jam berjalan (live)", f"{hours_now:,.1f} jam")
-            new_hours = st.number_input(
-                "Akumulasi jam (koreksi)", min_value=0.0,
-                value=float(row_data.get("accumulated_hours", 0) or 0),
-                step=1.0, key=f"kp_hours_{eq}_{unit}",
-                help="Ubah kalau operator telat mencatat Start/Stop atau ada kesalahan input.",
-            )
-            if st.button("💾 Simpan koreksi jam", key=f"kp_save_hours_{eq}_{unit}", width="stretch"):
-                set_pump_runtime_manual(eq, unit, status, new_hours)
-                st.cache_data.clear()
-                st.success("Running hours tersimpan.")
+                st.success(f"Dicatat berhenti: {stop_dt.strftime('%d %b %Y %H:%M')}")
                 st.rerun()
 
         # ── Tanggal instalasi / umur pompa ───────────────────────────────────
         with c3:
-            st.markdown("**Umur Pompa**")
+            st.markdown("**📅 Umur Pompa**")
             st.metric("Umur saat ini", age or "–")
+            st.caption(f"Status: {'🟢 Running' if status=='running' else '⚪ Stopped'} · "
+                       f"Total: {hours_now:,.1f} jam")
             existing_date = None
             if row_data.get("install_date"):
                 try:
