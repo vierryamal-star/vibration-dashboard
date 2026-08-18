@@ -272,7 +272,8 @@ st.markdown("### ⏱️ Running Hours Pompa")
 # Jam berjalan otomatis tanpa perlu klik refresh — rerun tiap 30 detik
 st_autorefresh(interval=30_000, key="runtime_autorefresh")
 
-pump_equips = sorted([e for e in sel_equip if ("PUMP" in e.upper() or "POMPA" in e.upper())])
+_RT_KEYWORDS = ("PUMP", "POMPA", "MOTOR", "FAN")
+pump_equips = sorted([e for e in sel_equip if any(k in e.upper() for k in _RT_KEYWORDS)])
 
 if not pump_equips:
     st.caption("Tidak ada equipment pompa pada filter saat ini.")
@@ -415,12 +416,39 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
         H=hv,Ht=ht, V=vv,Vt=vt, A=av,At=at, T=tv,Tt=tt,
         zk=zk,zi=zi,zl=zl, thr=thr, tgl=tgl, mx=mx))
 
+# Lookup running hours (khusus equipment pompa/motor/fan) untuk ditampilkan di kartu
+_RT_KEYWORDS = ("PUMP", "POMPA", "MOTOR", "FAN")
+_df_runtime_lookup = get_pump_runtime()
+
+def _runtime_badge(eq, unit):
+    if not any(k in eq.upper() for k in _RT_KEYWORDS):
+        return ""
+    match = _df_runtime_lookup[
+        (_df_runtime_lookup["equipment"]==eq) & (_df_runtime_lookup["unit"]==unit)
+    ] if not _df_runtime_lookup.empty else pd.DataFrame()
+    if match.empty:
+        return ""
+    row_data = match.iloc[0].to_dict()
+    hours  = compute_running_hours(row_data)
+    status = row_data.get("status", "stopped")
+    rc = "#16a34a" if status == "running" else "#6b7280"
+    dot = "🟢" if status == "running" else "⚪"
+    return (
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'margin-bottom:8px;padding:6px 8px;border-radius:8px;background:{rc}12">'
+        f'<span style="font-size:11px;font-weight:600;color:{rc}">{dot} '
+        f'{"Running" if status=="running" else "Stopped"}</span>'
+        f'<span style="font-size:12px;font-weight:700;color:{rc};font-variant-numeric:tabular-nums">'
+        f'⏱️ {hours:,.1f} jam</span></div>'
+    )
+
 for i in range(0, len(eq_rows), 3):
     cols = st.columns(3)
     for col, r in zip(cols, eq_rows[i:i+3]):
         bc  = ZC.get(r["zk"],"#6b7280")
         bg  = ZB.get(r["zk"],"transparent")
         bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
+        rt_html = _runtime_badge(r["eq"], r["unit"])
         col.markdown(f"""
 <div class="eq-card" style="
   border:1px solid {bc}30; border-left:4px solid {bc};
@@ -431,6 +459,7 @@ for i in range(0, len(eq_rows), 3):
     <div style="font-size:11px;opacity:.45;white-space:nowrap;margin-left:6px">{r['tgl']}</div>
   </div>
   <div style="font-size:12px;opacity:.45;margin-bottom:10px">{r['unit']}</div>
+  {rt_html}
   <div style="display:flex;gap:5px;margin-bottom:10px">
     {_dir_pill("H",r['H'],r['thr'],r['Ht'])}
     {_dir_pill("V",r['V'],r['thr'],r['Vt'])}
