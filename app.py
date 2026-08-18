@@ -97,7 +97,7 @@ with st.sidebar:
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
     # UX #12: Tombol refresh manual
     st.divider()
-    if st.button("🔄 Refresh Data", key="sb_refresh", use_container_width=True):
+    if st.button("🔄 Refresh Data", key="sb_refresh", width="stretch"):
         st.cache_data.clear()
         st.rerun()
     render_login_sidebar()
@@ -153,12 +153,17 @@ with fb:
     st.caption("**⚙️ Equipment**")
     with st.expander(f"Filter ({len(all_equip)} equipment)", expanded=False):
         col_selall, _ = st.columns([1,3])
-        if col_selall.button("Pilih Semua", key="eq_selall", use_container_width=True):
+        if col_selall.button("Pilih Semua", key="eq_selall", width="stretch"):
             st.session_state["mon_equip"] = all_equip
-        # Pastikan default hanya dari equipment yang valid untuk unit ini
-        default_equip = [e for e in st.session_state.get("mon_equip", all_equip)
-                         if e in all_equip]
-        sel_equip = st.multiselect("Equipment", all_equip, default=default_equip,
+        # Pastikan session_state hanya berisi equipment yang valid untuk unit ini —
+        # JANGAN pass `default=` bersamaan dengan key yang sudah ada di session_state
+        # (itu penyebab warning "created with a default value but also had its value
+        # set via Session State API").
+        if "mon_equip" in st.session_state:
+            st.session_state["mon_equip"] = [
+                e for e in st.session_state["mon_equip"] if e in all_equip
+            ]
+        sel_equip = st.multiselect("Equipment", all_equip,
                                    key="mon_equip", label_visibility="collapsed")
 with fc:
     st.caption("**📅 Tampilkan**")
@@ -275,10 +280,13 @@ st_autorefresh(interval=30_000, key="runtime_autorefresh")
 _RT_KEYWORDS = ("PUMP", "POMPA", "MOTOR", "FAN")
 pump_equips = sorted([e for e in sel_equip if any(k in e.upper() for k in _RT_KEYWORDS)])
 
+# Satu kali panggil (di-cache 15 detik di utils.py), dipakai ulang di section ini
+# DAN di badge kartu equipment di bawah — hindari query Supabase dobel per render.
+df_runtime_all = get_pump_runtime()
+
 if not pump_equips:
     st.caption("Tidak ada equipment pompa pada filter saat ini.")
 else:
-    df_runtime = get_pump_runtime()
     can_edit = check_role() == "editor"
     rt_cols = st.columns(3)
 
@@ -286,7 +294,7 @@ else:
         eq_unit_rows = df_hist[df_hist["equipment"]==eq]["unit"].dropna()
         unit_eq = eq_unit_rows.iloc[0] if not eq_unit_rows.empty else "-"
 
-        row_match = df_runtime[(df_runtime["equipment"]==eq) & (df_runtime["unit"]==unit_eq)]
+        row_match = df_runtime_all[(df_runtime_all["equipment"]==eq) & (df_runtime_all["unit"]==unit_eq)]
         if row_match.empty:
             init_pump_runtime(eq, unit_eq)
             row_data = {"status": "stopped", "accumulated_hours": 0.0,
@@ -312,7 +320,7 @@ else:
 
             if can_edit:
                 btn_label = "⏹️ Stop" if status == "running" else "▶️ Start"
-                if st.button(btn_label, key=f"rt_toggle_{eq}_{unit_eq}", use_container_width=True):
+                if st.button(btn_label, key=f"rt_toggle_{eq}_{unit_eq}", width="stretch"):
                     toggle_pump_runtime(
                         eq, unit_eq, status,
                         float(row_data.get("accumulated_hours", 0) or 0),
@@ -417,15 +425,13 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
         zk=zk,zi=zi,zl=zl, thr=thr, tgl=tgl, mx=mx))
 
 # Lookup running hours (khusus equipment pompa/motor/fan) untuk ditampilkan di kartu
-_RT_KEYWORDS = ("PUMP", "POMPA", "MOTOR", "FAN")
-_df_runtime_lookup = get_pump_runtime()
-
+# Pakai df_runtime_all yang sudah di-load sekali di section Running Hours Pompa di atas.
 def _runtime_badge(eq, unit):
     if not any(k in eq.upper() for k in _RT_KEYWORDS):
         return ""
-    match = _df_runtime_lookup[
-        (_df_runtime_lookup["equipment"]==eq) & (_df_runtime_lookup["unit"]==unit)
-    ] if not _df_runtime_lookup.empty else pd.DataFrame()
+    match = df_runtime_all[
+        (df_runtime_all["equipment"]==eq) & (df_runtime_all["unit"]==unit)
+    ] if not df_runtime_all.empty else pd.DataFrame()
     if match.empty:
         return ""
     row_data = match.iloc[0].to_dict()
