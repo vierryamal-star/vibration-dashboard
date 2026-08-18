@@ -6,6 +6,7 @@ from utils import (
     get_pump_runtime, init_pump_runtime,
     start_pump_runtime, stop_pump_runtime,
     compute_running_hours, get_pump_age, update_pump_install_date,
+    get_bearing_install, update_bearing_install, BEARING_POSISI,
 )
 
 st.set_page_config(
@@ -91,6 +92,7 @@ def _de_nde_latest(equipment: str) -> pd.DataFrame:
         return latest[["titik","direction","value"]]
 
 df_runtime_all = get_pump_runtime()
+df_bearing_all = get_bearing_install()
 
 st.divider()
 
@@ -173,3 +175,35 @@ for _, r in eq_unit_pairs.iterrows():
                 st.cache_data.clear()
                 st.success("Tanggal instalasi tersimpan.")
                 st.rerun()
+
+        # ── Umur Bearing per posisi (DE/NDE Motor & Pompa/Fan) ────────────────
+        st.markdown("---")
+        st.markdown("**🔩 Umur Bearing (per posisi)**")
+        st.caption("Tanggal instalasi/penggantian bearing bisa berbeda-beda per posisi — "
+                   "terpisah dari tanggal instalasi equipment di atas.")
+        bcols = st.columns(4)
+        for bi, posisi in enumerate(BEARING_POSISI):
+            b_match = df_bearing_all[
+                (df_bearing_all["equipment"]==eq) & (df_bearing_all["unit"]==unit) &
+                (df_bearing_all["posisi"]==posisi)
+            ] if not df_bearing_all.empty else pd.DataFrame()
+            b_existing_date = None
+            if not b_match.empty and b_match.iloc[0].get("install_date"):
+                try:
+                    b_existing_date = pd.to_datetime(b_match.iloc[0]["install_date"]).date()
+                except Exception:
+                    b_existing_date = None
+            b_age = get_pump_age(b_existing_date) if b_existing_date else None
+
+            with bcols[bi]:
+                st.markdown(f"**{posisi}**")
+                st.caption(f"Umur: {b_age or '–'}")
+                b_new_date = st.date_input(
+                    "Tgl instalasi", value=b_existing_date or date.today(),
+                    key=f"kp_bearing_date_{eq}_{unit}_{posisi}", label_visibility="collapsed",
+                )
+                if st.button("💾 Simpan", key=f"kp_bearing_save_{eq}_{unit}_{posisi}", width="stretch"):
+                    update_bearing_install(eq, unit, posisi, b_new_date)
+                    st.cache_data.clear()
+                    st.success(f"Tanggal instalasi {posisi} tersimpan.")
+                    st.rerun()
