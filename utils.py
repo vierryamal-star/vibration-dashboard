@@ -311,3 +311,78 @@ def require_editor():
         return False
     return True
 
+# ── Running Hours Pompa (live) ────────────────────────────────────────────────
+# Tabel Supabase: pump_runtime
+#   equipment (text), unit (text), status (text: 'running'/'stopped'),
+#   status_changed_at (timestamptz), accumulated_hours (float8)
+# Unique constraint: (equipment, unit)
+
+def get_pump_runtime() -> pd.DataFrame:
+    """Baca status running/stopped semua pompa dari Supabase."""
+    import streamlit as st
+    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours"]
+    try:
+        sb = get_supabase()
+        res = sb.table("pump_runtime").select("*").execute()
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
+    except Exception as e:
+        st.error(f"Gagal load running hours: {e}")
+        return pd.DataFrame(columns=cols)
+
+def init_pump_runtime(equipment: str, unit: str):
+    """Pastikan baris pump_runtime ada untuk equipment ini; kalau belum, buat baru (status stopped)."""
+    sb = get_supabase(service_role=True)
+    res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()
+    if not res.data:
+        sb.table("pump_runtime").insert({
+            "equipment": equipment,
+            "unit": unit,
+            "status": "stopped",
+            "status_changed_at": datetime.now().isoformat(),
+            "accumulated_hours": 0.0,
+        }).execute()
+
+def toggle_pump_runtime(equipment: str, unit: str, current_status: str,
+                         current_accum: float, current_changed_at) -> None:
+    """Toggle status running <-> stopped. Saat pindah dari running ke stopped,
+    akumulasikan jam yang sudah berjalan sejak status_changed_at terakhir."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        now = datetime.now()
+        if current_status == "running":
+            try:
+                changed = pd.to_datetime(current_changed_at)
+                if changed.tzinfo is not None:
+                    changed = changed.tz_localize(None)
+                delta_hours = max((now - changed).total_seconds() / 3600, 0)
+            except Exception:
+                delta_hours = 0
+            new_accum = float(current_accum or 0) + delta_hours
+            new_status = "stopped"
+        else:
+            new_accum = float(current_accum or 0)
+            new_status = "running"
+        sb.table("pump_runtime").update({
+            "status": new_status,
+            "status_changed_at": now.isoformat(),
+            "accumulated_hours": new_accum,
+        }).eq("equipment", equipment).eq("unit", unit).execute()
+    except Exception as e:
+        st.error(f"Gagal update status pompa: {e}")
+
+def compute_running_hours(row: dict) -> float:
+    """Hitung total running hours SAAT INI (live) — akumulasi + waktu berjalan
+    sejak status_changed_at kalau status masih 'running'. Dipanggil ulang tiap
+    rerun/autorefresh sehingga angkanya terlihat bertambah otomatis."""
+    accum = float(row.get("accumulated_hours", 0) or 0)
+    if row.get("status") == "running":
+        try:
+            changed = pd.to_datetime(row["status_changed_at"])
+            if changed.tzinfo is not None:
+                changed = changed.tz_localize(None)
+            delta = (pd.Timestamp.now() - changed).total_seconds() / 3600
+            return accum + max(delta, 0)
+        except Exception:
+            return accum
+    return accum
