@@ -4,9 +4,9 @@ from streamlit_autorefresh import st_autorefresh
 from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
-    render_login_sidebar, check_role,
+    render_login_sidebar,
     get_temp_threshold, get_zone_temp,
-    get_pump_runtime, init_pump_runtime, toggle_pump_runtime, compute_running_hours,
+    get_pump_runtime, compute_running_hours, get_pump_age,
 )
 
 st.set_page_config(
@@ -95,6 +95,7 @@ with st.sidebar:
     st.page_link("app.py",                 label="📊 Monitor Vibrasi")
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
+    st.page_link("pages/3_Kelola_Pompa.py",label="🛠️ Kelola Pompa")
     # UX #12: Tombol refresh manual
     st.divider()
     if st.button("🔄 Refresh Data", key="sb_refresh", width="stretch"):
@@ -270,69 +271,17 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RUNNING HOURS POMPA (live, auto-update)
+# STATUS CARD PER EQUIPMENT (vibrasi, suhu, running hours & umur pompa — 1 kartu)
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("### ⏱️ Running Hours Pompa")
+st.markdown("### 🏭 Status per Equipment")
 
-# Jam berjalan otomatis tanpa perlu klik refresh — rerun tiap 30 detik
+# Jam running otomatis bertambah tanpa perlu klik refresh manual — rerun tiap 30 detik
 st_autorefresh(interval=30_000, key="runtime_autorefresh")
 
 _RT_KEYWORDS = ("PUMP", "POMPA", "MOTOR", "FAN")
-pump_equips = sorted([e for e in sel_equip if any(k in e.upper() for k in _RT_KEYWORDS)])
-
-# Satu kali panggil (di-cache 15 detik di utils.py), dipakai ulang di section ini
-# DAN di badge kartu equipment di bawah — hindari query Supabase dobel per render.
+# Satu kali panggil (di-cache 15 detik di utils.py), dipakai di badge kartu equipment
+# di bawah. Edit tanggal instalasi & koreksi jam sekarang di halaman 🛠️ Kelola Pompa.
 df_runtime_all = get_pump_runtime()
-
-if not pump_equips:
-    st.caption("Tidak ada equipment pompa pada filter saat ini.")
-else:
-    can_edit = check_role() == "editor"
-    rt_cols = st.columns(3)
-
-    for i, eq in enumerate(pump_equips):
-        eq_unit_rows = df_hist[df_hist["equipment"]==eq]["unit"].dropna()
-        unit_eq = eq_unit_rows.iloc[0] if not eq_unit_rows.empty else "-"
-
-        row_match = df_runtime_all[(df_runtime_all["equipment"]==eq) & (df_runtime_all["unit"]==unit_eq)]
-        if row_match.empty:
-            init_pump_runtime(eq, unit_eq)
-            row_data = {"status": "stopped", "accumulated_hours": 0.0,
-                        "status_changed_at": pd.Timestamp.now().isoformat()}
-        else:
-            row_data = row_match.iloc[0].to_dict()
-
-        hours  = compute_running_hours(row_data)
-        status = row_data.get("status", "stopped")
-        badge_color = "#16a34a" if status == "running" else "#6b7280"
-
-        with rt_cols[i % 3]:
-            st.markdown(f"""
-<div style="border:1px solid {badge_color}30;border-left:4px solid {badge_color};
-    border-radius:0 12px 12px 0;padding:14px;margin-bottom:10px;background:{badge_color}10">
-  <div style="font-size:14px;font-weight:700">{eq}</div>
-  <div style="font-size:11px;opacity:.5;margin-bottom:8px">{unit_eq}</div>
-  <div style="font-size:24px;font-weight:800;color:{badge_color};font-variant-numeric:tabular-nums">
-    {hours:,.1f} <span style="font-size:12px;font-weight:600">jam</span></div>
-  <div style="font-size:11px;font-weight:700;color:{badge_color};margin-top:2px">
-    {'🟢 RUNNING' if status=='running' else '⚪ STOPPED'}</div>
-</div>""", unsafe_allow_html=True)
-
-            if can_edit:
-                btn_label = "⏹️ Stop" if status == "running" else "▶️ Start"
-                if st.button(btn_label, key=f"rt_toggle_{eq}_{unit_eq}", width="stretch"):
-                    toggle_pump_runtime(
-                        eq, unit_eq, status,
-                        float(row_data.get("accumulated_hours", 0) or 0),
-                        row_data.get("status_changed_at"),
-                    )
-                    st.cache_data.clear()
-                    st.rerun()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STATUS CARD PER EQUIPMENT
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("### 🏭 Status per Equipment")
 
 df_card = df_hist[
     df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
@@ -424,8 +373,9 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
         H=hv,Ht=ht, V=vv,Vt=vt, A=av,At=at, T=tv,Tt=tt,
         zk=zk,zi=zi,zl=zl, thr=thr, tgl=tgl, mx=mx))
 
-# Lookup running hours (khusus equipment pompa/motor/fan) untuk ditampilkan di kartu
-# Pakai df_runtime_all yang sudah di-load sekali di section Running Hours Pompa di atas.
+# Lookup running hours + umur pompa (khusus equipment pompa/motor/fan) untuk kartu.
+# Pakai df_runtime_all yang sudah di-load sekali di atas. Edit tanggal instalasi &
+# koreksi jam ada di halaman terpisah 🛠️ Kelola Pompa (bukan di sini — read-only).
 def _runtime_badge(eq, unit):
     if not any(k in eq.upper() for k in _RT_KEYWORDS):
         return ""
@@ -437,16 +387,23 @@ def _runtime_badge(eq, unit):
     row_data = match.iloc[0].to_dict()
     hours  = compute_running_hours(row_data)
     status = row_data.get("status", "stopped")
+    age    = get_pump_age(row_data.get("install_date"))
     rc = "#16a34a" if status == "running" else "#6b7280"
     dot = "🟢" if status == "running" else "⚪"
+    age_html = (
+        f'<span style="font-size:10px;opacity:.55">📅 Umur: {age}</span>'
+        if age else ""
+    )
     return (
-        f'<div style="display:flex;align-items:center;justify-content:space-between;'
-        f'margin-bottom:8px;padding:6px 8px;border-radius:8px;background:{rc}12">'
+        f'<div style="margin-bottom:8px;padding:6px 8px;border-radius:8px;background:{rc}12">'
+        f'<div style="display:flex;align-items:center;justify-content:space-between">'
         f'<span style="font-size:11px;font-weight:600;color:{rc}">{dot} '
         f'{"Running" if status=="running" else "Stopped"}</span>'
         f'<span style="font-size:12px;font-weight:700;color:{rc};font-variant-numeric:tabular-nums">'
         f'⏱️ {hours:,.1f} jam</span></div>'
+        f'{age_html}</div>'
     )
+
 
 for i in range(0, len(eq_rows), 3):
     cols = st.columns(3)
