@@ -317,8 +317,11 @@ def require_editor():
 #   status_changed_at (timestamptz), accumulated_hours (float8)
 # Unique constraint: (equipment, unit)
 
+@st.cache_data(ttl=15)
 def get_pump_runtime() -> pd.DataFrame:
-    """Baca status running/stopped semua pompa dari Supabase."""
+    """Baca status running/stopped semua pompa dari Supabase. Di-cache singkat (15 detik)
+    supaya tidak query berkali-kali dalam satu render (dipakai di 2 tempat: section
+    Running Hours & badge di kartu equipment)."""
     import streamlit as st
     cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours"]
     try:
@@ -328,6 +331,8 @@ def get_pump_runtime() -> pd.DataFrame:
     except Exception as e:
         st.error(f"Gagal load running hours: {e}")
         return pd.DataFrame(columns=cols)
+
+get_pump_runtime = st.cache_data(ttl=15)(get_pump_runtime) if False else get_pump_runtime
 
 def init_pump_runtime(equipment: str, unit: str):
     """Pastikan baris pump_runtime ada untuk equipment ini; kalau belum, buat baru (status stopped)."""
@@ -386,3 +391,53 @@ def compute_running_hours(row: dict) -> float:
         except Exception:
             return accum
     return accum
+
+def get_pump_age(install_date) -> str:
+    """Return umur pompa sebagai teks 'X th Y bln', atau None kalau install_date kosong."""
+    if not install_date or pd.isna(install_date):
+        return None
+    try:
+        d = pd.to_datetime(install_date)
+        now = pd.Timestamp.now()
+        months = (now.year - d.year) * 12 + (now.month - d.month)
+        if now.day < d.day:
+            months -= 1
+        months = max(months, 0)
+        years, rem_months = divmod(months, 12)
+        parts = []
+        if years:
+            parts.append(f"{years} th")
+        parts.append(f"{rem_months} bln")
+        return " ".join(parts)
+    except Exception:
+        return None
+
+def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
+    """Simpan/ubah tanggal instalasi pompa (dipakai halaman Kelola Pompa)."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update(
+            {"install_date": str(install_date)}
+        ).eq("equipment", equipment).eq("unit", unit).execute()
+    except Exception as e:
+        st.error(f"Gagal simpan tanggal instalasi: {e}")
+
+def set_pump_runtime_manual(equipment: str, unit: str, status: str,
+                             accumulated_hours: float, status_changed_at=None) -> None:
+    """Koreksi manual accumulated_hours (dan opsional status_changed_at) — dipakai
+    halaman Kelola Pompa saat operator telat mencatat / perlu perbaiki jam."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        payload = {
+            "status": status,
+            "accumulated_hours": float(accumulated_hours),
+        }
+        payload["status_changed_at"] = (
+            str(status_changed_at) if status_changed_at is not None
+            else datetime.now().isoformat()
+        )
+        sb.table("pump_runtime").update(payload).eq("equipment", equipment).eq("unit", unit).execute()
+    except Exception as e:
+        st.error(f"Gagal simpan koreksi running hours: {e}")
