@@ -166,6 +166,23 @@ with fb:
             ]
         sel_equip = st.multiselect("Equipment", all_equip,
                                    key="mon_equip", label_visibility="collapsed")
+
+# Guard tambahan: kalau karena alasan apa pun sel_equip kosong (misal race
+# condition session_state saat ganti Unit → All), fallback ke semua equipment
+# yang valid untuk unit terpilih — mencegah "Tidak ada data sesuai filter"
+# muncul padahal datanya sebenarnya ada.
+if not sel_equip:
+    sel_equip = all_equip
+
+# Guard tambahan #2: kalau sel_equip (dari session_state lama) tidak overlap SAMA
+# SEKALI dengan equipment yang benar-benar ada untuk unit terpilih sekarang (mis.
+# habis pindah dari unit tertentu ke "All", session_state sempat basi 1 rerun),
+# paksa pakai semua equipment yang valid — supaya "Tidak ada data sesuai filter"
+# tidak muncul padahal datanya sebenarnya ada.
+_valid_equip_now = set(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
+if not any(e in _valid_equip_now for e in sel_equip):
+    sel_equip = sorted(_valid_equip_now)
+
 with fc:
     st.caption("**📅 Tampilkan**")
     date_mode = st.radio("Mode", ["🕐 Terbaru","📅 Pilih tanggal"],
@@ -383,7 +400,15 @@ def _runtime_badge(eq, unit):
         (df_runtime_all["equipment"]==eq) & (df_runtime_all["unit"]==unit)
     ] if not df_runtime_all.empty else pd.DataFrame()
     if match.empty:
-        return ""
+        # Equipment ini cocok kata kunci pompa/motor/fan tapi belum pernah dibuka
+        # di halaman Kelola Pompa (belum ada baris di pump_runtime) — kasih
+        # placeholder supaya jelas, bukan hilang tanpa keterangan.
+        return (
+            '<div style="margin-bottom:8px;padding:6px 8px;border-radius:8px;'
+            'background:rgba(128,128,128,.1)">'
+            '<span style="font-size:11px;opacity:.5">⏱️ Running hours belum diisi — '
+            'buka halaman 🛠️ Kelola Pompa</span></div>'
+        )
     row_data = match.iloc[0].to_dict()
     hours  = compute_running_hours(row_data)
     status = row_data.get("status", "stopped")
