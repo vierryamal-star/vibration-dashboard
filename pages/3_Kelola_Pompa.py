@@ -56,10 +56,39 @@ if df_hist.empty:
     st.info("📂 Belum ada data equipment. Upload dulu di halaman **Data & Kelola**.")
     st.stop()
 
+# ── Filter Unit (mempercepat input, tidak perlu scroll semua equipment) ──────
+all_units_kp = sorted(df_hist["unit"].dropna().unique())
+sel_unit_kp = st.radio("**🏭 Filter Unit**", ["All"] + all_units_kp,
+                       horizontal=True, key="kp_unit_filter")
+
 eq_unit_pairs = (
     df_hist[["equipment", "unit"]].dropna().drop_duplicates()
     .sort_values(["unit", "equipment"])
 )
+if sel_unit_kp != "All":
+    eq_unit_pairs = eq_unit_pairs[eq_unit_pairs["unit"] == sel_unit_kp]
+
+if eq_unit_pairs.empty:
+    st.warning(f"Tidak ada equipment untuk unit **{sel_unit_kp}**.")
+    st.stop()
+
+def _de_nde_latest(equipment: str) -> pd.DataFrame:
+    """Ambil nilai TERBARU per titik ukur yang mengandung 'DE' (mencakup DE & NDE)
+    untuk equipment ini — dipivot titik x direction supaya ringkas dibaca."""
+    df_eq = df_hist[df_hist["equipment"]==equipment].copy()
+    if df_eq.empty:
+        return pd.DataFrame()
+    df_eq["date"] = pd.to_datetime(df_eq["date"], errors="coerce")
+    df_eq = df_eq[df_eq["titik"].astype(str).str.upper().str.contains("DE")]
+    if df_eq.empty:
+        return pd.DataFrame()
+    df_eq = df_eq.sort_values("date", ascending=False)
+    latest = df_eq.groupby(["titik","direction"], as_index=False).first()
+    try:
+        piv = latest.pivot(index="titik", columns="direction", values="value")
+        return piv
+    except Exception:
+        return latest[["titik","direction","value"]]
 
 df_runtime_all = get_pump_runtime()
 
@@ -85,6 +114,14 @@ for _, r in eq_unit_pairs.iterrows():
         f"{'🟢 Running' if status=='running' else '⚪ Stopped'} · "
         f"⏱️ {hours_now:,.1f} jam · 📅 {age or 'umur belum diisi'}"
     ):
+        # ── Data vibrasi titik DE & NDE (referensi, read-only) ────────────────
+        st.markdown("**📍 Data Vibrasi Terkini — Titik DE & NDE**")
+        de_nde_df = _de_nde_latest(eq)
+        if de_nde_df.empty:
+            st.caption("Tidak ada titik ukur DE/NDE untuk equipment ini.")
+        else:
+            st.dataframe(de_nde_df, width="stretch")
+
         c1, c2, c3 = st.columns(3)
 
         # ── Catat waktu MULAI ─────────────────────────────────────────────────
