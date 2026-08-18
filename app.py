@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
+from streamlit_autorefresh import st_autorefresh
 from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
-    render_login_sidebar,
+    render_login_sidebar, check_role,
     get_temp_threshold, get_zone_temp,
+    get_pump_runtime, init_pump_runtime, toggle_pump_runtime, compute_running_hours,
 )
 
 st.set_page_config(
@@ -261,6 +263,62 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RUNNING HOURS POMPA (live, auto-update)
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("### ⏱️ Running Hours Pompa")
+
+# Jam berjalan otomatis tanpa perlu klik refresh — rerun tiap 30 detik
+st_autorefresh(interval=30_000, key="runtime_autorefresh")
+
+pump_equips = sorted([e for e in sel_equip if ("PUMP" in e.upper() or "POMPA" in e.upper())])
+
+if not pump_equips:
+    st.caption("Tidak ada equipment pompa pada filter saat ini.")
+else:
+    df_runtime = get_pump_runtime()
+    can_edit = check_role() == "editor"
+    rt_cols = st.columns(3)
+
+    for i, eq in enumerate(pump_equips):
+        eq_unit_rows = df_hist[df_hist["equipment"]==eq]["unit"].dropna()
+        unit_eq = eq_unit_rows.iloc[0] if not eq_unit_rows.empty else "-"
+
+        row_match = df_runtime[(df_runtime["equipment"]==eq) & (df_runtime["unit"]==unit_eq)]
+        if row_match.empty:
+            init_pump_runtime(eq, unit_eq)
+            row_data = {"status": "stopped", "accumulated_hours": 0.0,
+                        "status_changed_at": pd.Timestamp.now().isoformat()}
+        else:
+            row_data = row_match.iloc[0].to_dict()
+
+        hours  = compute_running_hours(row_data)
+        status = row_data.get("status", "stopped")
+        badge_color = "#16a34a" if status == "running" else "#6b7280"
+
+        with rt_cols[i % 3]:
+            st.markdown(f"""
+<div style="border:1px solid {badge_color}30;border-left:4px solid {badge_color};
+    border-radius:0 12px 12px 0;padding:14px;margin-bottom:10px;background:{badge_color}10">
+  <div style="font-size:14px;font-weight:700">{eq}</div>
+  <div style="font-size:11px;opacity:.5;margin-bottom:8px">{unit_eq}</div>
+  <div style="font-size:24px;font-weight:800;color:{badge_color};font-variant-numeric:tabular-nums">
+    {hours:,.1f} <span style="font-size:12px;font-weight:600">jam</span></div>
+  <div style="font-size:11px;font-weight:700;color:{badge_color};margin-top:2px">
+    {'🟢 RUNNING' if status=='running' else '⚪ STOPPED'}</div>
+</div>""", unsafe_allow_html=True)
+
+            if can_edit:
+                btn_label = "⏹️ Stop" if status == "running" else "▶️ Start"
+                if st.button(btn_label, key=f"rt_toggle_{eq}_{unit_eq}", use_container_width=True):
+                    toggle_pump_runtime(
+                        eq, unit_eq, status,
+                        float(row_data.get("accumulated_hours", 0) or 0),
+                        row_data.get("status_changed_at"),
+                    )
+                    st.cache_data.clear()
+                    st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STATUS CARD PER EQUIPMENT
