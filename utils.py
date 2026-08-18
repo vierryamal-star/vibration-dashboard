@@ -349,8 +349,9 @@ def init_pump_runtime(equipment: str, unit: str):
 
 def toggle_pump_runtime(equipment: str, unit: str, current_status: str,
                          current_accum: float, current_changed_at) -> None:
-    """Toggle status running <-> stopped. Saat pindah dari running ke stopped,
-    akumulasikan jam yang sudah berjalan sejak status_changed_at terakhir."""
+    """Toggle status running <-> stopped memakai waktu SEKARANG. Dipertahankan untuk
+    kompatibilitas — halaman Kelola Pompa sekarang pakai start_pump_runtime /
+    stop_pump_runtime (waktu mulai/berhenti dipilih manual oleh user)."""
     import streamlit as st
     try:
         sb = get_supabase(service_role=True)
@@ -375,6 +376,46 @@ def toggle_pump_runtime(equipment: str, unit: str, current_status: str,
         }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
         st.error(f"Gagal update status pompa: {e}")
+
+def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
+    """Catat waktu MULAI operasi secara manual — tanggal & jam dipilih user di
+    halaman Kelola Pompa (bukan otomatis 'sekarang')."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update({
+            "status": "running",
+            "status_changed_at": pd.Timestamp(start_dt).isoformat(),
+        }).eq("equipment", equipment).eq("unit", unit).execute()
+    except Exception as e:
+        st.error(f"Gagal catat waktu mulai: {e}")
+
+def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
+                       current_accum: float, current_changed_at) -> None:
+    """Catat waktu BERHENTI operasi secara manual — akumulasikan durasi dari waktu
+    mulai (status_changed_at) sampai stop_dt yang dipilih user."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        stop_ts = pd.Timestamp(stop_dt)
+        if current_status == "running":
+            try:
+                changed = pd.to_datetime(current_changed_at)
+                if changed.tzinfo is not None:
+                    changed = changed.tz_localize(None)
+                delta_hours = max((stop_ts - changed).total_seconds() / 3600, 0)
+            except Exception:
+                delta_hours = 0
+            new_accum = float(current_accum or 0) + delta_hours
+        else:
+            new_accum = float(current_accum or 0)
+        sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": stop_ts.isoformat(),
+            "accumulated_hours": new_accum,
+        }).eq("equipment", equipment).eq("unit", unit).execute()
+    except Exception as e:
+        st.error(f"Gagal catat waktu berhenti: {e}")
 
 def compute_running_hours(row: dict) -> float:
     """Hitung total running hours SAAT INI (live) — akumulasi + waktu berjalan
