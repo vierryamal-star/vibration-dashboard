@@ -97,7 +97,7 @@ with st.sidebar:
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
     st.page_link("pages/3_Kelola_Pompa.py",label="🛠️ Kelola Pompa")
     st.divider()
-    if st.button("🔄 Refresh Data", key="sb_refresh_a", use_container_width=True):
+    if st.button("🔄 Refresh Data", key="sb_refresh_a", width="stretch"):
         st.cache_data.clear()
         st.rerun()
     render_login_sidebar()
@@ -473,7 +473,7 @@ if mode == "📈 Trend Detail":
         xaxis_title="Tanggal", yaxis_title=axis_label, height=420,
         **plotly_theme()
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # ── Tabel + Export ────────────────────────────────────────────────────────
     sec_header("Tabel Data")
@@ -502,7 +502,7 @@ if mode == "📈 Trend Detail":
         csv_bytes = df_to_csv(df_tbl[show_cols])
         st.download_button("⬇️ Download CSV", csv_bytes,
                            file_name=f"trend_{sel_eq.replace(' ','_')}.csv",
-                           mime="text/csv", use_container_width=True)
+                           mime="text/csv", width="stretch")
     st.caption("💡 Download chart: gunakan tombol 📷 di sudut kanan atas grafik.")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -590,7 +590,7 @@ elif mode == "⚖️ Bandingkan Equipment":
             fig_ov = add_threshold_lines(fig_ov, get_threshold(eq1))
         fig_ov.update_layout(title="Perbandingan Suhu" if is_temp_cmp else "Perbandingan Vibrasi",
                              xaxis_title="Tanggal", yaxis_title=axis_label_cmp, height=420, **plotly_theme())
-        st.plotly_chart(fig_ov, use_container_width=True)
+        st.plotly_chart(fig_ov, width="stretch")
     else:
         # Dua grafik terpisah side-by-side
         sec_header("Grafik Perbandingan")
@@ -615,7 +615,7 @@ elif mode == "⚖️ Bandingkan Equipment":
             fig_eq.update_layout(title=eq, xaxis_title="Tanggal",
                                  yaxis_title=axis_label_cmp, height=400, **plotly_theme())
             with col_g:
-                st.plotly_chart(fig_eq, use_container_width=True)
+                st.plotly_chart(fig_eq, width="stretch")
 
     # ── Tabel nilai terbaru + export ──────────────────────────────────────────
     sec_header("Nilai Terbaru")
@@ -881,7 +881,7 @@ else:
             bgcolor="rgba(0,0,0,0)", borderwidth=0,
         ),
     )
-    st.plotly_chart(fig_pred, use_container_width=True)
+    st.plotly_chart(fig_pred, width="stretch")
 
     # ── Alert prediksi ────────────────────────────────────────────────────────
     any_danger  = any(get_zone(v,thr_p)[0]=="ZONE D"
