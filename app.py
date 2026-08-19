@@ -7,6 +7,7 @@ from utils import (
     render_login_sidebar,
     get_temp_threshold, get_zone_temp,
     get_pump_runtime, compute_running_hours, get_pump_age,
+    ZC, ZB, ZONE_LABEL, ZONE_ICON,
 )
 
 st.set_page_config(
@@ -59,12 +60,8 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Warna zone (solid, terlihat di dark & light) ──────────────────────────────
-ZC = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#d97706","ZONE D":"#dc2626","N/A":"#6b7280"}
-ZB = {"ZONE A":"rgba(59,130,246,.13)","ZONE B":"rgba(34,197,94,.13)",
-      "ZONE C":"rgba(217,119,6,.14)","ZONE D":"rgba(220,38,38,.14)","N/A":"rgba(107,114,128,.1)"}
-ZONE_LABEL = {"ZONE A":"Accepted","ZONE B":"Pre Warning","ZONE C":"Warning","ZONE D":"Danger","N/A":"N/A"}
-ZONE_ICON  = {"ZONE A":"🔵","ZONE B":"🟢","ZONE C":"🟡","ZONE D":"🔴","N/A":"⬜"}
+# ── Warna zone diimport dari utils.py (single source of truth — tidak lagi
+# didefinisikan ulang di sini, supaya kalau warna diubah cukup edit 1 tempat) ──
 
 # FIX 3: Helper bar progress — scale ke threshold ZONE D agar representatif per equipment
 def bar_pct(val, thr):
