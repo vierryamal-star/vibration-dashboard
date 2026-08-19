@@ -5,7 +5,6 @@ from utils import (
     load_history, render_login_sidebar, require_editor,
     get_pump_runtime, init_pump_runtime,
     start_pump_runtime, stop_pump_runtime,
-    reset_pump_runtime, reset_pump_install_date,
     compute_running_hours, get_pump_age, update_pump_install_date,
     get_bearing_install, update_bearing_install, BEARING_POSISI,
 )
@@ -15,7 +14,21 @@ st.set_page_config(page_title="Kelola Pompa — PLTU TBK", page_icon="🛠️", 
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
-section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
+section[data-testid="stSidebar"]>div:first-child{ padding-top:1.2rem; }
+
+/* Font Navigasi Sidebar */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    margin-bottom: 6px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] span {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -26,6 +39,15 @@ with st.sidebar:
     st.caption("Kelola Pompa")
     st.divider()
     st.markdown("### Navigasi")
+    
+    st.markdown("""
+<style>
+[data-testid="stPageLink"]:has(p:contains("🛠️ Kelola Pompa")) {
+    background: rgba(59,130,246,.2) !important;
+    border-radius: 10px !important;
+    border-left: 4px solid #3b82f6 !important;
+}
+</style>""", unsafe_allow_html=True)
     st.page_link("app.py",                 label="📊 Monitor Vibrasi")
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
