@@ -16,28 +16,44 @@ st.set_page_config(page_title="Data & Kelola — PLTU TBK", page_icon="🗄️",
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
+section[data-testid="stSidebar"]>div:first-child{ padding-top:1.2rem; }
+
+/* Font Navigasi Sidebar */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    margin-bottom: 6px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] span {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+}
+
 .mk-card {
     border-radius: 10px; padding: 16px 18px;
-    border: 1px solid rgba(128,128,128,.15); background: rgba(128,128,128,.04);
+    border: 1px solid rgba(128,128,128,.18); background: var(--secondary-background-color);
 }
 .mk-val { font-size: 28px; font-weight: 800; line-height: 1; }
-.mk-lbl { font-size: 11px; opacity: .5; margin-top: 5px; font-weight: 500; }
+.mk-lbl { font-size: 12px; opacity: .7; margin-top: 6px; font-weight: 600; }
 .info-box {
     border-radius: 10px; padding: 14px 16px; border-left: 4px solid #2563eb;
-    background: rgba(37,99,235,.07); font-size: 13px; line-height: 1.6;
+    background: rgba(37,99,235,.09); font-size: 13px; line-height: 1.6;
 }
 .warn-box {
     border-radius: 10px; padding: 14px 16px; border-left: 4px solid #d97706;
-    background: rgba(217,119,6,.08); font-size: 13px; line-height: 1.6;
+    background: rgba(217,119,6,.1); font-size: 13px; line-height: 1.6;
 }
 .danger-box {
     border-radius: 10px; padding: 14px 16px; border-left: 4px solid #dc2626;
-    background: rgba(220,38,38,.08); font-size: 13px; line-height: 1.6;
+    background: rgba(220,38,38,.1); font-size: 13px; line-height: 1.6;
 }
 .sec-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
 .sec-bar  { width:4px; height:20px; border-radius:2px;
             background:linear-gradient(180deg,#2563eb,#0891b2); flex-shrink:0; }
-.sec-title{ font-size:15px; font-weight:700; }
+.sec-title{ font-size:16px; font-weight:800; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -48,6 +64,15 @@ with st.sidebar:
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
     st.markdown("### Navigasi")
+    
+    st.markdown("""
+<style>
+[data-testid="stPageLink"]:has(p:contains("🗄️ Data & Kelola")) {
+    background: rgba(59,130,246,.2) !important;
+    border-radius: 10px !important;
+    border-left: 4px solid #3b82f6 !important;
+}
+</style>""", unsafe_allow_html=True)
     st.page_link("app.py",                 label="📊 Monitor")
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
@@ -109,7 +134,7 @@ with tab_upload:
                     df_new = parse_excel(file)
                     if not df_new.empty:
                         total_saved += save_to_db(df_new)
-                st.success(f"🎉 Selesai! Berhasil menyimpan {total_saved} baris baru.")
+                st.success(f"🎉 Berhasil menyimpan {total_saved} baris baru.")
                 st.cache_data.clear()
 
 # ── TAB HAPUS ─────────────────────────────────────────────────────────────────
