@@ -92,6 +92,21 @@ def _de_nde_latest(equipment: str) -> pd.DataFrame:
     except Exception:
         return latest[["titik","direction","value"]]
 
+def _safe_date(value):
+    """Konversi nilai tanggal dari Supabase (bisa None/NaT/string kosong) ke
+    python date yang AMAN dipakai st.date_input(). pd.to_datetime(None) hasilnya
+    NaT — dan NaT itu truthy di Python, jadi kalau tidak dicek eksplisit, lolos
+    dari `existing_date or date.today()` dan bikin st.date_input() error."""
+    if value is None or value == "":
+        return None
+    try:
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return parsed.date()
+    except Exception:
+        return None
+
 df_runtime_all = get_pump_runtime()
 df_bearing_all = get_bearing_install()
 
@@ -161,12 +176,7 @@ for _, r in eq_unit_pairs.iterrows():
             st.metric("Umur saat ini", age or "–")
             st.caption(f"Status: {'🟢 Running' if status=='running' else '⚪ Stopped'} · "
                        f"Total: {hours_now:,.1f} jam")
-            existing_date = None
-            if row_data.get("install_date"):
-                try:
-                    existing_date = pd.to_datetime(row_data["install_date"]).date()
-                except Exception:
-                    existing_date = None
+            existing_date = _safe_date(row_data.get("install_date"))
             new_date = st.date_input(
                 "Tanggal instalasi", value=existing_date or date.today(),
                 key=f"kp_date_{eq}_{unit}",
@@ -214,12 +224,9 @@ for _, r in eq_unit_pairs.iterrows():
                 (df_bearing_all["equipment"]==eq) & (df_bearing_all["unit"]==unit) &
                 (df_bearing_all["posisi"]==posisi)
             ] if not df_bearing_all.empty else pd.DataFrame()
-            b_existing_date = None
-            if not b_match.empty and b_match.iloc[0].get("install_date"):
-                try:
-                    b_existing_date = pd.to_datetime(b_match.iloc[0]["install_date"]).date()
-                except Exception:
-                    b_existing_date = None
+            b_existing_date = _safe_date(
+                b_match.iloc[0].get("install_date") if not b_match.empty else None
+            )
             b_age = get_pump_age(b_existing_date) if b_existing_date else None
 
             with bcols[bi]:
