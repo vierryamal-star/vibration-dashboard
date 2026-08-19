@@ -97,10 +97,18 @@ def get_supabase(service_role=False):
     return create_client(url, key)
 
 def get_threshold(equipment: str):
+    """Threshold vibrasi per jenis equipment. Override dari 'Simpan Threshold' di
+    halaman Data & Kelola disimpan di st.session_state (PER BROWSER/SESI), BUKAN
+    memutasi dict THRESHOLD global — supaya tidak bocor ke user lain yang sedang
+    membuka dashboard di saat bersamaan (bug lama: THRESHOLD dulu di-assign
+    langsung, shared ke SEMUA sesi karena Streamlit satu proses untuk semua user)."""
+    import streamlit as st
     name = equipment.upper()
-    if "TURBINE" in name:
-        return THRESHOLD["Turbine"]
-    return THRESHOLD["Pump/Fan"]
+    key = "Turbine" if "TURBINE" in name else "Pump/Fan"
+    overrides = st.session_state.get("threshold_override")
+    if overrides and key in overrides:
+        return overrides[key]
+    return THRESHOLD[key]
 
 def get_turbine_unit(equipment: str) -> str:
     name = equipment.upper()
@@ -339,8 +347,6 @@ def get_pump_runtime() -> pd.DataFrame:
         st.error(f"Gagal load running hours: {e}")
         return pd.DataFrame(columns=cols)
 
-get_pump_runtime = st.cache_data(ttl=15)(get_pump_runtime) if False else get_pump_runtime
-
 def init_pump_runtime(equipment: str, unit: str):
     """Pastikan baris pump_runtime ada untuk equipment ini; kalau belum, buat baru (status stopped)."""
     sb = get_supabase(service_role=True)
@@ -353,36 +359,6 @@ def init_pump_runtime(equipment: str, unit: str):
             "status_changed_at": datetime.now().isoformat(),
             "accumulated_hours": 0.0,
         }).execute()
-
-def toggle_pump_runtime(equipment: str, unit: str, current_status: str,
-                         current_accum: float, current_changed_at) -> None:
-    """Toggle status running <-> stopped memakai waktu SEKARANG. Dipertahankan untuk
-    kompatibilitas — halaman Kelola Pompa sekarang pakai start_pump_runtime /
-    stop_pump_runtime (waktu mulai/berhenti dipilih manual oleh user)."""
-    import streamlit as st
-    try:
-        sb = get_supabase(service_role=True)
-        now = datetime.now()
-        if current_status == "running":
-            try:
-                changed = pd.to_datetime(current_changed_at)
-                if changed.tzinfo is not None:
-                    changed = changed.tz_localize(None)
-                delta_hours = max((now - changed).total_seconds() / 3600, 0)
-            except Exception:
-                delta_hours = 0
-            new_accum = float(current_accum or 0) + delta_hours
-            new_status = "stopped"
-        else:
-            new_accum = float(current_accum or 0)
-            new_status = "running"
-        sb.table("pump_runtime").update({
-            "status": new_status,
-            "status_changed_at": now.isoformat(),
-            "accumulated_hours": new_accum,
-        }).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal update status pompa: {e}")
 
 def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
     """Catat waktu MULAI operasi secara manual — tanggal & jam dipilih user di
@@ -504,6 +480,7 @@ def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
 
 BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"]
 
+@st.cache_data(ttl=15)
 def get_bearing_install() -> pd.DataFrame:
     """Baca semua tanggal instalasi bearing dari Supabase."""
     import streamlit as st
@@ -538,22 +515,3 @@ def update_bearing_install(equipment: str, unit: str, posisi: str, install_date)
             }).execute()
     except Exception as e:
         st.error(f"Gagal simpan tanggal instalasi bearing: {e}")
-
-def set_pump_runtime_manual(equipment: str, unit: str, status: str,
-                             accumulated_hours: float, status_changed_at=None) -> None:
-    """Koreksi manual accumulated_hours (dan opsional status_changed_at) — dipakai
-    halaman Kelola Pompa saat operator telat mencatat / perlu perbaiki jam."""
-    import streamlit as st
-    try:
-        sb = get_supabase(service_role=True)
-        payload = {
-            "status": status,
-            "accumulated_hours": float(accumulated_hours),
-        }
-        payload["status_changed_at"] = (
-            str(status_changed_at) if status_changed_at is not None
-            else datetime.now().isoformat()
-        )
-        sb.table("pump_runtime").update(payload).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal simpan koreksi running hours: {e}")
