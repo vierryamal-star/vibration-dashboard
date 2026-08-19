@@ -131,18 +131,23 @@ import streamlit as st
 
 @st.cache_data(ttl=60)
 def load_history() -> pd.DataFrame:
+    """Load semua data vibrasi/suhu. Dioptimasi: hanya SELECT kolom yang benar-benar
+    dipakai (bukan '*' — menghemat bandwidth, kolom 'id'/'uploaded_at' tidak perlu
+    ikut terunduh), dan batch_size diperbesar (1000→5000) supaya jumlah round-trip
+    ke Supabase lebih sedikit untuk data yang sudah menumpuk banyak."""
     try:
         sb = get_supabase()
 
         all_rows = []
-        batch_size = 1000
+        batch_size = 5000
         start = 0
+        _cols = "equipment,unit,titik,direction,date,value"
 
         while True:
 
             res = (
                 sb.table("vibration")
-                .select("*")
+                .select(_cols)
                 .order("date", desc=True)
                 .range(start, start + batch_size - 1)
                 .execute()
@@ -326,7 +331,9 @@ def get_pump_runtime() -> pd.DataFrame:
     cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours"]
     try:
         sb = get_supabase()
-        res = sb.table("pump_runtime").select("*").execute()
+        res = sb.table("pump_runtime").select(
+            "equipment,unit,status,status_changed_at,accumulated_hours,install_date"
+        ).execute()
         return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
     except Exception as e:
         st.error(f"Gagal load running hours: {e}")
@@ -417,6 +424,32 @@ def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
     except Exception as e:
         st.error(f"Gagal catat waktu berhenti: {e}")
 
+def reset_pump_runtime(equipment: str, unit: str) -> None:
+    """Reset running hours ke 0 — dipakai saat equipment/peralatan diganti fisik.
+    Status dikembalikan ke 'stopped' dan accumulated_hours ke 0."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": datetime.now().isoformat(),
+            "accumulated_hours": 0.0,
+        }).eq("equipment", equipment).eq("unit", unit).execute()
+    except Exception as e:
+        st.error(f"Gagal reset running hours: {e}")
+
+def reset_pump_install_date(equipment: str, unit: str) -> None:
+    """Reset umur pompa ke 0 — set tanggal instalasi ke hari ini (dipakai saat
+    equipment/peralatan diganti fisik)."""
+    import streamlit as st
+    try:
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update(
+            {"install_date": datetime.now().date().isoformat()}
+        ).eq("equipment", equipment).eq("unit", unit).execute()
+    except Exception as e:
+        st.error(f"Gagal reset umur pompa: {e}")
+
 def compute_running_hours(row: dict) -> float:
     """Hitung total running hours SAAT INI (live) — akumulasi + waktu berjalan
     sejak status_changed_at kalau status masih 'running'. Dipanggil ulang tiap
@@ -477,7 +510,7 @@ def get_bearing_install() -> pd.DataFrame:
     cols = ["equipment", "unit", "posisi", "install_date"]
     try:
         sb = get_supabase()
-        res = sb.table("bearing_install").select("*").execute()
+        res = sb.table("bearing_install").select("equipment,unit,posisi,install_date").execute()
         return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
     except Exception as e:
         st.error(f"Gagal load umur bearing: {e}")
