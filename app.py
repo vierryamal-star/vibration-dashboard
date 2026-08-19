@@ -15,22 +15,37 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Global CSS & Font Navigasi Lebih Besar ────────────────────────────────────
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
-section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
+section[data-testid="stSidebar"]>div:first-child{ padding-top:1.2rem; }
 
-/* 1. Card Hover & Elevation */
+/* Font Navigasi Sidebar Lebih Besar & Jelas */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    margin-bottom: 6px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] span {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+}
+
+/* Card Hover Elevation */
 .eq-card{ 
     cursor:pointer; 
     transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .eq-card:hover{ 
-    transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0,0,0,.15) !important;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.2) !important;
 }
 
-/* 2. Sticky Header & Clean Border Tabel */
+/* Sticky Header Tabel */
 .vt-wrap{
     border-radius:12px; overflow:hidden;
     border:1px solid color-mix(in srgb, currentColor 14%, transparent);
@@ -76,6 +91,16 @@ with st.sidebar:
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
     st.markdown("### Navigasi")
+    
+    # Highlight halaman aktif
+    st.markdown("""
+<style>
+[data-testid="stPageLink"]:has(p:contains("📊 Monitor Vibrasi")) {
+    background: rgba(59,130,246,.2) !important;
+    border-radius: 10px !important;
+    border-left: 4px solid #3b82f6 !important;
+}
+</style>""", unsafe_allow_html=True)
     st.page_link("app.py",                 label="📊 Monitor Vibrasi")
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
@@ -120,7 +145,7 @@ def _live_clock():
     _bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
               "Agustus","September","Oktober","November","Desember"][_now.month]
     st.markdown(
-        f'<div style="font-size:13px;opacity:.7;margin-top:-8px;margin-bottom:10px">'
+        f'<div style="font-size:14px;opacity:.8;margin-top:-8px;margin-bottom:12px">'
         f'🕐 {_hari}, {_now.day} {_bulan} {_now.year} — '
         f'<span style="font-variant-numeric:tabular-nums;font-weight:700">{_now.strftime("%H:%M:%S")}</span>'
         f'</div>', unsafe_allow_html=True)
@@ -224,7 +249,7 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 pct = {z: round(n/total*100) if total else 0 for z,n in zip(["A","B","C","D"],[n_a,n_b,n_c,n_d])}
 st.markdown(f"""
 <div style="margin-bottom:20px">
-  <div style="display:flex;justify-content:space-between;font-size:12px;opacity:.7;font-weight:600;margin-bottom:6px">
+  <div style="display:flex;justify-content:space-between;font-size:12px;opacity:.75;font-weight:700;margin-bottom:6px">
     <span>Distribusi Kondisi</span><span>{total} titik ukur</span>
   </div>
   <div style="height:8px;border-radius:4px;overflow:hidden;display:flex;background:rgba(128,128,128,.15)">
@@ -242,7 +267,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Status Card ───────────────────────────────────────────────────────────────
+# ── Status Card (Warna Penuh / Solid & Font Besar) ────────────────────────────
 st.markdown("### 🏭 Status per Equipment")
 
 df_card_lat = latest[latest["unit"].isin(sel_unit) & latest["equipment"].isin(sel_equip)].copy()
@@ -260,42 +285,39 @@ temp_map = (
     if not df_temp_lat.empty else {}
 )
 
-# Pill dengan font lebih besar dan border tegas
 def _temp_pill(equipment, val, titik):
     if val is None or pd.isna(val):
         return ('<div style="flex:1;display:flex;flex-direction:column;align-items:center;'
-                'background:rgba(128,128,128,.08);border-radius:8px;padding:8px 4px;gap:2px">'
-                '<span style="font-size:12px;font-weight:700;opacity:.5">T</span>'
-                '<span style="font-size:16px;font-weight:700;opacity:.3">–</span>'
+                'background:rgba(0,0,0,.08);border-radius:8px;padding:8px 4px;gap:2px">'
+                '<span style="font-size:12px;font-weight:800;opacity:.5">T</span>'
+                '<span style="font-size:16px;font-weight:800;opacity:.3">–</span>'
                 '<span style="font-size:11px;opacity:.4">–</span></div>')
     thr = get_temp_threshold(equipment, titik)
     zk  = get_zone_temp(val, thr)[0]
     c   = ZC.get(zk,"#6b7280")
-    bg  = ZB.get(zk,"transparent")
     ts  = (titik[:10]+"…") if titik and len(titik)>11 else (titik or "")
     return (f'<div title="{titik}" style="flex:1;display:flex;flex-direction:column;align-items:center;'
-            f'background:{bg};border:1px solid {c}35;border-radius:8px;padding:8px 4px;gap:2px;cursor:default">'
+            f'background:rgba(255,255,255,.2);border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:8px 4px;gap:2px;cursor:default">'
             f'<span style="font-size:12px;font-weight:800;color:{c}">T°C</span>'
             f'<span style="font-size:16px;font-weight:800;color:{c};font-variant-numeric:tabular-nums">{val:.1f}</span>'
-            f'<span style="font-size:11px;font-weight:600;color:{c};opacity:.85;white-space:nowrap;'
+            f'<span style="font-size:11px;font-weight:700;color:inherit;opacity:.9;white-space:nowrap;'
             f'overflow:hidden;text-overflow:ellipsis;max-width:100%">{ts}</span></div>')
 
 def _dir_pill(label, val, thr, titik):
     if val is None or pd.isna(val):
         return (f'<div style="flex:1;display:flex;flex-direction:column;align-items:center;'
-                f'background:rgba(128,128,128,.08);border-radius:8px;padding:8px 4px;gap:2px">'
-                f'<span style="font-size:12px;font-weight:700;opacity:.5">{label}</span>'
-                f'<span style="font-size:16px;font-weight:700;opacity:.3">–</span>'
+                f'background:rgba(0,0,0,.08);border-radius:8px;padding:8px 4px;gap:2px">'
+                f'<span style="font-size:12px;font-weight:800;opacity:.5">{label}</span>'
+                f'<span style="font-size:16px;font-weight:800;opacity:.3">–</span>'
                 f'<span style="font-size:11px;opacity:.4">–</span></div>')
     zk = get_zone(val, thr)[0]
     c  = ZC.get(zk,"#6b7280")
-    bg = ZB.get(zk,"transparent")
     ts = (titik[:10]+"…") if titik and len(titik)>11 else (titik or "")
     return (f'<div title="{titik}" style="flex:1;display:flex;flex-direction:column;align-items:center;'
-            f'background:{bg};border:1px solid {c}35;border-radius:8px;padding:8px 4px;gap:2px;cursor:default">'
+            f'background:rgba(255,255,255,.2);border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:8px 4px;gap:2px;cursor:default">'
             f'<span style="font-size:12px;font-weight:800;color:{c}">{label}</span>'
             f'<span style="font-size:16px;font-weight:800;color:{c};font-variant-numeric:tabular-nums">{val:.3f}</span>'
-            f'<span style="font-size:11px;font-weight:600;color:{c};opacity:.85;white-space:nowrap;'
+            f'<span style="font-size:11px;font-weight:700;color:inherit;opacity:.9;white-space:nowrap;'
             f'overflow:hidden;text-overflow:ellipsis;max-width:100%">{ts}</span></div>')
 
 eq_rows = []
@@ -326,20 +348,20 @@ def _render_equipment_cards():
             (df_runtime_now["equipment"]==eq) & (df_runtime_now["unit"]==unit)
         ] if not df_runtime_now.empty else pd.DataFrame()
         if match.empty:
-            return ('<div style="margin-bottom:10px;padding:7px 10px;border-radius:8px;'
-                    'background:rgba(128,128,128,.1)"><span style="font-size:12px;opacity:.65">'
+            return ('<div style="margin-bottom:10px;padding:8px 10px;border-radius:8px;'
+                    'background:rgba(0,0,0,.08)"><span style="font-size:12px;opacity:.75;font-weight:600">'
                     '⏱️ Running hours belum diisi</span></div>')
         row_data = match.iloc[0].to_dict()
         hours  = compute_running_hours(row_data)
         status = row_data.get("status", "stopped")
         age    = get_pump_age(row_data.get("install_date"))
-        rc = "#16a34a" if status == "running" else "#6b7280"
+        rc = "#16a34a" if status == "running" else "#4b5563"
         dot = "🟢" if status == "running" else "⚪"
-        age_html = f'<span style="font-size:11px;opacity:.8;font-weight:600">📅 Umur: {age}</span>' if age else ""
-        return (f'<div style="margin-bottom:10px;padding:7px 10px;border-radius:8px;background:{rc}18;'
-                f'border:1px solid {rc}30">'
+        age_html = f'<span style="font-size:12px;opacity:.9;font-weight:700">📅 Umur: {age}</span>' if age else ""
+        return (f'<div style="margin-bottom:10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.3);'
+                f'border:1px solid rgba(0,0,0,.15)">'
                 f'<div style="display:flex;align-items:center;justify-content:space-between">'
-                f'<span style="font-size:12px;font-weight:700;color:{rc}">{dot} '
+                f'<span style="font-size:13px;font-weight:800;color:{rc}">{dot} '
                 f'{"Running" if status=="running" else "Stopped"}</span>'
                 f'<span style="font-size:13px;font-weight:800;color:{rc};font-variant-numeric:tabular-nums">'
                 f'⏱️ {hours:,.1f} jam</span></div>{age_html}</div>')
@@ -353,17 +375,17 @@ def _render_equipment_cards():
             rt_html = _runtime_badge(r["eq"], r["unit"])
             col.markdown(f"""
 <div class="eq-card" style="
-  border:1px solid {bc}45; border-left:5px solid {bc};
-  border-radius:0 12px 12px 0; padding:16px; margin-bottom:12px;
-  background: linear-gradient(135deg, {bg} 0%, transparent 100%), var(--secondary-background-color);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+  border:2px solid {bc}; border-left:6px solid {bc};
+  border-radius:0 12px 12px 0; padding:16px; margin-bottom:14px;
+  background:{bg};
+  box-shadow: 0 3px 12px rgba(0,0,0,0.1);">
   
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-    <div style="font-size:16px;font-weight:800;line-height:1.3">{r['eq']}</div>
-    <div style="font-size:12px;opacity:.75;font-weight:500;white-space:nowrap;margin-left:6px">{r['tgl']}</div>
+    <div style="font-size:17px;font-weight:800;line-height:1.3">{r['eq']}</div>
+    <div style="font-size:12px;opacity:.85;font-weight:600;white-space:nowrap;margin-left:6px">{r['tgl']}</div>
   </div>
   
-  <div style="font-size:13px;opacity:.75;font-weight:600;margin-bottom:10px">{r['unit']}</div>
+  <div style="font-size:13px;opacity:.85;font-weight:700;margin-bottom:10px">{r['unit']}</div>
   
   {rt_html}
   
@@ -376,11 +398,11 @@ def _render_equipment_cards():
   
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
     <span style="font-size:14px;font-weight:800;color:{bc}">{r['zi']} {r['zl']}</span>
-    <span style="font-size:13px;font-weight:700;color:{bc}">{r['mx']:.3f} mm/s</span>
+    <span style="font-size:14px;font-weight:800;color:{bc}">{r['mx']:.3f} mm/s</span>
   </div>
   
-  <div style="height:4px;border-radius:2px;background:rgba(128,128,128,.2);overflow:hidden">
-    <div style="height:4px;width:{bar}%;background:{bc};border-radius:2px"></div>
+  <div style="height:5px;border-radius:3px;background:rgba(0,0,0,.15);overflow:hidden">
+    <div style="height:5px;width:{bar}%;background:{bc};border-radius:3px"></div>
   </div>
 </div>""", unsafe_allow_html=True)
 
