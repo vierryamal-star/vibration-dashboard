@@ -5,6 +5,7 @@ from utils import (
     load_history, render_login_sidebar, require_editor,
     get_pump_runtime, init_pump_runtime,
     start_pump_runtime, stop_pump_runtime,
+    reset_pump_runtime, reset_pump_install_date,
     compute_running_hours, get_pump_age, update_pump_install_date,
     get_bearing_install, update_bearing_install, BEARING_POSISI,
 )
@@ -174,6 +175,32 @@ for _, r in eq_unit_pairs.iterrows():
                 update_pump_install_date(eq, unit, new_date)
                 st.cache_data.clear()
                 st.success("Tanggal instalasi tersimpan.")
+                st.rerun()
+
+        # ── Reset (dipakai saat equipment/peralatan diganti fisik) ────────────
+        st.markdown("---")
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            st.caption("⚠️ Reset running hours ke 0 jam & status Stopped — "
+                       "dipakai kalau equipment fisik diganti baru.")
+            confirm_rt = st.checkbox("Saya yakin reset running hours",
+                                     key=f"kp_confirm_rt_{eq}_{unit}")
+            if st.button("🔄 Reset Running Hours", key=f"kp_reset_rt_{eq}_{unit}",
+                        width="stretch", disabled=not confirm_rt):
+                reset_pump_runtime(eq, unit)
+                st.cache_data.clear()
+                st.success("Running hours direset ke 0.")
+                st.rerun()
+        with rc2:
+            st.caption("⚠️ Reset umur pompa (tanggal instalasi → hari ini) — "
+                       "dipakai kalau equipment fisik diganti baru.")
+            confirm_age = st.checkbox("Saya yakin reset umur pompa",
+                                      key=f"kp_confirm_age_{eq}_{unit}")
+            if st.button("🔄 Reset Umur Pompa", key=f"kp_reset_age_{eq}_{unit}",
+                        width="stretch", disabled=not confirm_age):
+                reset_pump_install_date(eq, unit)
+                st.cache_data.clear()
+                st.success("Umur pompa direset (tanggal instalasi = hari ini).")
                 st.rerun()
 
         # ── Umur Bearing per posisi (DE/NDE Motor & Pompa/Fan) ────────────────
