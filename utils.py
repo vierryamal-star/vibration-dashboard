@@ -1,11 +1,8 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
+import streamlit as st
 
-# ── Threshold baru ────────────────────────────────────────────────────────────
-# A (Accepted)   : < 1.4
-# B (Pre Warning): 1.4 - 2.8
-# C (Warning)    : 2.8 - 4.5
-# D (Danger)     : > 4.5
+# ── Threshold ISO 10816 ────────────────────────────────────────────────────────
 THRESHOLD = {
     "Turbine": {"A": 1.4, "B": 2.8, "C": 4.5},
     "Pump/Fan": {"A": 1.4, "B": 2.8, "C": 4.5},
@@ -43,108 +40,85 @@ ZONE_ICON = {
     "N/A":    "⬜",
 }
 
-# Alias pendek untuk kompatibilitas — diimport di app.py & 1_Analisis.py
 ZC = ZONE_COLOR
 ZB = ZONE_BG
 
-# ── Threshold suhu (°C) — 3 tier: Normal / Warning / Danger ──────────────────
-# Dicocokkan lewat nama TITIK UKUR (bukan jenis equipment) — berlaku sama baik
-# equipment-nya Pump maupun Fan (mis. Bearing DE Motor Fan == Bearing DE Motor Pompa).
-#
-# KONVENSI KHUSUS MOTOR (dikonfirmasi user): titik "DE MOTOR" & "NDE MOTOR" dipakai
-# ulang dari titik vibrasi yang SAMA, tapi untuk baris suhu (direction="T") artinya beda:
-#   - DE MOTOR  -> suhu BEARING  (74/95°C)
-#   - NDE MOTOR -> suhu WINDING  (99/140°C)   <-- BUKAN bearing, meski nama titiknya "MOTOR"
-# Pompa/Fan (DE & NDE) tetap bearing biasa, karena tidak ada winding di situ.
 THRESHOLD_TEMP = {
     "TURBIN":            {"normal": 80, "danger": 119},
     "WINDING":           {"normal": 99, "danger": 140},
     "BEARING DE MOTOR":  {"normal": 74, "danger": 95},
-    "BEARING DE DRIVEN":  {"normal": 74, "danger": 95},  # Bearing DE Pompa/Fan
-    "BEARING NDE DRIVEN": {"normal": 74, "danger": 95},  # Bearing NDE Pompa/Fan
+    "BEARING DE DRIVEN":  {"normal": 74, "danger": 95},
+    "BEARING NDE DRIVEN": {"normal": 74, "danger": 95},
 }
 
 def get_temp_threshold(equipment: str, titik: str):
-    """Pilih threshold suhu berdasarkan nama titik ukur (Turbin/Winding/Bearing DE Motor/Driven)."""
     eq, t = str(equipment).upper(), str(titik).upper()
     if "TURBIN" in eq and "WINDING" not in t:
         return THRESHOLD_TEMP["TURBIN"]
     if "WINDING" in t:
         return THRESHOLD_TEMP["WINDING"]
     if "MOTOR" in t:
-        # NDE Motor -> winding (bukan bearing), DE Motor -> bearing. Konvensi khusus motor.
         return THRESHOLD_TEMP["WINDING"] if "NDE" in t else THRESHOLD_TEMP["BEARING DE MOTOR"]
     if any(k in t for k in ["POMPA", "PUMP", "FAN"]):
         return THRESHOLD_TEMP["BEARING NDE DRIVEN" if "NDE" in t else "BEARING DE DRIVEN"]
-    return THRESHOLD_TEMP["BEARING DE DRIVEN"]  # fallback
+    return THRESHOLD_TEMP["BEARING DE DRIVEN"]
 
 def get_zone_temp(value, thr):
-    """Return (zone_key, icon, label) — 3 tier, reuse warna ZONE A(biru)/C(kuning)/D(merah)."""
-    if pd.isna(value):
+    if pd.isna(value) or value is None:
         return "N/A", "⬜", "N/A"
-    if value <= thr["normal"]:
+    try:
+        val = float(value)
+    except (ValueError, TypeError):
+        return "N/A", "⬜", "N/A"
+    if val <= thr["normal"]:
         return "ZONE A", "🔵", "Normal"
-    elif value < thr["danger"]:
+    elif val < thr["danger"]:
         return "ZONE C", "🟡", "Warning"
     else:
         return "ZONE D", "🔴", "Danger"
 
 def get_supabase(service_role=False):
-    import streamlit as st
     from supabase import create_client
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"Gagal menginisialisasi koneksi Supabase. Periksa `.streamlit/secrets.toml`: {e}")
+        st.stop()
 
 def get_threshold(equipment: str):
-    name = equipment.upper()
-    if "TURBINE" in name:
+    name = str(equipment).upper()
+    if "TURBINE" in name or "TURBIN" in name:
         return THRESHOLD["Turbine"]
     return THRESHOLD["Pump/Fan"]
 
-def get_turbine_unit(equipment: str) -> str:
-    name = equipment.upper()
-    if "TURBINE" in name or "TURBIN" in name:
-        if "01" in name or "1" in name:
-            return "TBK #1"
-        elif "02" in name or "2" in name:
-            return "TBK #2"
-    return None
-
 def get_zone(value, thr):
-    """Return (zone_key, icon, label)"""
-    if pd.isna(value):
+    if pd.isna(value) or value is None:
         return "N/A", "⬜", "N/A"
-    if value < thr["A"]:
+    try:
+        val = float(value)
+    except (ValueError, TypeError):
+        return "N/A", "⬜", "N/A"
+    if val < thr["A"]:
         return "ZONE A", "🔵", "Accepted"
-    elif value <= thr["B"]:
+    elif val <= thr["B"]:
         return "ZONE B", "🟢", "Pre Warning"
-    elif value <= thr["C"]:
+    elif val <= thr["C"]:
         return "ZONE C", "🟡", "Warning"
     else:
         return "ZONE D", "🔴", "Danger"
 
-def init_db():
-    pass
-
-import streamlit as st
-
 @st.cache_data(ttl=60)
 def load_history() -> pd.DataFrame:
-    """Load semua data vibrasi/suhu. Dioptimasi: hanya SELECT kolom yang benar-benar
-    dipakai (bukan '*' — menghemat bandwidth, kolom 'id'/'uploaded_at' tidak perlu
-    ikut terunduh), dan batch_size diperbesar (1000→5000) supaya jumlah round-trip
-    ke Supabase lebih sedikit untuk data yang sudah menumpuk banyak."""
     try:
         sb = get_supabase()
-
         all_rows = []
         batch_size = 5000
         start = 0
         _cols = "equipment,unit,titik,direction,date,value"
 
         while True:
-
             res = (
                 sb.table("vibration")
                 .select(_cols)
@@ -152,21 +126,15 @@ def load_history() -> pd.DataFrame:
                 .range(start, start + batch_size - 1)
                 .execute()
             )
-
             rows = res.data if res.data else []
-
             if not rows:
                 break
-
             all_rows.extend(rows)
-
             if len(rows) < batch_size:
                 break
-
             start += batch_size
 
         return pd.DataFrame(all_rows)
-
     except Exception as e:
         st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
@@ -227,13 +195,16 @@ def delete_all() -> int:
         return 0
 
 def parse_excel(file) -> pd.DataFrame:
-    import streamlit as st
     try:
         df = pd.read_excel(file, sheet_name="Vibration_Data")
-    except Exception as e:
-        st.error(f"Gagal baca file {getattr(file, 'name', 'unknown')}: {e}")
-        return pd.DataFrame()
-    df.columns = [c.strip() for c in df.columns]
+    except Exception:
+        try:
+            df = pd.read_excel(file)
+        except Exception as e:
+            st.error(f"Gagal membaca file {getattr(file, 'name', 'unknown')}: {e}")
+            return pd.DataFrame()
+
+    df.columns = [str(c).strip() for c in df.columns]
     col_map = {}
     for c in df.columns:
         cl = c.lower()
@@ -247,29 +218,19 @@ def parse_excel(file) -> pd.DataFrame:
     required = {"equipment", "unit", "titik", "direction", "date", "value"}
     missing = required - set(df.columns)
     if missing:
-        st.error(f"Kolom tidak ditemukan: {missing}")
+        st.error(f"Kolom wajib tidak ditemukan: {missing}")
         return pd.DataFrame()
+        
     df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df = df.dropna(subset=["value"])
-    return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
-
-def load_filtered(df_hist, units, equips, directions):
-    if df_hist.empty:
-        return pd.DataFrame()
-    df = df_hist.copy()
-    df["date"]  = pd.to_datetime(df["date"], errors="coerce")
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    return df[df["unit"].isin(units) & df["equipment"].isin(equips) & df["direction"].isin(directions)].copy()
+    df = df.dropna(subset=["date", "value", "equipment", "unit", "titik", "direction"])
+    return df[list(required)]
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Hitung zone per baris. Baris vibrasi (direction H/V/A) pakai THRESHOLD (mm/s, 4 tier).
-    Baris suhu (direction == 'T') pakai THRESHOLD_TEMP (°C, 3 tier) — dicocokkan lewat titik ukur,
-    BUKAN via thr_type equipment, karena skala & satuannya beda total dari vibrasi.
-    """
+    if df.empty:
+        return df
     df = df.copy()
-    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
+    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() or "turbin" in str(x).lower() else "Pump/Fan")
 
     def _zone_row(r):
         if r["direction"] == "T":
@@ -281,68 +242,52 @@ def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
     df["zone"], df["zone_icon"], df["zone_label"] = zip(*z)
     return df
 
-EDITOR_PASSWORD = "pltu2026"
+def get_editor_password():
+    return st.secrets.get("EDITOR_PASSWORD", "pltu2026")
 
 def check_role():
-    import streamlit as st
     if "role" not in st.session_state:
         st.session_state["role"] = "viewer"
     return st.session_state["role"]
 
 def render_login_sidebar():
-    import streamlit as st
     role = check_role()
     st.sidebar.divider()
     if role == "editor":
         st.sidebar.success("🔓 Mode: **Editor**")
-        if st.sidebar.button("🔒 Logout", key="sb_logout"):
+        if st.sidebar.button("🔒 Logout", key="sb_logout", use_container_width=True):
             st.session_state["role"] = "viewer"
             st.rerun()
     else:
         st.sidebar.info("👁️ Mode: **Viewer**")
         with st.sidebar.expander("🔑 Login Editor"):
             pwd = st.text_input("Password", type="password", key="sb_pwd_input")
-            if st.button("Login", key="sb_login_btn"):
-                if pwd == EDITOR_PASSWORD:
+            if st.button("Login", key="sb_login_btn", use_container_width=True):
+                if pwd == get_editor_password():
                     st.session_state["role"] = "editor"
                     st.rerun()
                 else:
                     st.error("Password salah.")
 
 def require_editor():
-    import streamlit as st
     if check_role() != "editor":
         st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
         return False
     return True
 
-# ── Running Hours Pompa (live) ────────────────────────────────────────────────
-# Tabel Supabase: pump_runtime
-#   equipment (text), unit (text), status (text: 'running'/'stopped'),
-#   status_changed_at (timestamptz), accumulated_hours (float8)
-# Unique constraint: (equipment, unit)
-
+# ── Running Hours & Bearing Tracker ──────────────────────────────────────────
 @st.cache_data(ttl=15)
 def get_pump_runtime() -> pd.DataFrame:
-    """Baca status running/stopped semua pompa dari Supabase. Di-cache singkat (15 detik)
-    supaya tidak query berkali-kali dalam satu render (dipakai di 2 tempat: section
-    Running Hours & badge di kartu equipment)."""
-    import streamlit as st
-    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours"]
+    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours", "install_date"]
     try:
         sb = get_supabase()
-        res = sb.table("pump_runtime").select(
-            "equipment,unit,status,status_changed_at,accumulated_hours,install_date"
-        ).execute()
+        res = sb.table("pump_runtime").select(",".join(cols)).execute()
         return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
     except Exception as e:
         st.error(f"Gagal load running hours: {e}")
         return pd.DataFrame(columns=cols)
 
-get_pump_runtime = st.cache_data(ttl=15)(get_pump_runtime) if False else get_pump_runtime
-
 def init_pump_runtime(equipment: str, unit: str):
-    """Pastikan baris pump_runtime ada untuk equipment ini; kalau belum, buat baru (status stopped)."""
     sb = get_supabase(service_role=True)
     res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()
     if not res.data:
@@ -354,40 +299,28 @@ def init_pump_runtime(equipment: str, unit: str):
             "accumulated_hours": 0.0,
         }).execute()
 
-def toggle_pump_runtime(equipment: str, unit: str, current_status: str,
-                         current_accum: float, current_changed_at) -> None:
-    """Toggle status running <-> stopped memakai waktu SEKARANG. Dipertahankan untuk
-    kompatibilitas — halaman Kelola Pompa sekarang pakai start_pump_runtime /
-    stop_pump_runtime (waktu mulai/berhenti dipilih manual oleh user)."""
-    import streamlit as st
-    try:
-        sb = get_supabase(service_role=True)
-        now = datetime.now()
-        if current_status == "running":
-            try:
-                changed = pd.to_datetime(current_changed_at)
-                if changed.tzinfo is not None:
-                    changed = changed.tz_localize(None)
-                delta_hours = max((now - changed).total_seconds() / 3600, 0)
-            except Exception:
-                delta_hours = 0
-            new_accum = float(current_accum or 0) + delta_hours
-            new_status = "stopped"
-        else:
-            new_accum = float(current_accum or 0)
-            new_status = "running"
-        sb.table("pump_runtime").update({
-            "status": new_status,
-            "status_changed_at": now.isoformat(),
-            "accumulated_hours": new_accum,
-        }).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal update status pompa: {e}")
+def _to_naive_dt(dt_input):
+    if dt_input is None or pd.isna(dt_input):
+        return None
+    dt = pd.to_datetime(dt_input)
+    if dt.tzinfo is not None:
+        dt = dt.tz_localize(None)
+    return dt
+
+def compute_running_hours(row: dict) -> float:
+    accum = float(row.get("accumulated_hours", 0) or 0)
+    if row.get("status") == "running":
+        try:
+            changed = _to_naive_dt(row.get("status_changed_at"))
+            if changed:
+                now_dt = datetime.now()
+                delta = (now_dt - changed.to_pydatetime()).total_seconds() / 3600
+                return accum + max(delta, 0.0)
+        except Exception:
+            return accum
+    return accum
 
 def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
-    """Catat waktu MULAI operasi secara manual — tanggal & jam dipilih user di
-    halaman Kelola Pompa (bukan otomatis 'sekarang')."""
-    import streamlit as st
     try:
         sb = get_supabase(service_role=True)
         sb.table("pump_runtime").update({
@@ -399,20 +332,15 @@ def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
 
 def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
                        current_accum: float, current_changed_at) -> None:
-    """Catat waktu BERHENTI operasi secara manual — akumulasikan durasi dari waktu
-    mulai (status_changed_at) sampai stop_dt yang dipilih user."""
-    import streamlit as st
     try:
         sb = get_supabase(service_role=True)
-        stop_ts = pd.Timestamp(stop_dt)
+        stop_ts = _to_naive_dt(stop_dt)
         if current_status == "running":
             try:
-                changed = pd.to_datetime(current_changed_at)
-                if changed.tzinfo is not None:
-                    changed = changed.tz_localize(None)
-                delta_hours = max((stop_ts - changed).total_seconds() / 3600, 0)
+                changed = _to_naive_dt(current_changed_at)
+                delta_hours = max((stop_ts - changed).total_seconds() / 3600, 0.0) if changed else 0.0
             except Exception:
-                delta_hours = 0
+                delta_hours = 0.0
             new_accum = float(current_accum or 0) + delta_hours
         else:
             new_accum = float(current_accum or 0)
@@ -425,9 +353,6 @@ def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
         st.error(f"Gagal catat waktu berhenti: {e}")
 
 def reset_pump_runtime(equipment: str, unit: str) -> None:
-    """Reset running hours ke 0 — dipakai saat equipment/peralatan diganti fisik.
-    Status dikembalikan ke 'stopped' dan accumulated_hours ke 0."""
-    import streamlit as st
     try:
         sb = get_supabase(service_role=True)
         sb.table("pump_runtime").update({
@@ -439,9 +364,6 @@ def reset_pump_runtime(equipment: str, unit: str) -> None:
         st.error(f"Gagal reset running hours: {e}")
 
 def reset_pump_install_date(equipment: str, unit: str) -> None:
-    """Reset umur pompa ke 0 — set tanggal instalasi ke hari ini (dipakai saat
-    equipment/peralatan diganti fisik)."""
-    import streamlit as st
     try:
         sb = get_supabase(service_role=True)
         sb.table("pump_runtime").update(
@@ -450,45 +372,25 @@ def reset_pump_install_date(equipment: str, unit: str) -> None:
     except Exception as e:
         st.error(f"Gagal reset umur pompa: {e}")
 
-def compute_running_hours(row: dict) -> float:
-    """Hitung total running hours SAAT INI (live) — akumulasi + waktu berjalan
-    sejak status_changed_at kalau status masih 'running'. Dipanggil ulang tiap
-    rerun/autorefresh sehingga angkanya terlihat bertambah otomatis."""
-    accum = float(row.get("accumulated_hours", 0) or 0)
-    if row.get("status") == "running":
-        try:
-            changed = pd.to_datetime(row["status_changed_at"])
-            if changed.tzinfo is not None:
-                changed = changed.tz_localize(None)
-            delta = (pd.Timestamp.now() - changed).total_seconds() / 3600
-            return accum + max(delta, 0)
-        except Exception:
-            return accum
-    return accum
-
 def get_pump_age(install_date) -> str:
-    """Return umur pompa sebagai teks 'X th Y bln', atau None kalau install_date kosong."""
     if not install_date or pd.isna(install_date):
         return None
     try:
         d = pd.to_datetime(install_date)
-        now = pd.Timestamp.now()
+        now = datetime.now()
         months = (now.year - d.year) * 12 + (now.month - d.month)
         if now.day < d.day:
             months -= 1
         months = max(months, 0)
         years, rem_months = divmod(months, 12)
         parts = []
-        if years:
-            parts.append(f"{years} th")
+        if years: parts.append(f"{years} th")
         parts.append(f"{rem_months} bln")
         return " ".join(parts)
     except Exception:
         return None
 
 def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
-    """Simpan/ubah tanggal instalasi pompa (dipakai halaman Kelola Pompa)."""
-    import streamlit as st
     try:
         sb = get_supabase(service_role=True)
         sb.table("pump_runtime").update(
@@ -497,29 +399,19 @@ def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
     except Exception as e:
         st.error(f"Gagal simpan tanggal instalasi: {e}")
 
-# ── Umur Bearing per posisi (DE Motor / NDE Motor / DE Pompa-Fan / NDE Pompa-Fan) ──
-# Tabel Supabase: bearing_install (equipment, unit, posisi, install_date)
-# Terpisah dari install_date equipment di pump_runtime, karena tiap bearing bisa
-# diganti di waktu yang berbeda-beda meski equipment-nya sama.
-
 BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"]
 
 def get_bearing_install() -> pd.DataFrame:
-    """Baca semua tanggal instalasi bearing dari Supabase."""
-    import streamlit as st
     cols = ["equipment", "unit", "posisi", "install_date"]
     try:
         sb = get_supabase()
-        res = sb.table("bearing_install").select("equipment,unit,posisi,install_date").execute()
+        res = sb.table("bearing_install").select(",".join(cols)).execute()
         return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
     except Exception as e:
         st.error(f"Gagal load umur bearing: {e}")
         return pd.DataFrame(columns=cols)
 
 def update_bearing_install(equipment: str, unit: str, posisi: str, install_date) -> None:
-    """Simpan/ubah tanggal instalasi bearing untuk satu posisi tertentu.
-    Insert kalau belum ada baris (equipment, unit, posisi) tsb, update kalau sudah ada."""
-    import streamlit as st
     try:
         sb = get_supabase(service_role=True)
         existing = (
@@ -538,22 +430,3 @@ def update_bearing_install(equipment: str, unit: str, posisi: str, install_date)
             }).execute()
     except Exception as e:
         st.error(f"Gagal simpan tanggal instalasi bearing: {e}")
-
-def set_pump_runtime_manual(equipment: str, unit: str, status: str,
-                             accumulated_hours: float, status_changed_at=None) -> None:
-    """Koreksi manual accumulated_hours (dan opsional status_changed_at) — dipakai
-    halaman Kelola Pompa saat operator telat mencatat / perlu perbaiki jam."""
-    import streamlit as st
-    try:
-        sb = get_supabase(service_role=True)
-        payload = {
-            "status": status,
-            "accumulated_hours": float(accumulated_hours),
-        }
-        payload["status_changed_at"] = (
-            str(status_changed_at) if status_changed_at is not None
-            else datetime.now().isoformat()
-        )
-        sb.table("pump_runtime").update(payload).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal simpan koreksi running hours: {e}")
