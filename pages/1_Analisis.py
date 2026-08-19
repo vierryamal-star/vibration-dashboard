@@ -16,40 +16,57 @@ st.set_page_config(page_title="Analisis — PLTU TBK", page_icon="📈", layout=
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
+section[data-testid="stSidebar"]>div:first-child{ padding-top:1.2rem; }
+
+/* Font Navigasi Sidebar */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    margin-bottom: 6px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] span {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+}
+
 div[data-testid="stRadio"] > div { gap: 8px; }
 .stat-card {
-    border-radius: 10px; padding: 14px 16px;
-    border: 1px solid rgba(128,128,128,.15); height: 100%;
+    border-radius: 10px; padding: 16px;
+    border: 1px solid rgba(128,128,128,.18); height: 100%;
+    background: var(--secondary-background-color);
 }
-.stat-val  { font-size: 24px; font-weight: 800; line-height: 1.1; margin-bottom: 3px; }
-.stat-lbl  { font-size: 11px; opacity: .55; font-weight: 500; }
-.stat-sub  { font-size: 11px; font-weight: 600; margin-top: 4px; }
+.stat-val  { font-size: 26px; font-weight: 800; line-height: 1.1; margin-bottom: 4px; }
+.stat-lbl  { font-size: 12px; opacity: .7; font-weight: 600; }
+.stat-sub  { font-size: 12px; font-weight: 700; margin-top: 6px; }
 .zbadge {
     display: inline-flex; align-items: center; gap: 4px;
-    border-radius: 99px; padding: 3px 10px;
-    font-size: 11px; font-weight: 700; letter-spacing: .03em; border: 1px solid transparent;
+    border-radius: 99px; padding: 4px 12px;
+    font-size: 12px; font-weight: 800; letter-spacing: .03em; border: 1px solid transparent;
 }
 .zt { width:100%; border-collapse:collapse; font-size:13px; }
-.zt thead tr { border-bottom: 2px solid rgba(128,128,128,.15); }
+.zt thead tr { border-bottom: 2px solid rgba(128,128,128,.18); }
 .zt thead th {
-    padding: 10px 12px; font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .08em; opacity: .5; text-align: left;
+    padding: 11px 14px; font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .08em; opacity: .7; text-align: left;
 }
-.zt tbody tr { border-bottom: 1px solid rgba(128,128,128,.07); }
+.zt tbody tr { border-bottom: 1px solid rgba(128,128,128,.08); }
 .zt tbody tr:hover { filter: brightness(1.06); }
-.zt td { padding: 9px 12px; vertical-align: middle; }
+.zt td { padding: 10px 14px; vertical-align: middle; }
 .sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .sec-bar {
     width: 4px; height: 20px; border-radius: 2px;
     background: linear-gradient(180deg, #2563eb, #0891b2); flex-shrink: 0;
 }
-.sec-title { font-size: 15px; font-weight: 700; }
+.sec-title { font-size: 16px; font-weight: 800; }
 </style>
 """, unsafe_allow_html=True)
 
 ZC = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#d97706","ZONE D":"#dc2626","N/A":"#6b7280"}
-ZB = {"ZONE A":"rgba(59,130,246,.13)","ZONE B":"rgba(34,197,94,.13)",
-      "ZONE C":"rgba(217,119,6,.14)","ZONE D":"rgba(220,38,38,.14)","N/A":"rgba(107,114,128,.1)"}
+ZB = {"ZONE A":"rgba(59,130,246,.22)","ZONE B":"rgba(34,197,94,.22)",
+      "ZONE C":"rgba(217,119,6,.24)","ZONE D":"rgba(220,38,38,.24)","N/A":"rgba(107,114,128,.15)"}
 ZONE_LABEL = {"ZONE A":"Accepted","ZONE B":"Pre Warning","ZONE C":"Warning","ZONE D":"Danger","N/A":"N/A"}
 COLORS_DIR = {"H":"#3b82f6","V":"#10b981","A":"#f59e0b"}
 LS_LIST    = ["solid","dash","dot","dashdot"]
@@ -62,6 +79,15 @@ with st.sidebar:
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
     st.markdown("### Navigasi")
+    
+    st.markdown("""
+<style>
+[data-testid="stPageLink"]:has(p:contains("📈 Analisis")) {
+    background: rgba(59,130,246,.2) !important;
+    border-radius: 10px !important;
+    border-left: 4px solid #3b82f6 !important;
+}
+</style>""", unsafe_allow_html=True)
     st.page_link("app.py",                 label="📊 Monitor")
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
@@ -108,15 +134,15 @@ def add_threshold_lines(fig, thr):
     for y, col, dash, w, lbl in styles:
         fig.add_hline(y=y, line_dash=dash, line_color=col, line_width=w,
                       annotation_text=lbl, annotation_position="top left",
-                      annotation_font_size=10, annotation_font_color=col)
+                      annotation_font_size=11, annotation_font_color=col)
     return fig
 
 def plotly_theme():
     return dict(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(size=12),
-        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.1)", zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.1)", zeroline=False),
+        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.15)", zeroline=False),
+        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.15)", zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=11),
         hovermode="x unified",
         margin=dict(l=0, r=0, t=48, b=0),
@@ -141,7 +167,7 @@ def zone_badge(zk, zi, zl):
     tc = ZC.get(zk,"#6b7280"); bg = ZB.get(zk,"transparent")
     full_lbl  = ZONE_LABEL.get(zk, zl)
     short_key = zk.replace("ZONE ","") if zk.startswith("ZONE") else zk
-    return f'<span class="zbadge" style="background:{bg};color:{tc};border-color:{tc}40">{zi} {short_key} · {full_lbl}</span>'
+    return f'<span class="zbadge" style="background:{bg};color:{tc};border-color:{tc}50">{zi} {short_key} · {full_lbl}</span>'
 
 def render_zone_table(df_tbl, thr, cols_show):
     header = "".join(f'<th style="text-align:{"center" if c in ["Dir","mm/s","Max","Δ (mm/s)","Δ/hari"] else "left"}">{c}</th>'
@@ -151,7 +177,7 @@ def render_zone_table(df_tbl, thr, cols_show):
         try: v = float(str(r.get("mm/s", r.get("Max",""))).replace("–",""))
         except: v = float("nan")
         zk,zi,zl = get_zone(v, thr) if not pd.isna(v) else ("N/A","⬜","N/A")
-        rb = "rgba(220,38,38,.07)" if zk=="ZONE D" else ("rgba(217,119,6,.06)" if zk=="ZONE C" else ("rgba(128,128,128,.03)" if i%2==1 else "transparent"))
+        rb = "rgba(220,38,38,.08)" if zk=="ZONE D" else ("rgba(217,119,6,.07)" if zk=="ZONE C" else ("rgba(128,128,128,.04)" if i%2==1 else "transparent"))
         tc = ZC.get(zk,"#6b7280"); bg = ZB.get(zk,"transparent")
         cells = ""
         for c in cols_show:
@@ -160,29 +186,29 @@ def render_zone_table(df_tbl, thr, cols_show):
                 try:
                     fv = float(str(val_raw).replace("–",""))
                     bar = min(int((fv/4.5)*100),100)
-                    cells += (f'<td style="text-align:center;background:{bg};padding:9px 10px">'
-                              f'<span style="font-weight:700;color:{tc};font-variant-numeric:tabular-nums">{val_raw}</span>'
-                              f'<div style="margin-top:3px;height:2px;background:rgba(128,128,128,.15);border-radius:1px">'
-                              f'<div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>')
+                    cells += (f'<td style="text-align:center;background:{bg};padding:10px">'
+                              f'<span style="font-size:14px;font-weight:800;color:{tc};font-variant-numeric:tabular-nums">{val_raw}</span>'
+                              f'<div style="margin-top:3px;height:3px;background:rgba(128,128,128,.2);border-radius:2px">'
+                              f'<div style="height:3px;width:{bar}%;background:{tc};border-radius:2px"></div></div></td>')
                 except:
-                    cells += f'<td style="text-align:center;padding:9px 10px">{val_raw}</td>'
+                    cells += f'<td style="text-align:center;padding:10px">{val_raw}</td>'
             elif c == "Status":
-                cells += f'<td style="padding:9px 10px;text-align:left">{zone_badge(zk,zi,zl)}</td>'
+                cells += f'<td style="padding:10px;text-align:left">{zone_badge(zk,zi,zl)}</td>'
             elif c in ["Δ (mm/s)","Δ/hari"]:
                 try:
                     dv = float(str(val_raw).replace("+","").replace("–",""))
                     dc = "#dc2626" if dv>0 else ("#16a34a" if dv<0 else "#6b7280")
                     sym = "↑" if dv>0 else ("↓" if dv<0 else "→")
-                    cells += f'<td style="text-align:center;padding:9px 10px;font-weight:600;color:{dc}">{sym} {val_raw}</td>'
+                    cells += f'<td style="text-align:center;padding:10px;font-weight:700;color:{dc}">{sym} {val_raw}</td>'
                 except:
-                    cells += f'<td style="text-align:center;padding:9px 10px">{val_raw}</td>'
+                    cells += f'<td style="text-align:center;padding:10px">{val_raw}</td>'
             elif c == "Dir":
                 dc2 = COLORS_DIR.get(str(val_raw),"#6b7280")
-                cells += f'<td style="text-align:center;padding:9px 10px;font-weight:700;color:{dc2}">{val_raw}</td>'
+                cells += f'<td style="text-align:center;padding:10px;font-weight:800;color:{dc2}">{val_raw}</td>'
             else:
-                cells += f'<td style="padding:9px 10px">{val_raw}</td>'
-        rows.append(f'<tr style="background:{rb};border-bottom:1px solid rgba(128,128,128,.07)">{cells}</tr>')
-    return (f'<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(128,128,128,.15);'
+                cells += f'<td style="padding:10px">{val_raw}</td>'
+        rows.append(f'<tr style="background:{rb};border-bottom:1px solid rgba(128,128,128,.08)">{cells}</tr>')
+    return (f'<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(128,128,128,.18);'
             f'box-shadow:0 2px 12px rgba(0,0,0,.1)"><table class="zt"><thead><tr>{header}</tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table></div>')
 
@@ -236,13 +262,13 @@ if mode == "📈 Trend Detail":
             fig.add_trace(go.Scatter(
                 x=sub["date"], y=sub["value"], mode="lines+markers",
                 name=titik if is_temp else f"{titik} – {d}",
-                line=dict(color=trace_color, width=2, dash=LS_LIST[i%4]),
+                line=dict(color=trace_color, width=2.5, dash=LS_LIST[i%4]),
                 marker=dict(size=6),
             ))
     if not is_temp and thr is not None:
         fig = add_threshold_lines(fig, thr)
 
-    fig.update_layout(title=dict(text=sel_eq, font_size=14), xaxis_title="Tanggal",
+    fig.update_layout(title=dict(text=sel_eq, font_size=15), xaxis_title="Tanggal",
                          yaxis_title=f"Vibrasi ({unit_label})", height=420, **plotly_theme())
     st.plotly_chart(fig, use_container_width=True)
 
@@ -265,7 +291,7 @@ elif mode == "⚖️ Bandingkan Equipment":
         fig_eq.update_layout(title=eq, height=380, **plotly_theme())
         with col_g: st.plotly_chart(fig_eq, use_container_width=True)
 
-# ── MODE 3 (PREDIKSI + R-SQUARED) ─────────────────────────────────────────────
+# ── MODE 3 ────────────────────────────────────────────────────────────────────
 else:
     pc1, pc2, pc3 = st.columns([2,2,1])
     with pc1: sel_eq_p = st.selectbox("Equipment", sorted(df_hist["equipment"].unique()), key="pred_eq")
@@ -294,7 +320,6 @@ else:
         slope     = ((x-xb)*(y-yb)).sum() / max(((x-xb)**2).sum(), 1e-9)
         intercept = yb - slope*xb
         
-        # Hitung R-squared
         y_pred_hist = intercept + slope * x
         ss_res = ((y - y_pred_hist) ** 2).sum()
         ss_tot = ((y - yb) ** 2).sum()
@@ -319,8 +344,8 @@ else:
         p_dates, p_vals, p_up, p_low, slope, r2 = predict_ols(df_d, n_days)
         dc = COLORS_DIR.get(d,"#6b7280")
         col_roc.markdown(f"""
-<div class="stat-card" style="border-color:{dc}30">
-  <div style="font-size:11px;font-weight:700;color:{dc};margin-bottom:6px">Direction {d}</div>
-  <div class="stat-val">{slope:+.4f} <span style="font-size:11px;opacity:.6">mm/s·hari</span></div>
-  <div style="font-size:11px;opacity:.7">Model Fit (R²): <b>{r2:.2f}</b></div>
+<div class="stat-card" style="border-color:{dc}40">
+  <div style="font-size:12px;font-weight:800;color:{dc};margin-bottom:6px">Direction {d}</div>
+  <div class="stat-val">{slope:+.4f} <span style="font-size:12px;opacity:.7">mm/s·hari</span></div>
+  <div style="font-size:12px;font-weight:600;opacity:.85">Model Fit (R²): <b>{r2:.2f}</b></div>
 </div>""", unsafe_allow_html=True)
