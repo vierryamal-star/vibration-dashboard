@@ -16,12 +16,13 @@ ZONE_COLOR = {
     "N/A":    "#6b7280",
 }
 
+# Opacity dinaikkan dari 0.13 menjadi 0.22 - 0.25 agar warna zona tegas dan jelas
 ZONE_BG = {
-    "ZONE A": "rgba(59,130,246,.13)",
-    "ZONE B": "rgba(34,197,94,.13)",
-    "ZONE C": "rgba(217,119,6,.14)",
-    "ZONE D": "rgba(220,38,38,.14)",
-    "N/A":    "rgba(107,114,128,.1)",
+    "ZONE A": "rgba(59,130,246,.22)",
+    "ZONE B": "rgba(34,197,94,.22)",
+    "ZONE C": "rgba(217,119,6,.24)",
+    "ZONE D": "rgba(220,38,38,.24)",
+    "N/A":    "rgba(107,114,128,.15)",
 }
 
 ZONE_LABEL = {
@@ -84,7 +85,7 @@ def get_supabase(service_role=False):
         key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
         return create_client(url, key)
     except Exception as e:
-        st.error(f"Gagal menginisialisasi koneksi Supabase. Periksa `.streamlit/secrets.toml`: {e}")
+        st.error(f"Gagal koneksi Supabase. Pastikan secrets terkonfigurasi: {e}")
         st.stop()
 
 def get_threshold(equipment: str):
@@ -201,9 +202,9 @@ def parse_excel(file) -> pd.DataFrame:
         try:
             df = pd.read_excel(file)
         except Exception as e:
-            st.error(f"Gagal membaca file {getattr(file, 'name', 'unknown')}: {e}")
+            st.error(f"Gagal baca file {getattr(file, 'name', 'unknown')}: {e}")
             return pd.DataFrame()
-
+            
     df.columns = [str(c).strip() for c in df.columns]
     col_map = {}
     for c in df.columns:
@@ -275,7 +276,7 @@ def require_editor():
         return False
     return True
 
-# ── Running Hours & Bearing Tracker ──────────────────────────────────────────
+# ── Running Hours Pompa ───────────────────────────────────────────────────────
 @st.cache_data(ttl=15)
 def get_pump_runtime() -> pd.DataFrame:
     cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours", "install_date"]
