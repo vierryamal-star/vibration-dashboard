@@ -172,7 +172,7 @@ with tab_hist:
             df_disp["date"] = pd.to_datetime(df_disp["date"]).dt.strftime("%d %b %Y")
         if "value" in df_disp.columns:
             df_disp["value"] = df_disp["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
-        st.dataframe(df_disp, use_container_width=True, hide_index=True)
+        st.dataframe(df_disp, width="stretch", hide_index=True)
 
         # ── Download ──────────────────────────────────────────────────────────
         st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
@@ -181,7 +181,7 @@ with tab_hist:
         fname  = f"vibration_{datetime.now().strftime('%Y%m%d')}"
         with dl1:
             st.download_button("⬇️ Download CSV", df_exp.to_csv(index=False).encode("utf-8"),
-                               file_name=f"{fname}.csv", mime="text/csv", use_container_width=True)
+                               file_name=f"{fname}.csv", mime="text/csv", width="stretch")
         with dl2:
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as w:
@@ -189,7 +189,7 @@ with tab_hist:
             st.download_button("⬇️ Download Excel", buf.getvalue(),
                                file_name=f"{fname}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               use_container_width=True)
+                               width="stretch")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB UPLOAD
@@ -227,10 +227,10 @@ with tab_upload:
                 })
             df_pv_tbl = pd.DataFrame(preview_rows)
             st.markdown("**Preview file yang akan diupload:**")
-            st.dataframe(df_pv_tbl, use_container_width=True, hide_index=True)
+            st.dataframe(df_pv_tbl, width="stretch", hide_index=True)
             st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
 
-            if st.button("⬆️ Simpan ke Database", type="primary", use_container_width=False):
+            if st.button("⬆️ Simpan ke Database", type="primary", width="content"):
                 total_saved = total_skip = 0
                 for file in uploaded:
                     df_new = parse_excel(file)
@@ -343,7 +343,7 @@ with tab_hapus:
                         ba, _ = st.columns([1,4])
                         with ba:
                             if st.button(f"🗑️ Hapus {n_del:,} Baris", key="btn_del_date",
-                                         type="secondary", use_container_width=True):
+                                         type="secondary", width="stretch"):
                                 with st.spinner("Menghapus..."):
                                     delete_by_dates(sel_dates)
                                 st.success("✅ Data berhasil dihapus.")
@@ -366,7 +366,7 @@ with tab_hapus:
                 bb, _ = st.columns([1,4])
                 with bb:
                     if st.button("🗑️ Hapus Semua Data", key="btn_del_all",
-                                 type="secondary", use_container_width=True):
+                                 type="secondary", width="stretch"):
                         if konfirmasi.strip() == "HAPUS SEMUA":
                             with st.spinner("Menghapus semua data..."):
                                 delete_all()
@@ -385,29 +385,42 @@ with tab_setting:
                     unsafe_allow_html=True)
     else:
         sec_header("Threshold ISO 10816 (mm/s RMS)")
-        st.caption("Nilai diperbarui untuk sesi ini selama app aktif.")
+        st.caption("⚠️ Perubahan hanya berlaku untuk **browser/sesi Anda sendiri** — "
+                   "tidak memengaruhi tampilan user lain, dan akan hilang saat tab ditutup "
+                   "(bukan disimpan permanen ke database).")
         st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+
+        # Ambil nilai override sesi saat ini (kalau ada) sebagai default form,
+        # supaya form menunjukkan nilai yang sudah pernah disimpan di sesi ini.
+        _thr_cur = st.session_state.get("threshold_override", {})
+        _turbine_cur  = _thr_cur.get("Turbine", THRESHOLD["Turbine"])
+        _pumpfan_cur  = _thr_cur.get("Pump/Fan", THRESHOLD["Pump/Fan"])
 
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**🔧 Turbine**")
-            ta = st.number_input("Accepted <",      value=float(THRESHOLD["Turbine"]["A"]), step=0.1, key="ta")
-            tb = st.number_input("Pre Warning ≤",   value=float(THRESHOLD["Turbine"]["B"]), step=0.1, key="tb")
-            tc_val = st.number_input("Warning ≤",   value=float(THRESHOLD["Turbine"]["C"]), step=0.1, key="tc")
+            ta = st.number_input("Accepted <",      value=float(_turbine_cur["A"]), step=0.1, key="ta")
+            tb = st.number_input("Pre Warning ≤",   value=float(_turbine_cur["B"]), step=0.1, key="tb")
+            tc_val = st.number_input("Warning ≤",   value=float(_turbine_cur["C"]), step=0.1, key="tc")
             st.caption("Di atas Warning → Danger")
         with c2:
             st.markdown("**🔧 Pump / Fan**")
-            pa = st.number_input("Accepted <",      value=float(THRESHOLD["Pump/Fan"]["A"]), step=0.1, key="pa")
-            pb = st.number_input("Pre Warning ≤",   value=float(THRESHOLD["Pump/Fan"]["B"]), step=0.1, key="pb")
-            pc_val = st.number_input("Warning ≤",   value=float(THRESHOLD["Pump/Fan"]["C"]), step=0.1, key="pc")
+            pa = st.number_input("Accepted <",      value=float(_pumpfan_cur["A"]), step=0.1, key="pa")
+            pb = st.number_input("Pre Warning ≤",   value=float(_pumpfan_cur["B"]), step=0.1, key="pb")
+            pc_val = st.number_input("Warning ≤",   value=float(_pumpfan_cur["C"]), step=0.1, key="pc")
             st.caption("Di atas Warning → Danger")
 
         st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
         sv, _ = st.columns([1,4])
         with sv:
-            if st.button("💾 Simpan Threshold", type="primary", use_container_width=True):
-                THRESHOLD["Turbine"]  = {"A":ta, "B":tb, "C":tc_val}
-                THRESHOLD["Pump/Fan"] = {"A":pa, "B":pb, "C":pc_val}
+            if st.button("💾 Simpan Threshold", type="primary", width="stretch"):
+                # FIX: simpan ke session_state (per-sesi), BUKAN mutasi dict THRESHOLD
+                # global — dulu ini bocor ke SEMUA user karena Streamlit satu proses
+                # server dipakai bersama semua sesi.
+                st.session_state["threshold_override"] = {
+                    "Turbine":  {"A": ta, "B": tb, "C": tc_val},
+                    "Pump/Fan": {"A": pa, "B": pb, "C": pc_val},
+                }
                 st.success("✅ Threshold diperbarui.")
 
     st.divider()
