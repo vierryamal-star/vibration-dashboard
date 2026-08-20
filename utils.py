@@ -9,16 +9,16 @@ THRESHOLD = {
 }
 
 ZONE_COLOR = {
-    "ZONE A": "#3b82f6",
-    "ZONE B": "#22c55e",
+    "ZONE A": "#2563eb",
+    "ZONE B": "#16a34a",
     "ZONE C": "#d97706",
     "ZONE D": "#dc2626",
     "N/A":    "#6b7280",
 }
 
 ZONE_BG = {
-    "ZONE A": "rgba(59,130,246,.13)",
-    "ZONE B": "rgba(34,197,94,.13)",
+    "ZONE A": "rgba(37,99,235,.12)",
+    "ZONE B": "rgba(22,163,74,.12)",
     "ZONE C": "rgba(217,119,6,.14)",
     "ZONE D": "rgba(220,38,38,.14)",
     "N/A":    "rgba(107,114,128,.1)",
@@ -63,7 +63,7 @@ UI = {
 def render_page_header(title: str) -> None:
     st.markdown(f"""
 <div style="margin-bottom:8px">
-  <div style="font-size:26px;font-weight:800;line-height:1.2">{title}</div>
+  <div style="font-size:24px;font-weight:800;line-height:1.2">{title}</div>
 </div>""", unsafe_allow_html=True)
 
 def render_section_header(title: str) -> None:
