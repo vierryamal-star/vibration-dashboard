@@ -43,7 +43,6 @@ ZONE_ICON = {
 ZC = ZONE_COLOR
 ZB = ZONE_BG
 
-# ── Design Tokens Terpusat ───────────────────────────────────────────────────
 UI = {
     "radius_card":   "12px",
     "radius_pill":   "8px",
@@ -55,15 +54,13 @@ UI = {
     "font_md":       "13px",
     "font_lg":       "15px",
     "font_xl":       "24px",
-    "shadow_card":   "0 2px 12px rgba(0,0,0,.08)",
-    "shadow_danger": "0 2px 14px rgba(220,38,38,.25)",
     "accent_gradient": "linear-gradient(180deg, #2563eb, #0891b2)",
 }
 
 def render_page_header(title: str) -> None:
     st.markdown(f"""
 <div style="margin-bottom:8px">
-  <div style="font-size:24px;font-weight:800;line-height:1.2">{title}</div>
+  <div style="font-size:24px;font-weight:800;line-height:1.2;color:var(--text-color);">{title}</div>
 </div>""", unsafe_allow_html=True)
 
 def render_section_header(title: str) -> None:
@@ -71,14 +68,44 @@ def render_section_header(title: str) -> None:
         f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
         f'<div style="width:4px;height:20px;border-radius:2px;'
         f'background:{UI["accent_gradient"]};flex-shrink:0"></div>'
-        f'<span style="font-size:15px;font-weight:700">{title}</span></div>',
+        f'<span style="font-size:15px;font-weight:700;color:var(--text-color);">{title}</span></div>',
         unsafe_allow_html=True)
 
 GLOBAL_UI_CSS = """
 <style>
+/* Base typography */
+* { font-variant-numeric: tabular-nums; }
+
 div[data-testid="stExpander"] {
     border-radius: 12px !important;
-    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    border: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent) !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,.03) !important;
+}
+
+/* Pulsing red glow for Zone D Cards */
+@keyframes danger-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+.card-danger-glow {
+    animation: danger-pulse 2s infinite ease-in-out;
+    border-color: rgba(220, 38, 38, 0.4) !important;
+}
+
+/* Pulsing green dot for Running status */
+@keyframes green-pulse {
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 4px #16a34a); }
+    100% { transform: scale(0.95); opacity: 0.8; }
+}
+.live-dot {
+    display: inline-block;
+    animation: green-pulse 1.8s infinite ease-in-out;
+}
+
+@media (max-width: 992px) {
+    .pill-grid { grid-template-columns: repeat(2, 1fr) !important; }
 }
 </style>
 """
