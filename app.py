@@ -18,10 +18,6 @@ st.set_page_config(
 )
 
 # ── Global CSS ────────────────────────────────────────────────────────────────
-# Gunakan hanya var Streamlit native yang bekerja di iframe markdown:
-#   --text-color, --background-color, --secondary-background-color
-# Warna zone & table tidak hardcode dark/light — pakai opacity + warna solid
-# agar terlihat di kedua tema.
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
@@ -30,7 +26,6 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 .eq-card{ cursor:pointer; }
 .eq-card:hover{ border-left-width:5px !important; }
 
-/* Tabel: pakai inherit supaya ikut tema Streamlit */
 .vt-wrap{
     border-radius:12px; overflow:hidden;
     border:1px solid color-mix(in srgb, currentColor 12%, transparent);
@@ -61,13 +56,9 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
-# ── Warna zone diimport dari utils.py (single source of truth — tidak lagi
-# didefinisikan ulang di sini, supaya kalau warna diubah cukup edit 1 tempat) ──
-
-# FIX 3: Helper bar progress — scale ke threshold ZONE D agar representatif per equipment
 def bar_pct(val, thr):
     """Hitung persentase bar berdasarkan threshold ZONE D (batas kritis) equipment."""
-    max_scale = thr.get("C", 4.5) * 1.2  # 20% di atas batas Warning sebagai skala max
+    max_scale = thr.get("C", 4.5) * 1.2
     return min(int((val / max(max_scale, 0.001)) * 100), 100)
 
 # ── Data ──────────────────────────────────────────────────────────────────────
@@ -75,13 +66,14 @@ df_hist = load_history()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    try: st.image("assets/logo_pln_ip.png", width=200)
-    except: pass
+    try:
+        st.image("assets/logo_pln_ip.png", width=200)
+    except Exception:
+        pass
     st.markdown("## ⚡ PLTU TBK")
     st.caption("Monitoring Vibrasi · ISO 10816")
     st.divider()
     st.markdown("### Navigasi")
-    # UX #1: Highlight halaman aktif
     st.markdown("""
 <style>
 [data-testid="stPageLink"]:has(p:contains("📊 Monitor Vibrasi")) {
@@ -94,7 +86,6 @@ with st.sidebar:
     st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
     st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
     st.page_link("pages/3_Kelola_Pompa.py",label="🛠️ Kelola Pompa")
-    # UX #12: Tombol refresh manual
     st.divider()
     if st.button("🔄 Refresh Data", key="sb_refresh", width="stretch"):
         st.cache_data.clear()
@@ -106,7 +97,6 @@ with st.sidebar:
         df_chk["value"] = pd.to_numeric(df_chk["value"], errors="coerce")
         lc = df_chk.sort_values("date").groupby(
             ["unit","equipment","titik","direction"], as_index=False).last()
-        # FIX: baris suhu (direction=="T") pakai threshold suhu, bukan threshold vibrasi
         def _lc_zone(r):
             if r["direction"] == "T":
                 return get_zone_temp(r["value"], get_temp_threshold(r["equipment"], r["titik"]))[0]
@@ -114,9 +104,12 @@ with st.sidebar:
         zones_lc = lc.apply(_lc_zone, axis=1)
         nd = int((zones_lc=="ZONE D").sum())
         nc = int((zones_lc=="ZONE C").sum())
-        if nd>0:   st.error(f"🔴 {nd} titik Danger")
-        elif nc>0: st.warning(f"🟡 {nc} titik Warning")
-        else:      st.success("✅ Semua titik normal")
+        if nd > 0:
+            st.error(f"🔴 {nd} titik Danger")
+        elif nc > 0:
+            st.warning(f"🟡 {nc} titik Warning")
+        else:
+            st.success("✅ Semua titik normal")
 
 if df_hist.empty:
     st.info("📂 Belum ada data. Upload file Excel di halaman **Data & Kelola**.")
@@ -132,10 +125,6 @@ all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 # ══════════════════════════════════════════════════════════════════════════════
 render_page_header("📊 Monitor Vibrasi")
 
-# Jam live — DIISOLASI pakai st.fragment supaya cuma komponen jam ini yang
-# rerun tiap 1 detik, BUKAN seluruh halaman (filter, grafik, kartu, dll tetap diam).
-# Ini mengganti pendekatan lama (st_autorefresh global) yang bikin dashboard berat
-# karena seluruh script Python re-run tiap detik.
 @st.fragment(run_every="1s")
 def _live_clock():
     _now = datetime.now()
@@ -157,11 +146,8 @@ with fa:
                             key="mon_unit", label_visibility="collapsed")
     sel_unit = all_units if sel_unit_btn=="All" else [sel_unit_btn]
 
-# FIX 4: Equipment list filter per unit yang dipilih
 all_equip = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
 
-# FIX 8: Reset session_state equipment saat unit berubah
-_prev_unit_key = f"_prev_unit_{sel_unit_btn}"
 if st.session_state.get("_last_unit") != sel_unit_btn:
     st.session_state["mon_equip"] = all_equip
     st.session_state["_last_unit"] = sel_unit_btn
@@ -172,10 +158,6 @@ with fb:
         col_selall, _ = st.columns([1,3])
         if col_selall.button("Pilih Semua", key="eq_selall", width="stretch"):
             st.session_state["mon_equip"] = all_equip
-        # Pastikan session_state hanya berisi equipment yang valid untuk unit ini —
-        # JANGAN pass `default=` bersamaan dengan key yang sudah ada di session_state
-        # (itu penyebab warning "created with a default value but also had its value
-        # set via Session State API").
         if "mon_equip" in st.session_state:
             st.session_state["mon_equip"] = [
                 e for e in st.session_state["mon_equip"] if e in all_equip
@@ -183,18 +165,9 @@ with fb:
         sel_equip = st.multiselect("Equipment", all_equip,
                                    key="mon_equip", label_visibility="collapsed")
 
-# Guard tambahan: kalau karena alasan apa pun sel_equip kosong (misal race
-# condition session_state saat ganti Unit → All), fallback ke semua equipment
-# yang valid untuk unit terpilih — mencegah "Tidak ada data sesuai filter"
-# muncul padahal datanya sebenarnya ada.
 if not sel_equip:
     sel_equip = all_equip
 
-# Guard tambahan #2: kalau sel_equip (dari session_state lama) tidak overlap SAMA
-# SEKALI dengan equipment yang benar-benar ada untuk unit terpilih sekarang (mis.
-# habis pindah dari unit tertentu ke "All", session_state sempat basi 1 rerun),
-# paksa pakai semua equipment yang valid — supaya "Tidak ada data sesuai filter"
-# tidak muncul padahal datanya sebenarnya ada.
 _valid_equip_now = set(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
 if not any(e in _valid_equip_now for e in sel_equip):
     sel_equip = sorted(_valid_equip_now)
@@ -210,7 +183,6 @@ if date_mode == "📅 Pilih tanggal":
                             min_value=min(all_dates), max_value=max(all_dates),
                             key="mon_tgl")
     sel_tgl_str = pd.to_datetime(sel_tgl).strftime("%Y-%m-%d")
-    # FIX 6: pakai date comparison bukan string agar tidak rawan locale issue
     df_base = df_hist[
         df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
         (df_hist["date"].dt.date == sel_tgl)
@@ -234,7 +206,6 @@ if df_base.empty:
 
 df_base = add_zone_cols(df_base)
 
-# Hitung latest hanya sekali
 latest_all = (
     df_base
     .sort_values("date")
@@ -245,9 +216,6 @@ latest_all = (
     .last()
 )
 
-# Pisah vibrasi (H/V/A) vs suhu (T) — beda satuan & skala threshold total.
-# `latest` tetap khusus vibrasi supaya semua KPI/kartu/alarm/tabel di bawah
-# yang sudah ada TIDAK berubah perilakunya sama sekali.
 latest      = latest_all[latest_all["direction"] != "T"].copy()
 latest_temp = latest_all[latest_all["direction"] == "T"].copy()
 
@@ -278,7 +246,6 @@ for ico, lbl, val, col in kpi_items:
 kpi_html += "</div>"
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# Progress bar distribusi
 pct = {z: round(n/total*100) if total else 0
        for z,n in zip(["A","B","C","D"],[n_a,n_b,n_c,n_d])}
 st.markdown(f"""
@@ -304,12 +271,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FILTER ZONE — terhubung dengan KPI di atas (klik pilih zone → kartu difilter)
+# FILTER ZONE
 # ══════════════════════════════════════════════════════════════════════════════
-# Catatan teknis: kartu KPI di atas dirender sebagai HTML statis (st.markdown),
-# HTML murni tidak bisa memicu callback Python (tidak ada event JS ke Streamlit).
-# Jadi filter interaktifnya diwujudkan lewat kontrol terpisah di bawah KPI,
-# dengan warna & ikon yang sama persis supaya terasa terhubung secara visual.
 _zone_filter_map = {
     "Semua":        None,
     f"🔵 Accepted ({n_a})":    "ZONE A",
@@ -324,12 +287,9 @@ zone_filter_label = st.radio(
 zone_filter_key = _zone_filter_map[zone_filter_label]
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STATUS CARD PER EQUIPMENT (vibrasi, suhu, running hours & umur pompa — 1 kartu)
+# STATUS CARD PER EQUIPMENT
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 🏭 Status per Equipment")
-# Catatan: get_pump_runtime() dipanggil di dalam fragment _render_equipment_cards()
-# di bawah (bukan di sini) — supaya datanya fresh tiap fragment rerun (5 detik)
-# tanpa perlu query ulang saat bagian LAIN dari halaman ini di-render.
 
 df_card = df_hist[
     df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
@@ -342,7 +302,6 @@ if df_card.empty:
     st.warning("Tidak ada data equipment.")
     st.stop()
 
-# Filter latest sesuai unit & equipment yang dipilih
 df_card_lat = latest[
     latest["unit"].isin(sel_unit) &
     latest["equipment"].isin(sel_equip)
@@ -354,7 +313,6 @@ def _max_dir(df_eq, d):
     idx = sub["value"].idxmax()
     return float(sub.loc[idx,"value"]), str(sub.loc[idx,"titik"])
 
-# Suhu terpanas per equipment (untuk kartu status) — filter sesuai unit & equipment yang dipilih
 df_temp_lat = latest_temp[
     latest_temp["unit"].isin(sel_unit) &
     latest_temp["equipment"].isin(sel_equip)
@@ -396,7 +354,6 @@ def _dir_pill(label, val, thr, titik):
     c  = ZC.get(zk,"#6b7280")
     bg = ZB.get(zk,"transparent")
     ts = (titik[:10]+"…") if titik and len(titik)>11 else (titik or "")
-    # UX #6: title attribute untuk tooltip nama titik penuh
     return (f'<div title="{titik}" style="flex:1;display:flex;flex-direction:column;align-items:center;'
             f'background:{bg};border-radius:8px;padding:6px 4px;gap:1px;cursor:default">'
             f'<span style="font-size:12px;font-weight:700;color:{c};opacity:.8">{label}</span>'
@@ -421,14 +378,9 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
         H=hv,Ht=ht, V=vv,Vt=vt, A=av,At=at, T=tv,Tt=tt,
         zk=zk,zi=zi,zl=zl, thr=thr, tgl=tgl, mx=mx))
 
-# Terapkan filter zone dari segmented control di atas (kalau "Semua", tidak difilter)
 if zone_filter_key:
     eq_rows = [r for r in eq_rows if r["zk"] == zone_filter_key]
 
-# Kartu equipment (termasuk badge running hours) DIISOLASI pakai st.fragment
-# supaya cuma bagian ini yang rerun tiap 5 detik untuk update jam running —
-# filter, sidebar, dan bagian lain halaman TIDAK ikut re-render. Ini yang
-# tadinya bikin dashboard berat karena autorefresh lama me-rerun seluruh script.
 @st.fragment(run_every="5s")
 def _render_equipment_cards():
     df_runtime_now = get_pump_runtime()
@@ -472,27 +424,17 @@ def _render_equipment_cards():
             bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
             rt_html = _runtime_badge(r["eq"], r["unit"])
             is_danger = r["zk"] == "ZONE D"
-            # Card Danger dapat aksen lebih tegas: border kiri lebih tebal + glow
-            # merah subtle — supaya langsung menarik perhatian dibanding card normal.
             border_w = "6px" if is_danger else "4px"
             shadow   = UI["shadow_danger"] if is_danger else "none"
 
             with col:
-                # Ringkasan SELALU terlihat + Detail native HTML <details>/<summary>.
-                # PENTING: ini BUKAN st.expander() — sengaja dihindari karena fragment
-                # ini re-run tiap 5 detik, dan st.expander() Streamlit tetap eksekusi
-                # isinya di sisi Python tiap render meski collapsed (persis masalah
-                # performa yang sama seperti di halaman Kelola Pompa). <details> HTML
-                # native cuma expand/collapse di browser — nol biaya render Python
-                # tambahan, karena string HTML-nya sudah pasti dibuat sekali per render.
-                detail_html = f"""
-  {rt_html}
-  <div style="display:flex;gap:5px">
-    {_dir_pill("H",r['H'],r['thr'],r['Ht'])}
-    {_dir_pill("V",r['V'],r['thr'],r['Vt'])}
-    {_dir_pill("A",r['A'],r['thr'],r['At'])}
-    {_temp_pill(r['eq'],r['T'],r['Tt'])}
-  </div>"""
+                detail_html = f"""{rt_html}
+<div style="display:flex;gap:5px">
+  {_dir_pill("H",r['H'],r['thr'],r['Ht'])}
+  {_dir_pill("V",r['V'],r['thr'],r['Vt'])}
+  {_dir_pill("A",r['A'],r['thr'],r['At'])}
+  {_temp_pill(r['eq'],r['T'],r['Tt'])}
+</div>"""
                 st.markdown(f"""
 <div class="eq-card" style="
   border:1px solid {bc}30; border-left:{border_w} solid {bc};
@@ -519,7 +461,6 @@ def _render_equipment_cards():
 
 _render_equipment_cards()
 
-
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -544,30 +485,33 @@ else:
             thr  = get_threshold(r["equipment"])
             bar  = bar_pct(val, thr)
             tc   = ZC.get(r["zone"],"#6b7280")
-            rows += f"""<tr>
-  <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
-  <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
-  <td style="padding:9px 12px">{r['titik']}</td>
-  <td style="padding:9px 12px;text-align:center;font-weight:700">{r['direction']}</td>
-  <td style="padding:9px 12px;text-align:center">
-    <span style="font-size:13px;font-weight:800;color:{tc}">{val:.3f}</span>
-    <div style="margin-top:3px;height:2px;border-radius:1px;background:rgba(128,128,128,.2)">
-      <div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>
-  <td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">
-    {pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>
-</tr>"""
-        return f"""
-<div class="vt-wrap" style="border-color:{accent}40">
-<table class="vt">
-<thead><tr>
-  <th style="text-align:left">Unit</th>
-  <th style="text-align:left">Equipment</th>
-  <th style="text-align:left">Titik Ukur</th>
-  <th style="text-align:center">Dir</th>
-  <th style="text-align:center;min-width:100px">mm/s</th>
-  <th style="text-align:left">Tanggal</th>
-</tr></thead>
-<tbody>{rows}</tbody></table></div>"""
+            rows += (
+                f'<tr>'
+                f'<td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r["unit"]}</td>'
+                f'<td style="padding:9px 12px;font-weight:600">{r["equipment"]}</td>'
+                f'<td style="padding:9px 12px">{r["titik"]}</td>'
+                f'<td style="padding:9px 12px;text-align:center;font-weight:700">{r["direction"]}</td>'
+                f'<td style="padding:9px 12px;text-align:center">'
+                f'<span style="font-size:13px;font-weight:800;color:{tc}">{val:.3f}</span>'
+                f'<div style="margin-top:3px;height:2px;border-radius:1px;background:rgba(128,128,128,.2)">'
+                f'<div style="height:2px;width:{bar}%;background:{tc};border-radius:1px"></div></div></td>'
+                f'<td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">'
+                f'{pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>'
+                f'</tr>'
+            )
+        return (
+            f'<div class="vt-wrap" style="border-color:{accent}40">'
+            f'<table class="vt">'
+            f'<thead><tr>'
+            f'<th style="text-align:left">Unit</th>'
+            f'<th style="text-align:left">Equipment</th>'
+            f'<th style="text-align:left">Titik Ukur</th>'
+            f'<th style="text-align:center">Dir</th>'
+            f'<th style="text-align:center;min-width:100px">mm/s</th>'
+            f'<th style="text-align:left">Tanggal</th>'
+            f'</tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>'
+        )
 
     if not df_d.empty:
         st.error(f"🔴 **Danger** — {len(df_d)} titik melebihi batas kritis")
@@ -576,7 +520,7 @@ else:
         st.warning(f"🟡 **Warning** — {len(df_c)} titik perlu dipantau")
         st.markdown(_alarm_tbl(df_c,"#d97706"), unsafe_allow_html=True)
 
-# ── Alarm Suhu — terpisah dari alarm vibrasi (skala & satuan beda) ───────────
+# ── Alarm Suhu ───────────────────────────────────────────────────────────────
 if not df_temp_lat.empty:
     st.markdown("### 🌡️ Alarm Suhu")
     df_temp_lat["zone_t"] = df_temp_lat.apply(
@@ -592,26 +536,29 @@ if not df_temp_lat.empty:
             for _,r in df_alarm.sort_values(["equipment","titik"]).iterrows():
                 val = r["value"]
                 tc  = ZC.get(r["zone_t"],"#6b7280")
-                rows += f"""<tr>
-  <td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r['unit']}</td>
-  <td style="padding:9px 12px;font-weight:600">{r['equipment']}</td>
-  <td style="padding:9px 12px">{r['titik']}</td>
-  <td style="padding:9px 12px;text-align:center">
-    <span style="font-size:13px;font-weight:800;color:{tc}">{val:.1f} °C</span></td>
-  <td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">
-    {pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>
-</tr>"""
-            return f"""
-<div class="vt-wrap" style="border-color:{accent}40">
-<table class="vt">
-<thead><tr>
-  <th style="text-align:left">Unit</th>
-  <th style="text-align:left">Equipment</th>
-  <th style="text-align:left">Titik Ukur</th>
-  <th style="text-align:center;min-width:100px">°C</th>
-  <th style="text-align:left">Tanggal</th>
-</tr></thead>
-<tbody>{rows}</tbody></table></div>"""
+                rows += (
+                    f'<tr>'
+                    f'<td style="padding:9px 12px;font-weight:600;white-space:nowrap">{r["unit"]}</td>'
+                    f'<td style="padding:9px 12px;font-weight:600">{r["equipment"]}</td>'
+                    f'<td style="padding:9px 12px">{r["titik"]}</td>'
+                    f'<td style="padding:9px 12px;text-align:center">'
+                    f'<span style="font-size:13px;font-weight:800;color:{tc}">{val:.1f} °C</span></td>'
+                    f'<td style="padding:9px 12px;font-size:11px;opacity:.55;white-space:nowrap">'
+                    f'{pd.to_datetime(r["date"]).strftime("%d %b %Y")}</td>'
+                    f'</tr>'
+                )
+            return (
+                f'<div class="vt-wrap" style="border-color:{accent}40">'
+                f'<table class="vt">'
+                f'<thead><tr>'
+                f'<th style="text-align:left">Unit</th>'
+                f'<th style="text-align:left">Equipment</th>'
+                f'<th style="text-align:left">Titik Ukur</th>'
+                f'<th style="text-align:center;min-width:100px">°C</th>'
+                f'<th style="text-align:left">Tanggal</th>'
+                f'</tr></thead>'
+                f'<tbody>{rows}</tbody></table></div>'
+            )
 
         if not df_td.empty:
             st.error(f"🔴 **Danger** — {len(df_td)} titik suhu melebihi batas kritis")
@@ -635,7 +582,6 @@ with da:
                              key="det_unit", label_visibility="collapsed")
 with db:
     st.caption("**📐 Direction**")
-    # UX #9: pakai multiselect agar konsisten dengan halaman Analisis
     det_dir_sel = st.multiselect(
         "Direction", ["H","V","A"], default=["H","V","A"],
         key="det_dir_multi", label_visibility="collapsed"
@@ -655,13 +601,7 @@ if df_det.empty:
     st.warning("Tidak ada data untuk unit yang dipilih. 💡 Coba pilih unit lain atau **All**.")
     st.stop()
 
-# ── Helper sel nilai ──────────────────────────────────────────────────────────
 def _val_td(val, thr, show=True):
-    """
-    Render td dengan warna zone.
-    KUNCI theme-compatibility: JANGAN hardcode background tabel.
-    Hanya beri warna pada teks & background zone (semi-transparan).
-    """
     if not show or val is None or pd.isna(val):
         return '<td style="text-align:center;padding:9px 10px;opacity:.3;font-size:13px">–</td>'
     zk  = get_zone(val, thr)[0]
@@ -678,7 +618,6 @@ def _val_td(val, thr, show=True):
     )
 
 def _val_td_temp(val, thr, show=True):
-    """Sel suhu — skala & format beda dari _val_td (°C, 1 desimal, tanpa bar mm/s)."""
     if not show or val is None or pd.isna(val):
         return '<td style="text-align:center;padding:9px 10px;opacity:.3;font-size:13px">–</td>'
     zk = get_zone_temp(val, thr)[0]
@@ -693,7 +632,6 @@ def _val_td_temp(val, thr, show=True):
 def _badge_td(zk, zi, zl):
     tc  = ZC.get(zk,"#6b7280")
     bg  = ZB.get(zk,"transparent")
-    # UX #8: tampilkan zone key + label untuk konsistensi
     full_lbl = ZONE_LABEL.get(zk, zl)
     short_key = zk.replace("ZONE ","") if zk.startswith("ZONE") else zk
     return (
@@ -708,7 +646,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
     equips = sorted(df_unit["equipment"].dropna().unique())
     if not equips: return ""
 
-    # Header direction
     dir_th = "".join(
         f'<th style="text-align:center;min-width:88px">{d} '
         f'<span style="font-size:8px;opacity:.55">mm/s</span></th>'
@@ -725,7 +662,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
         thr    = get_threshold(eq)
         titiks = sorted(df_eq["titik"].dropna().unique())
 
-        # FIX 5: Hitung zone terburuk dari SEMUA titik equipment untuk warna border kiri
         _all_vals_eq = df_eq["value"].dropna().tolist()
         _worst_zone  = "ZONE A"
         _zone_order  = {"ZONE D":4,"ZONE C":3,"ZONE B":2,"ZONE A":1,"N/A":0}
@@ -738,7 +674,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
         for i, titik in enumerate(titiks):
             df_t = df_eq[df_eq["titik"]==titik]
 
-            # FIX 2: gv sebagai lambda inline, hindari redefinisi fungsi tiap iterasi
             gv = lambda d, _df=df_t: (
                 float(_df[_df["direction"]==d]["value"].dropna().iloc[0])
                 if not _df[_df["direction"]==d]["value"].dropna().empty else None
@@ -750,7 +685,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
             zk,zi,zl = get_zone(max_v, thr)
             tc     = ZC.get(zk,"#6b7280")
 
-            # Nilai suhu titik ini (kalau ada) — lookup terpisah dari df_unit_temp
             temp_td = ""
             if show_temp_col:
                 t_val = None
@@ -763,7 +697,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
                 t_thr = get_temp_threshold(eq, titik)
                 temp_td = _val_td_temp(t_val, t_thr)
 
-            # Row background: hanya zone warna tipis, TANPA warna solid
             if zk=="ZONE D":   rb = "rgba(220,38,38,.07)"
             elif zk=="ZONE C": rb = "rgba(217,119,6,.06)"
             elif i%2==1:       rb = "rgba(128,128,128,.04)"
@@ -774,7 +707,6 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
 
             eq_td = ""
             if i == 0:
-                # FIX 5: pakai eq_border_color (zone terburuk) bukan tc (zone titik pertama)
                 eq_td = (
                     f'<td rowspan="{len(titiks)}" style="'
                     f'padding:10px 14px;font-size:13px;font-weight:700;'
@@ -797,35 +729,36 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
                 + '</tr>'
             )
 
-    return f"""
-<div style="margin-bottom:28px">
-  <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
-    <div style="width:4px;height:18px;border-radius:2px;
-                background:linear-gradient(180deg,#2563eb,#0891b2)"></div>
-    <span style="font-size:11px;font-weight:700;letter-spacing:.1em;
-                 text-transform:uppercase;opacity:.55">{unit_label}</span>
-  </div>
-  <div class="vt-wrap">
-    <table class="vt">
-      <thead><tr>
-        <th style="text-align:left;min-width:150px">Equipment</th>
-        <th style="text-align:left;min-width:120px">Titik Ukur</th>
-        {dir_th}
-        <th style="text-align:center;min-width:90px">Max <span style="font-size:8px;opacity:.55">mm/s</span></th>
-        {temp_th}
-        <th style="text-align:center;min-width:110px">Status</th>
-        <th style="text-align:right;min-width:100px">Tanggal</th>
-      </tr></thead>
-      <tbody>{rows}</tbody>
-    </table>
-  </div>
-</div>"""
+    return (
+        f'<div style="margin-bottom:28px">'
+        f'<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">'
+        f'<div style="width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,#2563eb,#0891b2)"></div>'
+        f'<span style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;opacity:.55">{unit_label}</span>'
+        f'</div>'
+        f'<div class="vt-wrap">'
+        f'<table class="vt">'
+        f'<thead><tr>'
+        f'<th style="text-align:left;min-width:150px">Equipment</th>'
+        f'<th style="text-align:left;min-width:120px">Titik Ukur</th>'
+        f'{dir_th}'
+        f'<th style="text-align:center;min-width:90px">Max <span style="font-size:8px;opacity:.55">mm/s</span></th>'
+        f'{temp_th}'
+        f'<th style="text-align:center;min-width:110px">Status</th>'
+        f'<th style="text-align:right;min-width:100px">Tanggal</th>'
+        f'</tr></thead>'
+        f'<tbody>{rows}</tbody>'
+        f'</table>'
+        f'</div>'
+        f'</div>'
+    )
 
 if det_unit_sel == "All":
     for u in sorted(df_det["unit"].dropna().unique()):
         blk = _render_tbl(df_det[df_det["unit"]==u], f"Unit · {u}",
                            df_det_temp[df_det_temp["unit"]==u])
-        if blk: st.markdown(blk, unsafe_allow_html=True)
+        if blk:
+            st.markdown(blk, unsafe_allow_html=True)
 else:
     blk = _render_tbl(df_det, f"Unit · {det_unit_sel}", df_det_temp)
-    if blk: st.markdown(blk, unsafe_allow_html=True)
+    if blk:
+        st.markdown(blk, unsafe_allow_html=True)
