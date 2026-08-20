@@ -403,16 +403,27 @@ with t_pred:
         df_p_data = df_p_data[df_p_data["titik"] == titik_p]
     df_p_data = apply_range(df_p_data, "date", rng_p, p_from, p_to).sort_values("date")
 
-    if len(df_p_data) < 4:
-        st.warning("⚠️ Data historis tidak cukup untuk membuat regresi linier (minimal dibutuhkan 4 titik data). Coba ubah rentang waktu ke 'Semua Data'.")
+    # Pastikan minimal 3 titik data dan minimal 2 tanggal unik
+    n_unique_dates = df_p_data["date"].dt.date.nunique()
+    if len(df_p_data) < 3 or n_unique_dates < 2:
+        st.warning("⚠️ Data historis tidak cukup untuk membuat regresi linier (minimal dibutuhkan data dari 2 tanggal berbeda). Coba ubah rentang waktu ke 'Semua Data'.")
     else:
         thr_p = get_threshold(eq_p)
         
-        df_p_data["t_day"] = (df_p_data["date"] - df_p_data["date"].min()).dt.days
-        x = df_p_data["t_day"].values
-        y = df_p_data["value"].values
+        # OLS Stabil tanpa matrix inversion / SVD
+        df_p_data["t_day"] = (df_p_data["date"] - df_p_data["date"].min()).dt.total_seconds() / 86400.0
+        x = df_p_data["t_day"].values.astype(float)
+        y = df_p_data["value"].values.astype(float)
         
-        slope, intercept = np.polyfit(x, y, 1)
+        x_mean, y_mean = np.mean(x), np.mean(y)
+        var_x = np.sum((x - x_mean) ** 2)
+        
+        if var_x > 1e-9:
+            slope = np.sum((x - x_mean) * (y - y_mean)) / var_x
+            intercept = y_mean - slope * x_mean
+        else:
+            slope = 0.0
+            intercept = y_mean
         
         last_t = x.max()
         last_d = df_p_data["date"].max()
