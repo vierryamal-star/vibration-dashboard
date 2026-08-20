@@ -200,7 +200,6 @@ with t_trend:
     if df_tr.empty:
         st.warning("Tidak ada data untuk kombinasi filter yang dipilih.")
     else:
-        # Threshold calculation
         if not is_temp:
             thr = get_threshold(sel_eq)
         elif sel_titik != "Semua Titik":
@@ -218,6 +217,12 @@ with t_trend:
         v_min = df_tr["value"].min()
         unit_sym = "°C" if is_temp else "mm/s"
 
+        # Format nilai string secara aman (mencegah ValueError)
+        fmt_latest = f"{v_latest:.1f}" if is_temp else f"{v_latest:.3f}"
+        fmt_max = f"{v_max:.1f}" if is_temp else f"{v_max:.3f}"
+        fmt_mean = f"{v_mean:.1f}" if is_temp else f"{v_mean:.2f}"
+        fmt_min = f"{v_min:.1f}" if is_temp else f"{v_min:.2f}"
+
         if not is_temp:
             zk, zi, zl = get_zone(v_latest, thr)
         else:
@@ -230,7 +235,7 @@ with t_trend:
             st.markdown(f"""
 <div class="stat-card" style="border-left:4px solid {c_accent};">
   <div class="stat-lbl">Nilai Terakhir</div>
-  <div class="stat-val" style="color:{c_accent};">{v_latest:.3f if not is_temp else v_latest:.1f} <span style="font-size:12px;opacity:.6;">{unit_sym}</span></div>
+  <div class="stat-val" style="color:{c_accent};">{fmt_latest} <span style="font-size:12px;opacity:.6;">{unit_sym}</span></div>
   <div style="font-size:11px;font-weight:700;color:{c_accent};">{zi} {zl}</div>
 </div>""", unsafe_allow_html=True)
             
@@ -238,19 +243,20 @@ with t_trend:
             st.markdown(f"""
 <div class="stat-card">
   <div class="stat-lbl">Tertinggi (Peak)</div>
-  <div class="stat-val">{v_max:.3f if not is_temp else v_max:.1f} <span style="font-size:12px;opacity:.6;">{unit_sym}</span></div>
-  <div style="font-size:11px;opacity:.5;">Rata-rata: {v_mean:.2f} {unit_sym}</div>
+  <div class="stat-val">{fmt_max} <span style="font-size:12px;opacity:.6;">{unit_sym}</span></div>
+  <div style="font-size:11px;opacity:.5;">Rata-rata: {fmt_mean} {unit_sym}</div>
 </div>""", unsafe_allow_html=True)
 
         with stat_cols[2]:
             delta = (v_latest - df_tr["value"].iloc[-2]) if len(df_tr) >= 2 else 0.0
             d_col = "#dc2626" if delta > 0 else ("#16a34a" if delta < 0 else "#6b7280")
             d_sym = "↑" if delta > 0 else ("↓" if delta < 0 else "→")
+            fmt_delta = f"{abs(delta):.1f}" if is_temp else f"{abs(delta):.3f}"
             st.markdown(f"""
 <div class="stat-card">
   <div class="stat-lbl">Deviasi vs Sebelumnya</div>
-  <div class="stat-val" style="color:{d_col};">{d_sym} {abs(delta):.3f if not is_temp else abs(delta):.1f}</div>
-  <div style="font-size:11px;opacity:.5;">Terendah: {v_min:.2f} {unit_sym}</div>
+  <div class="stat-val" style="color:{d_col};">{d_sym} {fmt_delta}</div>
+  <div style="font-size:11px;opacity:.5;">Terendah: {fmt_min} {unit_sym}</div>
 </div>""", unsafe_allow_html=True)
 
         with stat_cols[3]:
@@ -403,7 +409,6 @@ with t_pred:
     else:
         thr_p = get_threshold(eq_p)
         
-        # Regresi linier sederhana
         df_p_data["t_day"] = (df_p_data["date"] - df_p_data["date"].min()).dt.days
         x = df_p_data["t_day"].values
         y = df_p_data["value"].values
@@ -417,7 +422,6 @@ with t_pred:
         fut_dates = [last_d + pd.Timedelta(days=int(d - last_t)) for d in fut_x]
         fut_y = np.maximum(0, intercept + slope * fut_x)
 
-        # Plotly Prediksi
         fig_p = go.Figure()
         fig_p.add_trace(go.Scatter(
             x=df_p_data["date"], y=df_p_data["value"],
@@ -425,7 +429,6 @@ with t_pred:
             line=dict(color="#3b82f6", width=2), marker=dict(size=6)
         ))
         
-        # Garis Tren Proyeksi
         fig_p.add_trace(go.Scatter(
             x=[last_d] + fut_dates, y=[y[-1]] + list(fut_y),
             mode="lines+markers", name="Proyeksi Tren",
@@ -442,7 +445,6 @@ with t_pred:
         )
         st.plotly_chart(fig_p, width="stretch")
 
-        # Diagnostics Box
         roc_daily = slope
         st.info(f"""
 📊 **Hasil Analisis Tren:**
