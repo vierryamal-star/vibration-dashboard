@@ -49,18 +49,21 @@ df_hist = df_hist.dropna(subset=["date", "value"])
 
 COLORS_DIR = {"H": "#3b82f6", "V": "#10b981", "A": "#f59e0b", "T": "#f97316"}
 LS_LIST = ["solid", "dash", "dot", "dashdot"]
-DAYS_MAP = {"7 Hari": 7, "30 Hari": 30, "90 Hari": 90, "180 Hari": 180}
+DAYS_MAP = {"7 Hari": 7, "30 Hari": 30, "90 Hari": 90}
 
 def apply_range(df, col, rng, cf=None, ct=None):
-    if df.empty or rng == "Semua Data":
+    if df.empty:
         return df
     if rng == "Kustom":
         if cf is None or ct is None: return df
         s = pd.to_datetime(cf)
         e = pd.to_datetime(ct) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         return df[(df[col] >= s) & (df[col] <= e)]
+    
+    # Batasi rentang berdasarkan pilihan (7, 30, atau 90 hari)
+    days_limit = DAYS_MAP.get(rng, 90)
     end = df[col].max()
-    return df[(df[col] >= end - timedelta(days=DAYS_MAP[rng])) & (df[col] <= end)]
+    return df[(df[col] >= end - timedelta(days=days_limit)) & (df[col] <= end)]
 
 def plotly_theme():
     return dict(
@@ -108,17 +111,19 @@ def rng_filter_ui(key_prefix):
     r_col1, r_col2 = st.columns([2, 2])
     with r_col1:
         rng = st.radio(
-            "Rentang Waktu",
-            ["7 Hari", "30 Hari", "90 Hari", "180 Hari", "Semua Data", "Kustom"],
-            index=1, horizontal=True, key=f"{key_prefix}_rng"
+            "Rentang Waktu (Maks. 90 Hari)",
+            ["90 Hari", "30 Hari", "7 Hari", "Kustom"],
+            index=0,
+            horizontal=True,
+            key=f"{key_prefix}_rng"
         )
     cf = ct = None
     with r_col2:
         if rng == "Kustom":
-            min_d = df_hist["date"].min().date()
             max_d = df_hist["date"].max().date()
+            default_start = max(df_hist["date"].min().date(), max_d - timedelta(days=90))
             ca, cb = st.columns(2)
-            with ca: cf = st.date_input("Dari", value=min_d, key=f"{key_prefix}_from")
+            with ca: cf = st.date_input("Dari", value=default_start, key=f"{key_prefix}_from")
             with cb: ct = st.date_input("Sampai", value=max_d, key=f"{key_prefix}_to")
     return rng, cf, ct
 
@@ -382,7 +387,7 @@ with t_pred:
         dirs_p = st.multiselect("Arah Getar", ["H", "V", "A"], default=["H", "V", "A"], key="pred_dir_sel")
 
     rng_p, p_from, p_to = rng_filter_ui("pred")
-    n_forward = st.slider("Hari Prediksi ke Depan", 3, 60, 14, help="Pilih rentang horizon waktu prediksi regresi.")
+    n_forward = st.slider("Hari Prediksi ke Depan", 3, 30, 14, help="Pilih rentang horizon waktu prediksi regresi.")
 
     df_p_data = df_hist[(df_hist["equipment"] == eq_p) & (df_hist["direction"].isin(dirs_p))].copy()
     if titik_p != "Semua Titik":
@@ -391,7 +396,7 @@ with t_pred:
 
     n_unique_dates = df_p_data["date"].dt.date.nunique()
     if len(df_p_data) < 3 or n_unique_dates < 2:
-        st.warning("⚠️ Data historis tidak cukup untuk membuat regresi linier (minimal dibutuhkan data dari 2 tanggal berbeda). Coba ubah rentang waktu ke 'Semua Data'.")
+        st.warning("⚠️ Data historis tidak cukup untuk membuat regresi linier (minimal dibutuhkan data dari 2 tanggal berbeda pada rentang 90 hari terakhir).")
     else:
         thr_p = get_threshold(eq_p)
         
@@ -441,7 +446,7 @@ with t_pred:
 
         roc_daily = slope
         st.info(f"""
-📊 **Hasil Analisis Tren:**
+📊 **Hasil Analisis Tren (Basis 90 Hari):**
 * Laju Perubahan: **{roc_daily:+.4f} mm/s per hari**
 * Arah Tren: **{'Meningkat (Perlu Perhatian)' if roc_daily > 0.005 else ('Menurun (Membaik)' if roc_daily < -0.005 else 'Stabil')}**
 * Estimasi Nilai pada Hari ke-{n_forward}: **{fut_y[-1]:.3f} mm/s**
