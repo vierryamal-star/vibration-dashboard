@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from utils import (
     load_history, save_to_db, parse_excel,
     delete_by_dates, delete_all,
-    THRESHOLD, render_login_sidebar, check_role,
-    render_page_header, GLOBAL_UI_CSS, UI,
+    THRESHOLD, check_role,
+    render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(
@@ -19,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Global Styling ────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
@@ -41,25 +40,8 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    try:
-        st.image("assets/logo_pln_ip.png", width=200)
-    except Exception:
-        pass
-    st.markdown("## ⚡ PLTU TBK")
-    st.caption("Manajemen Data & Konfigurasi")
-    st.divider()
-    st.markdown("### Navigasi")
-    st.page_link("app.py",                  label="📊 Monitor Vibrasi")
-    st.page_link("pages/1_Analisis.py",     label="📈 Analisis")
-    st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
-    st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Pompa")
-    st.divider()
-    if st.button("🔄 Refresh Data", key="dk_refresh", width="stretch"):
-        st.cache_data.clear()
-        st.rerun()
-    render_login_sidebar()
+# Render Sidebar Terpusat
+render_app_sidebar()
 
 role = check_role()
 
