@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import timedelta
+from datetime import datetime, timedelta
 import io, sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
