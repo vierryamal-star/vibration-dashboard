@@ -47,6 +47,58 @@ ZONE_ICON = {
 ZC = ZONE_COLOR
 ZB = ZONE_BG
 
+# ── Design tokens terpusat (spacing, radius, font-scale, shadow) ─────────────
+# Dipakai di semua fungsi render HTML (app.py, 1_Analisis.py, 3_Kelola_Pompa.py)
+# supaya styling konsisten — ubah 1 nilai di sini, konsisten ke semua halaman.
+UI = {
+    "radius_card":   "12px",
+    "radius_pill":   "8px",
+    "radius_badge":  "99px",
+    "pad_card":      "14px",
+    "font_xs":       "10px",
+    "font_sm":       "11px",
+    "font_base":     "12px",
+    "font_md":       "13px",
+    "font_lg":       "15px",
+    "font_xl":       "24px",
+    "shadow_card":   "0 2px 12px rgba(0,0,0,.08)",
+    "shadow_danger": "0 2px 14px rgba(220,38,38,.25)",
+    "accent_gradient": "linear-gradient(180deg, #2563eb, #0891b2)",
+}
+
+def render_page_header(title: str) -> None:
+    """Judul halaman + garis aksen gradient di bawahnya — dipakai di semua
+    halaman (app.py, 1_Analisis.py, 3_Kelola_Pompa.py) supaya identitas visual
+    konsisten dan lebih tegas dibanding judul polos tanpa aksen."""
+    import streamlit as st
+    st.markdown(f"""
+<div style="margin-bottom:4px">
+  <div style="font-size:26px;font-weight:800;line-height:1.2">{title}</div>
+  <div style="width:64px;height:4px;border-radius:2px;margin-top:6px;
+              background:{UI['accent_gradient']}"></div>
+</div>""", unsafe_allow_html=True)
+
+def render_section_header(title: str) -> None:
+    """Header subsection dengan garis aksen kecil di kiri — versi terpusat dari
+    sec_header() yang sebelumnya cuma ada lokal di 1_Analisis.py."""
+    import streamlit as st
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+        f'<div style="width:4px;height:20px;border-radius:2px;'
+        f'background:{UI["accent_gradient"]};flex-shrink:0"></div>'
+        f'<span style="font-size:15px;font-weight:700">{title}</span></div>',
+        unsafe_allow_html=True)
+
+GLOBAL_UI_CSS = """
+<style>
+/* Konsistensi border-radius & shadow expander di semua halaman */
+div[data-testid="stExpander"] {
+    border-radius: 12px !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+}
+</style>
+"""
+
 # ── Threshold suhu (°C) — 3 tier: Normal / Warning / Danger ──────────────────
 # Dicocokkan lewat nama TITIK UKUR (bukan jenis equipment) — berlaku sama baik
 # equipment-nya Pump maupun Fan (mis. Bearing DE Motor Fan == Bearing DE Motor Pompa).
