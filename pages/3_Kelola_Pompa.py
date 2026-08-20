@@ -8,7 +8,7 @@ from utils import (
     reset_pump_runtime, reset_pump_install_date,
     compute_running_hours, get_pump_age, update_pump_install_date,
     get_bearing_install, update_bearing_install, BEARING_POSISI,
-    UI, render_page_header, GLOBAL_UI_CSS,
+    render_page_header, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(
@@ -18,22 +18,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Sembunyikan navigasi multipage bawaan Streamlit (sama seperti di app.py) —
-# tanpa ini, daftar halaman default muncul di ATAS logo/menu custom di sidebar.
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
+
+/* Status pill styling */
+.badge-running { background: rgba(34,197,94,.15); color: #16a34a; border: 1px solid #16a34a50; padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 11px; }
+.badge-stopped { background: rgba(107,114,128,.15); color: #6b7280; border: 1px solid #6b728050; padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 11px; }
 </style>
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
-# ── Sidebar (konsisten dengan app.py) ─────────────────────────────────────────
 with st.sidebar:
-    try: st.image("assets/logo_pln_ip.png", width=200)
-    except: pass
+    try:
+        st.image("assets/logo_pln_ip.png", width=200)
+    except Exception:
+        pass
     st.markdown("## ⚡ PLTU TBK")
-    st.caption("Kelola Pompa")
+    st.caption("Kelola Peralatan & Pompa")
     st.divider()
     st.markdown("### Navigasi")
     st.page_link("app.py",                 label="📊 Monitor Vibrasi")
@@ -46,200 +49,235 @@ with st.sidebar:
         st.rerun()
     render_login_sidebar()
 
-render_page_header("🛠️ Kelola Pompa")
-st.caption("Catat tanggal & jam **mulai**/**berhenti** operasi dan tanggal instalasi (umur) "
-           "untuk setiap equipment. Berlaku untuk **semua equipment**, tidak dibatasi jenisnya. "
-           "Perubahan langsung terlihat di halaman **Monitor Vibrasi**.")
+render_page_header("🛠️ Kelola Jam Operasi & Umur Komponen")
 
-# Halaman ini khusus Editor — akan menghentikan render kalau bukan Editor
 if not require_editor():
     st.stop()
 
 df_hist = load_history()
 if df_hist.empty:
-    st.info("📂 Belum ada data equipment. Upload dulu di halaman **Data & Kelola**.")
+    st.info("📂 Belum ada data equipment. Silakan upload data terlebih dahulu di menu **Data & Kelola**.")
     st.stop()
-
-# ── Filter Unit (mempercepat input, tidak perlu scroll semua equipment) ──────
-all_units_kp = sorted(df_hist["unit"].dropna().unique())
-sel_unit_kp = st.radio("**🏭 Filter Unit**", ["All"] + all_units_kp,
-                       horizontal=True, key="kp_unit_filter")
-
-eq_unit_pairs = (
-    df_hist[["equipment", "unit"]].dropna().drop_duplicates()
-    .sort_values(["unit", "equipment"])
-)
-if sel_unit_kp != "All":
-    eq_unit_pairs = eq_unit_pairs[eq_unit_pairs["unit"] == sel_unit_kp]
-
-if eq_unit_pairs.empty:
-    st.warning(f"Tidak ada equipment untuk unit **{sel_unit_kp}**.")
-    st.stop()
-
-def _de_nde_latest(equipment: str) -> pd.DataFrame:
-    """Ambil nilai TERBARU per titik ukur yang mengandung 'DE' (mencakup DE & NDE)
-    untuk equipment ini — dipivot titik x direction supaya ringkas dibaca."""
-    df_eq = df_hist[df_hist["equipment"]==equipment].copy()
-    if df_eq.empty:
-        return pd.DataFrame()
-    df_eq["date"] = pd.to_datetime(df_eq["date"], errors="coerce")
-    df_eq = df_eq[df_eq["titik"].astype(str).str.upper().str.contains("DE")]
-    if df_eq.empty:
-        return pd.DataFrame()
-    df_eq = df_eq.sort_values("date", ascending=False)
-    latest = df_eq.groupby(["titik","direction"], as_index=False).first()
-    try:
-        piv = latest.pivot(index="titik", columns="direction", values="value")
-        return piv
-    except Exception:
-        return latest[["titik","direction","value"]]
 
 def _safe_date(value):
-    """Konversi nilai tanggal dari Supabase (bisa None/NaT/string kosong) ke
-    python date yang AMAN dipakai st.date_input(). pd.to_datetime(None) hasilnya
-    NaT — dan NaT itu truthy di Python, jadi kalau tidak dicek eksplisit, lolos
-    dari `existing_date or date.today()` dan bikin st.date_input() error."""
     if value is None or value == "":
         return None
     try:
         parsed = pd.to_datetime(value, errors="coerce")
-        if pd.isna(parsed):
-            return None
-        return parsed.date()
+        return None if pd.isna(parsed) else parsed.date()
     except Exception:
         return None
 
+# ── Load Data Runtime & Bearing ──────────────────────────────────────────────
 df_runtime_all = get_pump_runtime()
 df_bearing_all = get_bearing_install()
 
+# Pastikan inisialisasi untuk setiap unit & equipment
+eq_unit_pairs = (
+    df_hist[["equipment", "unit"]].dropna().drop_duplicates()
+    .sort_values(["unit", "equipment"])
+)
+
+# ── Header Ringkasan & Filter ────────────────────────────────────────────────
+col_filt, col_kpi1, col_kpi2 = st.columns([2, 1, 1])
+
+all_units_kp = sorted(df_hist["unit"].dropna().unique())
+with col_filt:
+    sel_unit_kp = st.selectbox("🏭 **Filter Unit Pabrik**", ["Semua Unit"] + all_units_kp, key="kp_unit_filter")
+
+pairs_filtered = eq_unit_pairs.copy()
+if sel_unit_kp != "Semua Unit":
+    pairs_filtered = pairs_filtered[pairs_filtered["unit"] == sel_unit_kp]
+
+# Hitung data metrik
+total_eq = len(pairs_filtered)
+running_cnt = 0
+for _, r in pairs_filtered.iterrows():
+    m = df_runtime_all[(df_runtime_all["equipment"] == r["equipment"]) & (df_runtime_all["unit"] == r["unit"])]
+    if not m.empty and m.iloc[0].get("status") == "running":
+        running_cnt += 1
+
+with col_kpi1:
+    st.metric("Equipment Terdaftar", f"{total_eq}")
+with col_kpi2:
+    st.metric("Status Running", f"🟢 {running_cnt} / {total_eq}")
+
 st.divider()
 
-for _, r in eq_unit_pairs.iterrows():
-    eq, unit = r["equipment"], r["unit"]
-    match = df_runtime_all[(df_runtime_all["equipment"]==eq) & (df_runtime_all["unit"]==unit)]
-    if match.empty:
-        init_pump_runtime(eq, unit)
-        st.cache_data.clear()
-        row_data = {"status": "stopped", "accumulated_hours": 0.0,
-                    "status_changed_at": datetime.now().isoformat(), "install_date": None}
+# ── Panel Pemilihan Equipment (Target Edit) ──────────────────────────────────
+eq_options = [f"{r['equipment']} ({r['unit']})" for _, r in pairs_filtered.iterrows()]
+
+if not eq_options:
+    st.warning("Tidak ada equipment yang ditemukan.")
+    st.stop()
+
+selected_eq_str = st.selectbox("🎯 **Pilih Equipment yang Akan Dikelola / Diedit:**", eq_options)
+sel_eq = selected_eq_str.split(" (")[0]
+sel_unit = selected_eq_str.split(" (")[1].replace(")", "")
+
+# Ambil data terkini untuk equipment yang dipilih
+match = df_runtime_all[(df_runtime_all["equipment"] == sel_eq) & (df_runtime_all["unit"] == sel_unit)]
+if match.empty:
+    init_pump_runtime(sel_eq, sel_unit)
+    st.cache_data.clear()
+    row_data = {"status": "stopped", "accumulated_hours": 0.0,
+                "status_changed_at": datetime.now().isoformat(), "install_date": None}
+else:
+    row_data = match.iloc[0].to_dict()
+
+status = row_data.get("status", "stopped")
+hours_now = compute_running_hours(row_data)
+age = get_pump_age(row_data.get("install_date"))
+
+# ── Status Card Equipment Terpilih ───────────────────────────────────────────
+c_st1, c_st2, c_st3 = st.columns(3)
+with c_st1:
+    st.markdown(f"**Status Saat Ini:**")
+    if status == "running":
+        st.markdown('<span class="badge-running">🟢 RUNNING (BEROPERASI)</span>', unsafe_allow_html=True)
     else:
-        row_data = match.iloc[0].to_dict()
+        st.markdown('<span class="badge-stopped">⚪ STOPPED (STANDBY/MATI)</span>', unsafe_allow_html=True)
 
-    status    = row_data.get("status", "stopped")
-    hours_now = compute_running_hours(row_data)
-    age       = get_pump_age(row_data.get("install_date"))
+with c_st2:
+    st.markdown(f"**Akumulasi Jam Kerja:**")
+    st.markdown(f"⏱️ **{hours_now:,.1f} jam**")
 
-    with st.expander(
-        f"⚙️ **{eq}** · {unit}  —  "
-        f"{'🟢 Running' if status=='running' else '⚪ Stopped'} · "
-        f"⏱️ {hours_now:,.1f} jam · 📅 {age or 'umur belum diisi'}"
-    ):
-        # ── Data vibrasi titik DE & NDE (referensi, read-only) ────────────────
-        st.markdown("**📍 Data Vibrasi Terkini — Titik DE & NDE**")
-        de_nde_df = _de_nde_latest(eq)
-        if de_nde_df.empty:
-            st.caption("Tidak ada titik ukur DE/NDE untuk equipment ini.")
-        else:
-            st.dataframe(de_nde_df, width="stretch")
+with c_st3:
+    st.markdown(f"**Umur Unit Pompa:**")
+    st.markdown(f"📅 **{age or 'Belum diatur'}**")
 
-        c1, c2, c3 = st.columns(3)
+st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
-        # ── Catat waktu MULAI ─────────────────────────────────────────────────
-        with c1:
-            st.markdown("**▶️ Mulai Operasi**")
-            start_d = st.date_input("Tanggal mulai", value=date.today(), key=f"kp_start_d_{eq}_{unit}")
-            start_t = st.time_input("Jam mulai", value=dtime(0,0), key=f"kp_start_t_{eq}_{unit}")
-            if st.button("💾 Catat Mulai", key=f"kp_start_btn_{eq}_{unit}", width="stretch"):
-                start_dt = datetime.combine(start_d, start_t)
-                start_pump_runtime(eq, unit, start_dt)
+# ── Tabbed Operations Panel ──────────────────────────────────────────────────
+tab_op, tab_age, tab_bearing, tab_maint = st.tabs([
+    "⏱️ Pencatatan Jam Operasi",
+    "📅 Umur Unit Equipment",
+    "🔩 Umur Bearing (4 Posisi)",
+    "⚠️ Overhaul & Reset"
+])
+
+with tab_op:
+    col_run, col_stop = st.columns(2)
+    with col_run:
+        st.markdown("#### ▶️ Mulai Operasi (Start)")
+        st.caption("Ubah status menjadi **Running** dan mulai akumulasi jam kerja.")
+        
+        # Shortcut aksi cepat
+        if st.button("⚡ Start Sekarang (Waktu Saat Ini)", key="btn_quick_start", width="stretch", disabled=(status == "running")):
+            start_pump_runtime(sel_eq, sel_unit, datetime.now())
+            st.cache_data.clear()
+            st.success("Operasi berhasil dimulai.")
+            st.rerun()
+            
+        with st.expander("Opsi Tanggal & Jam Manual (Start)"):
+            s_date = st.date_input("Tanggal Mulai", value=date.today(), key="kp_s_date")
+            s_time = st.time_input("Jam Mulai", value=dtime(0, 0), key="kp_s_time")
+            if st.button("💾 Simpan Manual Start", key="btn_man_start", width="stretch", disabled=(status == "running")):
+                start_dt = datetime.combine(s_date, s_time)
+                start_pump_runtime(sel_eq, sel_unit, start_dt)
                 st.cache_data.clear()
-                st.success(f"Dicatat mulai: {start_dt.strftime('%d %b %Y %H:%M')}")
+                st.success(f"Status running dicatat sejak: {start_dt.strftime('%d %b %Y %H:%M')}")
                 st.rerun()
 
-        # ── Catat waktu BERHENTI ─────────────────────────────────────────────
-        with c2:
-            st.markdown("**⏹️ Berhenti Operasi**")
-            stop_d = st.date_input("Tanggal berhenti", value=date.today(), key=f"kp_stop_d_{eq}_{unit}")
-            stop_t = st.time_input("Jam berhenti", value=dtime(0,0), key=f"kp_stop_t_{eq}_{unit}")
-            if st.button("💾 Catat Berhenti", key=f"kp_stop_btn_{eq}_{unit}", width="stretch"):
-                stop_dt = datetime.combine(stop_d, stop_t)
+    with col_stop:
+        st.markdown("#### ⏹️ Hentikan Operasi (Stop)")
+        st.caption("Ubah status menjadi **Stopped** dan simpan durasi berjalan ke total jam.")
+        
+        if st.button("⚡ Stop Sekarang (Waktu Saat Ini)", key="btn_quick_stop", width="stretch", disabled=(status == "stopped")):
+            stop_pump_runtime(
+                sel_eq, sel_unit, datetime.now(), status,
+                float(row_data.get("accumulated_hours", 0) or 0),
+                row_data.get("status_changed_at")
+            )
+            st.cache_data.clear()
+            st.success("Operasi berhasil dihentikan.")
+            st.rerun()
+            
+        with st.expander("Opsi Tanggal & Jam Manual (Stop)"):
+            e_date = st.date_input("Tanggal Berhenti", value=date.today(), key="kp_e_date")
+            e_time = st.time_input("Jam Berhenti", value=dtime(0, 0), key="kp_e_time")
+            if st.button("💾 Simpan Manual Stop", key="btn_man_stop", width="stretch", disabled=(status == "stopped")):
+                stop_dt = datetime.combine(e_date, e_time)
                 stop_pump_runtime(
-                    eq, unit, stop_dt, status,
+                    sel_eq, sel_unit, stop_dt, status,
                     float(row_data.get("accumulated_hours", 0) or 0),
-                    row_data.get("status_changed_at"),
+                    row_data.get("status_changed_at")
                 )
                 st.cache_data.clear()
-                st.success(f"Dicatat berhenti: {stop_dt.strftime('%d %b %Y %H:%M')}")
+                st.success(f"Status stopped dicatat pada: {stop_dt.strftime('%d %b %Y %H:%M')}")
                 st.rerun()
 
-        # ── Tanggal instalasi / umur pompa ───────────────────────────────────
-        with c3:
-            st.markdown("**📅 Umur Pompa**")
-            st.metric("Umur saat ini", age or "–")
-            st.caption(f"Status: {'🟢 Running' if status=='running' else '⚪ Stopped'} · "
-                       f"Total: {hours_now:,.1f} jam")
-            existing_date = _safe_date(row_data.get("install_date"))
-            new_date = st.date_input(
-                "Tanggal instalasi", value=existing_date or date.today(),
-                key=f"kp_date_{eq}_{unit}",
+with tab_age:
+    st.markdown("#### 📅 Tanggal Instalasi Equipment")
+    st.caption("Digunakan sebagai dasar kalkulasi umur peralatan secara menyeluruh.")
+    existing_inst = _safe_date(row_data.get("install_date"))
+    
+    col_dt, col_act = st.columns([2, 1])
+    with col_dt:
+        new_inst_date = st.date_input(
+            "Tanggal Instalasi Unit Fisik",
+            value=existing_inst or date.today(),
+            key="kp_eq_inst_date"
+        )
+    with col_act:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("💾 Perbarui Tanggal Instalasi", key="kp_save_inst_date", width="stretch"):
+            update_pump_install_date(sel_eq, sel_unit, new_inst_date)
+            st.cache_data.clear()
+            st.success("Tanggal instalasi berhasil disimpan.")
+            st.rerun()
+
+with tab_bearing:
+    st.markdown("#### 🔩 Penggantian & Umur Bearing per Posisi")
+    st.caption("Pencatatan tanggal perakitan bearing yang terpisah dari umur equipment induk.")
+    
+    b_cols = st.columns(4)
+    for bi, posisi in enumerate(BEARING_POSISI):
+        b_match = df_bearing_all[
+            (df_bearing_all["equipment"] == sel_eq) & 
+            (df_bearing_all["unit"] == sel_unit) & 
+            (df_bearing_all["posisi"] == posisi)
+        ] if not df_bearing_all.empty else pd.DataFrame()
+        
+        b_existing_date = _safe_date(
+            b_match.iloc[0].get("install_date") if not b_match.empty else None
+        )
+        b_age = get_pump_age(b_existing_date) if b_existing_date else None
+        
+        with b_cols[bi]:
+            st.markdown(f"**{posisi}**")
+            st.caption(f"Umur: **{b_age or '–'}**")
+            b_val = st.date_input(
+                "Tgl Pasang",
+                value=b_existing_date or date.today(),
+                key=f"b_input_{sel_eq}_{sel_unit}_{bi}",
+                label_visibility="collapsed"
             )
-            if st.button("💾 Simpan tanggal", key=f"kp_save_date_{eq}_{unit}", width="stretch"):
-                update_pump_install_date(eq, unit, new_date)
+            if st.button(f"💾 Simpan", key=f"b_btn_{sel_eq}_{sel_unit}_{bi}", width="stretch"):
+                update_bearing_install(sel_eq, sel_unit, posisi, b_val)
                 st.cache_data.clear()
-                st.success("Tanggal instalasi tersimpan.")
+                st.success(f"Tersimpan ({posisi})")
                 st.rerun()
 
-        # ── Reset (dipakai saat equipment/peralatan diganti fisik) ────────────
-        st.markdown("---")
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            st.caption("⚠️ Reset running hours ke 0 jam & status Stopped — "
-                       "dipakai kalau equipment fisik diganti baru.")
-            confirm_rt = st.checkbox("Saya yakin reset running hours",
-                                     key=f"kp_confirm_rt_{eq}_{unit}")
-            if st.button("🔄 Reset Running Hours", key=f"kp_reset_rt_{eq}_{unit}",
-                        width="stretch", disabled=not confirm_rt):
-                reset_pump_runtime(eq, unit)
-                st.cache_data.clear()
-                st.success("Running hours direset ke 0.")
-                st.rerun()
-        with rc2:
-            st.caption("⚠️ Reset umur pompa (tanggal instalasi → hari ini) — "
-                       "dipakai kalau equipment fisik diganti baru.")
-            confirm_age = st.checkbox("Saya yakin reset umur pompa",
-                                      key=f"kp_confirm_age_{eq}_{unit}")
-            if st.button("🔄 Reset Umur Pompa", key=f"kp_reset_age_{eq}_{unit}",
-                        width="stretch", disabled=not confirm_age):
-                reset_pump_install_date(eq, unit)
-                st.cache_data.clear()
-                st.success("Umur pompa direset (tanggal instalasi = hari ini).")
-                st.rerun()
-
-        # ── Umur Bearing per posisi (DE/NDE Motor & Pompa/Fan) ────────────────
-        st.markdown("---")
-        st.markdown("**🔩 Umur Bearing (per posisi)**")
-        st.caption("Tanggal instalasi/penggantian bearing bisa berbeda-beda per posisi — "
-                   "terpisah dari tanggal instalasi equipment di atas.")
-        bcols = st.columns(4)
-        for bi, posisi in enumerate(BEARING_POSISI):
-            b_match = df_bearing_all[
-                (df_bearing_all["equipment"]==eq) & (df_bearing_all["unit"]==unit) &
-                (df_bearing_all["posisi"]==posisi)
-            ] if not df_bearing_all.empty else pd.DataFrame()
-            b_existing_date = _safe_date(
-                b_match.iloc[0].get("install_date") if not b_match.empty else None
-            )
-            b_age = get_pump_age(b_existing_date) if b_existing_date else None
-
-            with bcols[bi]:
-                st.markdown(f"**{posisi}**")
-                st.caption(f"Umur: {b_age or '–'}")
-                b_new_date = st.date_input(
-                    "Tgl instalasi", value=b_existing_date or date.today(),
-                    key=f"kp_bearing_date_{eq}_{unit}_{posisi}", label_visibility="collapsed",
-                )
-                if st.button("💾 Simpan", key=f"kp_bearing_save_{eq}_{unit}_{posisi}", width="stretch"):
-                    update_bearing_install(eq, unit, posisi, b_new_date)
-                    st.cache_data.clear()
-                    st.success(f"Tanggal instalasi {posisi} tersimpan.")
-                    st.rerun()
+with tab_maint:
+    st.markdown("#### ⚠️ Reset Running Hours / Overhaul Unit")
+    st.caption("Gunakan bagian ini hanya jika peralatan fisik telah diganti baru atau selesai overhaul total.")
+    
+    r_col1, r_col2 = st.columns(2)
+    with r_col1:
+        st.error("Reset Jam Operasi")
+        confirm_reset_h = st.checkbox("Konfirmasi: Kembalikan Running Hours ke 0.0 Jam", key="chk_res_h")
+        if st.button("🔄 Eksekusi Reset Jam Operasi", key="btn_exec_rh", width="stretch", disabled=not confirm_reset_h):
+            reset_pump_runtime(sel_eq, sel_unit)
+            st.cache_data.clear()
+            st.success("Running hours berhasil direset ke 0.")
+            st.rerun()
+            
+    with r_col2:
+        st.error("Reset Tanggal Instalasi")
+        confirm_reset_a = st.checkbox("Konfirmasi: Setel Tanggal Instalasi ke Hari Ini", key="chk_res_a")
+        if st.button("🔄 Eksekusi Reset Umur Pompa", key="btn_exec_ra", width="stretch", disabled=not confirm_reset_a):
+            reset_pump_install_date(sel_eq, sel_unit)
+            st.cache_data.clear()
+            st.success("Tanggal instalasi berhasil direset ke hari ini.")
+            st.rerun()
