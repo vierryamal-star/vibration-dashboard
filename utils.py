@@ -205,6 +205,28 @@ def save_to_db(df: pd.DataFrame) -> int:
         st.error(f"Gagal simpan data: {e}")
         return 0
 
+def delete_by_dates(dates: list) -> int:
+    try:
+        sb = get_supabase(service_role=True)
+        total = 0
+        for d in dates:
+            res = sb.table("vibration").delete().eq("date", d).execute()
+            if res.data:
+                total += len(res.data)
+        return total
+    except Exception as e:
+        st.error(f"Gagal hapus data: {e}")
+        return 0
+
+def delete_all() -> int:
+    try:
+        sb = get_supabase(service_role=True)
+        res = sb.table("vibration").delete().neq("equipment", "").execute()
+        return len(res.data) if res.data else 0
+    except Exception as e:
+        st.error(f"Gagal hapus semua data: {e}")
+        return 0
+
 def parse_excel(file) -> pd.DataFrame:
     try:
         df = pd.read_excel(file, sheet_name="Vibration_Data")
