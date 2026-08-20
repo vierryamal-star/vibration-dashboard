@@ -17,26 +17,26 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Global CSS ────────────────────────────────────────────────────────────────
+# ── Global CSS Adaptif ────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-/* Equipment Card Modern */
+/* Card Adaptif Modern */
 .eq-card-modern {
     border-radius: 12px;
     padding: 14px 16px;
     border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
     background: color-mix(in srgb, var(--secondary-background-color) 70%, var(--background-color));
-    box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
     margin-bottom: 12px;
     color: var(--text-color);
     transition: transform .15s ease, box-shadow .15s ease;
 }
 .eq-card-modern:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0,0,0,.1);
+    box-shadow: 0 6px 18px rgba(0,0,0,.08);
 }
 
 .eq-subtext {
@@ -111,10 +111,8 @@ def bar_pct(val, thr):
     max_scale = thr.get("C", 4.5) * 1.2
     return min(int((val / max(max_scale, 0.001)) * 100), 100)
 
-# ── Data Loading ──────────────────────────────────────────────────────────────
 df_hist = load_history()
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     try:
         st.image("assets/logo_pln_ip.png", width=200)
@@ -153,7 +151,7 @@ all_units = sorted(df_hist["unit"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEADER & LIVE CLOCK (WIB / GMT+7 - POJOK KANAN ATAS)
+# HEADER & LIVE CLOCK (WIB / GMT+7)
 # ══════════════════════════════════════════════════════════════════════════════
 head_col, clock_col = st.columns([3, 2])
 
@@ -332,7 +330,7 @@ zone_filter_key = _zone_filter_map[zone_filter_label]
 st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STATUS CARD PER EQUIPMENT (DENGAN IDENTITAS NAMA TITIK LENGKAP)
+# STATUS CARD PER EQUIPMENT
 # ══════════════════════════════════════════════════════════════════════════════
 df_card_lat = latest[
     latest["unit"].isin(sel_unit) &
@@ -427,7 +425,7 @@ def _render_cards():
         hours  = compute_running_hours(row_data)
         status = row_data.get("status", "stopped")
         rc = "#16a34a" if status == "running" else "#6b7280"
-        dot = "🟢 Running" if status == "running" else "⚪ Stopped"
+        dot = '<span class="live-dot" style="color:#16a34a;">●</span> Running' if status == "running" else '<span style="color:#6b7280;">○</span> Stopped'
         
         return f"""
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;">
@@ -442,6 +440,7 @@ def _render_cards():
             bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
             is_danger = r["zk"] == "ZONE D"
             border_left = f"6px solid {bc}" if is_danger else f"4px solid {bc}"
+            danger_class = "card-danger-glow" if is_danger else ""
             
             zk_h = get_zone(r["H"], r["thr"])[0] if r["H"] is not None else "N/A"
             zk_v = get_zone(r["V"], r["thr"])[0] if r["V"] is not None else "N/A"
@@ -460,7 +459,7 @@ def _render_cards():
 
             with col:
                 st.markdown(f"""
-<div class="eq-card-modern" style="border-left:{border_left};">
+<div class="eq-card-modern {danger_class}" style="border-left:{border_left};">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;">
     <div>
       <div style="font-size:15px;font-weight:800;line-height:1.2;">{r['eq']}</div>
