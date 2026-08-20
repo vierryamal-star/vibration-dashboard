@@ -61,7 +61,6 @@ UI = {
 }
 
 def render_page_header(title: str) -> None:
-    """Render judul halaman bersih tanpa garis biru di bawahnya."""
     st.markdown(f"""
 <div style="margin-bottom:8px">
   <div style="font-size:26px;font-weight:800;line-height:1.2">{title}</div>
@@ -94,61 +93,61 @@ THRESHOLD_TEMP = {
 }
 
 def get_temp_threshold(equipment: str, titik: str):
-    eq, t = str(equipment).upper(), str(titik).upper()[cite: 4]
-    if "TURBIN" in eq and "WINDING" not in t:[cite: 4]
-        return THRESHOLD_TEMP["TURBIN"][cite: 4]
-    if "WINDING" in t:[cite: 4]
-        return THRESHOLD_TEMP["WINDING"][cite: 4]
-    if "MOTOR" in t:[cite: 4]
-        return THRESHOLD_TEMP["WINDING"] if "NDE" in t else THRESHOLD_TEMP["BEARING DE MOTOR"][cite: 4]
-    if any(k in t for k in ["POMPA", "PUMP", "FAN"]):[cite: 4]
-        return THRESHOLD_TEMP["BEARING NDE DRIVEN" if "NDE" in t else "BEARING DE DRIVEN"][cite: 4]
-    return THRESHOLD_TEMP["BEARING DE DRIVEN"][cite: 4]
+    eq, t = str(equipment).upper(), str(titik).upper()
+    if "TURBIN" in eq and "WINDING" not in t:
+        return THRESHOLD_TEMP["TURBIN"]
+    if "WINDING" in t:
+        return THRESHOLD_TEMP["WINDING"]
+    if "MOTOR" in t:
+        return THRESHOLD_TEMP["WINDING"] if "NDE" in t else THRESHOLD_TEMP["BEARING DE MOTOR"]
+    if any(k in t for k in ["POMPA", "PUMP", "FAN"]):
+        return THRESHOLD_TEMP["BEARING NDE DRIVEN" if "NDE" in t else "BEARING DE DRIVEN"]
+    return THRESHOLD_TEMP["BEARING DE DRIVEN"]
 
 def get_zone_temp(value, thr):
-    if pd.isna(value):[cite: 4]
-        return "N/A", "⬜", "N/A"[cite: 4]
-    if value <= thr["normal"]:[cite: 4]
-        return "ZONE A", "🔵", "Normal"[cite: 4]
-    elif value < thr["danger"]:[cite: 4]
-        return "ZONE C", "🟡", "Warning"[cite: 4]
+    if pd.isna(value):
+        return "N/A", "⬜", "N/A"
+    if value <= thr["normal"]:
+        return "ZONE A", "🔵", "Normal"
+    elif value < thr["danger"]:
+        return "ZONE C", "🟡", "Warning"
     else:
-        return "ZONE D", "🔴", "Danger"[cite: 4]
+        return "ZONE D", "🔴", "Danger"
 
 def get_supabase(service_role=False):
-    from supabase import create_client[cite: 4]
-    url = st.secrets["SUPABASE_URL"][cite: 4]
-    key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"][cite: 4]
-    return create_client(url, key)[cite: 4]
+    from supabase import create_client
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
 def get_threshold(equipment: str):
-    name = equipment.upper()[cite: 4]
-    key = "Turbine" if "TURBINE" in name else "Pump/Fan"[cite: 4]
-    overrides = st.session_state.get("threshold_override")[cite: 4]
-    if overrides and key in overrides:[cite: 4]
-        return overrides[key][cite: 4]
-    return THRESHOLD[key][cite: 4]
+    name = equipment.upper()
+    key = "Turbine" if "TURBINE" in name else "Pump/Fan"
+    overrides = st.session_state.get("threshold_override")
+    if overrides and key in overrides:
+        return overrides[key]
+    return THRESHOLD[key]
 
 def get_zone(value, thr):
-    if pd.isna(value):[cite: 4]
-        return "N/A", "⬜", "N/A"[cite: 4]
-    if value < thr["A"]:[cite: 4]
-        return "ZONE A", "🔵", "Accepted"[cite: 4]
-    elif value <= thr["B"]:[cite: 4]
-        return "ZONE B", "🟢", "Pre Warning"[cite: 4]
-    elif value <= thr["C"]:[cite: 4]
-        return "ZONE C", "🟡", "Warning"[cite: 4]
+    if pd.isna(value):
+        return "N/A", "⬜", "N/A"
+    if value < thr["A"]:
+        return "ZONE A", "🔵", "Accepted"
+    elif value <= thr["B"]:
+        return "ZONE B", "🟢", "Pre Warning"
+    elif value <= thr["C"]:
+        return "ZONE C", "🟡", "Warning"
     else:
-        return "ZONE D", "🔴", "Danger"[cite: 4]
+        return "ZONE D", "🔴", "Danger"
 
 @st.cache_data(ttl=60)
 def load_history() -> pd.DataFrame:
     try:
-        sb = get_supabase()[cite: 4]
-        all_rows = [][cite: 4]
-        batch_size = 5000[cite: 4]
-        start = 0[cite: 4]
-        _cols = "equipment,unit,titik,direction,date,value"[cite: 4]
+        sb = get_supabase()
+        all_rows = []
+        batch_size = 5000
+        start = 0
+        _cols = "equipment,unit,titik,direction,date,value"
 
         while True:
             res = (
@@ -157,298 +156,298 @@ def load_history() -> pd.DataFrame:
                 .order("date", desc=True)
                 .range(start, start + batch_size - 1)
                 .execute()
-            )[cite: 4]
-            rows = res.data if res.data else [][cite: 4]
-            if not rows:[cite: 4]
-                break[cite: 4]
-            all_rows.extend(rows)[cite: 4]
-            if len(rows) < batch_size:[cite: 4]
-                break[cite: 4]
-            start += batch_size[cite: 4]
+            )
+            rows = res.data if res.data else []
+            if not rows:
+                break
+            all_rows.extend(rows)
+            if len(rows) < batch_size:
+                break
+            start += batch_size
 
-        return pd.DataFrame(all_rows)[cite: 4]
+        return pd.DataFrame(all_rows)
     except Exception as e:
-        st.error(f"Gagal load data: {e}")[cite: 4]
-        return pd.DataFrame()[cite: 4]
+        st.error(f"Gagal load data: {e}")
+        return pd.DataFrame()
 
 def save_to_db(df: pd.DataFrame) -> int:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        now = datetime.now().isoformat()[cite: 4]
-        res = sb.table("vibration").select("equipment,unit,titik,direction,date").execute()[cite: 4]
-        existing_keys = set()[cite: 4]
-        if res.data:[cite: 4]
-            for row in res.data:[cite: 4]
-                key = f"{row['equipment']}|{row['unit']}|{row['titik']}|{row['direction']}|{str(row['date'])[:10]}"[cite: 4]
-                existing_keys.add(key)[cite: 4]
-        rows_to_insert = [][cite: 4]
-        for _, r in df.iterrows():[cite: 4]
-            date_str = str(r["date"])[:10] if pd.notna(r["date"]) else ""[cite: 4]
-            key = f"{r['equipment']}|{r['unit']}|{r['titik']}|{r['direction']}|{date_str}"[cite: 4]
-            if key not in existing_keys:[cite: 4]
-                rows_to_insert.append({[cite: 4]
-                    "equipment":   str(r["equipment"]),[cite: 4]
-                    "unit":        str(r["unit"]),[cite: 4]
-                    "titik":       str(r["titik"]),[cite: 4]
-                    "direction":   str(r["direction"]),[cite: 4]
-                    "date":        date_str,[cite: 4]
-                    "value":       float(r["value"]) if pd.notna(r["value"]) else None,[cite: 4]
-                    "uploaded_at": now,[cite: 4]
+        sb = get_supabase(service_role=True)
+        now = datetime.now().isoformat()
+        res = sb.table("vibration").select("equipment,unit,titik,direction,date").execute()
+        existing_keys = set()
+        if res.data:
+            for row in res.data:
+                key = f"{row['equipment']}|{row['unit']}|{row['titik']}|{row['direction']}|{str(row['date'])[:10]}"
+                existing_keys.add(key)
+        rows_to_insert = []
+        for _, r in df.iterrows():
+            date_str = str(r["date"])[:10] if pd.notna(r["date"]) else ""
+            key = f"{r['equipment']}|{r['unit']}|{r['titik']}|{r['direction']}|{date_str}"
+            if key not in existing_keys:
+                rows_to_insert.append({
+                    "equipment":   str(r["equipment"]),
+                    "unit":        str(r["unit"]),
+                    "titik":       str(r["titik"]),
+                    "direction":   str(r["direction"]),
+                    "date":        date_str,
+                    "value":       float(r["value"]) if pd.notna(r["value"]) else None,
+                    "uploaded_at": now,
                 })
-        if rows_to_insert:[cite: 4]
-            batch_size = 500[cite: 4]
-            for i in range(0, len(rows_to_insert), batch_size):[cite: 4]
-                sb.table("vibration").insert(rows_to_insert[i:i+batch_size]).execute()[cite: 4]
-        return len(rows_to_insert)[cite: 4]
+        if rows_to_insert:
+            batch_size = 500
+            for i in range(0, len(rows_to_insert), batch_size):
+                sb.table("vibration").insert(rows_to_insert[i:i+batch_size]).execute()
+        return len(rows_to_insert)
     except Exception as e:
-        st.error(f"Gagal simpan data: {e}")[cite: 4]
-        return 0[cite: 4]
+        st.error(f"Gagal simpan data: {e}")
+        return 0
 
 def delete_by_dates(dates: list) -> int:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        total = 0[cite: 4]
-        for d in dates:[cite: 4]
-            res = sb.table("vibration").delete().eq("date", d).execute()[cite: 4]
-            if res.data:[cite: 4]
-                total += len(res.data)[cite: 4]
-        return total[cite: 4]
+        sb = get_supabase(service_role=True)
+        total = 0
+        for d in dates:
+            res = sb.table("vibration").delete().eq("date", d).execute()
+            if res.data:
+                total += len(res.data)
+        return total
     except Exception as e:
-        st.error(f"Gagal hapus data: {e}")[cite: 4]
-        return 0[cite: 4]
+        st.error(f"Gagal hapus data: {e}")
+        return 0
 
 def delete_all() -> int:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        res = sb.table("vibration").delete().neq("equipment", "").execute()[cite: 4]
-        return len(res.data) if res.data else 0[cite: 4]
+        sb = get_supabase(service_role=True)
+        res = sb.table("vibration").delete().neq("equipment", "").execute()
+        return len(res.data) if res.data else 0
     except Exception as e:
-        st.error(f"Gagal hapus semua data: {e}")[cite: 4]
-        return 0[cite: 4]
+        st.error(f"Gagal hapus semua data: {e}")
+        return 0
 
 def parse_excel(file) -> pd.DataFrame:
     try:
-        df = pd.read_excel(file, sheet_name="Vibration_Data")[cite: 4]
+        df = pd.read_excel(file, sheet_name="Vibration_Data")
     except Exception as e:
-        st.error(f"Gagal baca file {getattr(file, 'name', 'unknown')}: {e}")[cite: 4]
-        return pd.DataFrame()[cite: 4]
-    df.columns = [c.strip() for c in df.columns][cite: 4]
-    col_map = {}[cite: 4]
-    for c in df.columns:[cite: 4]
-        cl = c.lower()[cite: 4]
-        if "equipment" in cl:    col_map[c] = "equipment"[cite: 4]
-        elif "unit" in cl:       col_map[c] = "unit"[cite: 4]
-        elif "titik" in cl:      col_map[c] = "titik"[cite: 4]
-        elif "direction" in cl:  col_map[c] = "direction"[cite: 4]
-        elif "date" in cl:       col_map[c] = "date"[cite: 4]
-        elif "value" in cl:      col_map[c] = "value"[cite: 4]
-    df = df.rename(columns=col_map)[cite: 4]
-    required = {"equipment", "unit", "titik", "direction", "date", "value"}[cite: 4]
-    missing = required - set(df.columns)[cite: 4]
-    if missing:[cite: 4]
-        st.error(f"Kolom tidak ditemukan: {missing}")[cite: 4]
-        return pd.DataFrame()[cite: 4]
-    df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")[cite: 4]
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")[cite: 4]
-    df = df.dropna(subset=["value"])[cite: 4]
-    return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])[cite: 4]
+        st.error(f"Gagal baca file {getattr(file, 'name', 'unknown')}: {e}")
+        return pd.DataFrame()
+    df.columns = [c.strip() for c in df.columns]
+    col_map = {}
+    for c in df.columns:
+        cl = c.lower()
+        if "equipment" in cl:    col_map[c] = "equipment"
+        elif "unit" in cl:       col_map[c] = "unit"
+        elif "titik" in cl:      col_map[c] = "titik"
+        elif "direction" in cl:  col_map[c] = "direction"
+        elif "date" in cl:       col_map[c] = "date"
+        elif "value" in cl:      col_map[c] = "value"
+    df = df.rename(columns=col_map)
+    required = {"equipment", "unit", "titik", "direction", "date", "value"}
+    missing = required - set(df.columns)
+    if missing:
+        st.error(f"Kolom tidak ditemukan: {missing}")
+        return pd.DataFrame()
+    df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["value"])
+    return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
 
 def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()[cite: 4]
-    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")[cite: 4]
+    df = df.copy()
+    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
 
     def _zone_row(r):
-        if r["direction"] == "T":[cite: 4]
-            thr = get_temp_threshold(r["equipment"], r["titik"])[cite: 4]
-            return get_zone_temp(r["value"], thr)[cite: 4]
-        return get_zone(r["value"], THRESHOLD[r["thr_type"]])[cite: 4]
+        if r["direction"] == "T":
+            thr = get_temp_threshold(r["equipment"], r["titik"])
+            return get_zone_temp(r["value"], thr)
+        return get_zone(r["value"], THRESHOLD[r["thr_type"]])
 
-    z = df.apply(_zone_row, axis=1)[cite: 4]
-    df["zone"], df["zone_icon"], df["zone_label"] = zip(*z)[cite: 4]
-    return df[cite: 4]
+    z = df.apply(_zone_row, axis=1)
+    df["zone"], df["zone_icon"], df["zone_label"] = zip(*z)
+    return df
 
-EDITOR_PASSWORD = "pltu2026"[cite: 4]
+EDITOR_PASSWORD = "pltu2026"
 
 def check_role():
-    if "role" not in st.session_state:[cite: 4]
-        st.session_state["role"] = "viewer"[cite: 4]
-    return st.session_state["role"][cite: 4]
+    if "role" not in st.session_state:
+        st.session_state["role"] = "viewer"
+    return st.session_state["role"]
 
 def render_login_sidebar():
-    role = check_role()[cite: 4]
-    st.sidebar.divider()[cite: 4]
-    if role == "editor":[cite: 4]
-        st.sidebar.success("🔓 Mode: **Editor**")[cite: 4]
-        if st.sidebar.button("🔒 Logout", key="sb_logout"):[cite: 4]
-            st.session_state["role"] = "viewer"[cite: 4]
-            st.rerun()[cite: 4]
+    role = check_role()
+    st.sidebar.divider()
+    if role == "editor":
+        st.sidebar.success("🔓 Mode: **Editor**")
+        if st.sidebar.button("🔒 Logout", key="sb_logout"):
+            st.session_state["role"] = "viewer"
+            st.rerun()
     else:
-        st.sidebar.info("👁️ Mode: **Viewer**")[cite: 4]
-        with st.sidebar.expander("🔑 Login Editor"):[cite: 4]
-            pwd = st.text_input("Password", type="password", key="sb_pwd_input")[cite: 4]
-            if st.button("Login", key="sb_login_btn"):[cite: 4]
-                if pwd == EDITOR_PASSWORD:[cite: 4]
-                    st.session_state["role"] = "editor"[cite: 4]
-                    st.rerun()[cite: 4]
+        st.sidebar.info("👁️ Mode: **Viewer**")
+        with st.sidebar.expander("🔑 Login Editor"):
+            pwd = st.text_input("Password", type="password", key="sb_pwd_input")
+            if st.button("Login", key="sb_login_btn"):
+                if pwd == EDITOR_PASSWORD:
+                    st.session_state["role"] = "editor"
+                    st.rerun()
                 else:
-                    st.error("Password salah.")[cite: 4]
+                    st.error("Password salah.")
 
 def require_editor():
-    if check_role() != "editor":[cite: 4]
-        st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")[cite: 4]
-        return False[cite: 4]
-    return True[cite: 4]
+    if check_role() != "editor":
+        st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
+        return False
+    return True
 
 # ── Running Hours Pompa ──────────────────────────────────────────────────────
 @st.cache_data(ttl=15)
 def get_pump_runtime() -> pd.DataFrame:
-    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours"][cite: 4]
+    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours"]
     try:
-        sb = get_supabase()[cite: 4]
-        res = sb.table("pump_runtime").select([cite: 4]
-            "equipment,unit,status,status_changed_at,accumulated_hours,install_date"[cite: 4]
-        ).execute()[cite: 4]
-        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)[cite: 4]
+        sb = get_supabase()
+        res = sb.table("pump_runtime").select(
+            "equipment,unit,status,status_changed_at,accumulated_hours,install_date"
+        ).execute()
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
     except Exception as e:
-        st.error(f"Gagal load running hours: {e}")[cite: 4]
-        return pd.DataFrame(columns=cols)[cite: 4]
+        st.error(f"Gagal load running hours: {e}")
+        return pd.DataFrame(columns=cols)
 
 def init_pump_runtime(equipment: str, unit: str):
-    sb = get_supabase(service_role=True)[cite: 4]
-    res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()[cite: 4]
-    if not res.data:[cite: 4]
-        sb.table("pump_runtime").insert({[cite: 4]
-            "equipment": equipment,[cite: 4]
-            "unit": unit,[cite: 4]
-            "status": "stopped",[cite: 4]
-            "status_changed_at": datetime.now().isoformat(),[cite: 4]
-            "accumulated_hours": 0.0,[cite: 4]
-        }).execute()[cite: 4]
+    sb = get_supabase(service_role=True)
+    res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()
+    if not res.data:
+        sb.table("pump_runtime").insert({
+            "equipment": equipment,
+            "unit": unit,
+            "status": "stopped",
+            "status_changed_at": datetime.now().isoformat(),
+            "accumulated_hours": 0.0,
+        }).execute()
 
 def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        sb.table("pump_runtime").update({[cite: 4]
-            "status": "running",[cite: 4]
-            "status_changed_at": pd.Timestamp(start_dt).isoformat(),[cite: 4]
-        }).eq("equipment", equipment).eq("unit", unit).execute()[cite: 4]
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update({
+            "status": "running",
+            "status_changed_at": pd.Timestamp(start_dt).isoformat(),
+        }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
-        st.error(f"Gagal catat waktu mulai: {e}")[cite: 4]
+        st.error(f"Gagal catat waktu mulai: {e}")
 
 def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
                        current_accum: float, current_changed_at) -> None:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        stop_ts = pd.Timestamp(stop_dt)[cite: 4]
-        if current_status == "running":[cite: 4]
+        sb = get_supabase(service_role=True)
+        stop_ts = pd.Timestamp(stop_dt)
+        if current_status == "running":
             try:
-                changed = pd.to_datetime(current_changed_at)[cite: 4]
-                if changed.tzinfo is not None:[cite: 4]
-                    changed = changed.tz_localize(None)[cite: 4]
-                delta_hours = max((stop_ts - changed).total_seconds() / 3600, 0)[cite: 4]
+                changed = pd.to_datetime(current_changed_at)
+                if changed.tzinfo is not None:
+                    changed = changed.tz_localize(None)
+                delta_hours = max((stop_ts - changed).total_seconds() / 3600, 0)
             except Exception:
-                delta_hours = 0[cite: 4]
-            new_accum = float(current_accum or 0) + delta_hours[cite: 4]
+                delta_hours = 0
+            new_accum = float(current_accum or 0) + delta_hours
         else:
-            new_accum = float(current_accum or 0)[cite: 4]
-        sb.table("pump_runtime").update({[cite: 4]
-            "status": "stopped",[cite: 4]
-            "status_changed_at": stop_ts.isoformat(),[cite: 4]
-            "accumulated_hours": new_accum,[cite: 4]
-        }).eq("equipment", equipment).eq("unit", unit).execute()[cite: 4]
+            new_accum = float(current_accum or 0)
+        sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": stop_ts.isoformat(),
+            "accumulated_hours": new_accum,
+        }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
-        st.error(f"Gagal catat waktu berhenti: {e}")[cite: 4]
+        st.error(f"Gagal catat waktu berhenti: {e}")
 
 def reset_pump_runtime(equipment: str, unit: str) -> None:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        sb.table("pump_runtime").update({[cite: 4]
-            "status": "stopped",[cite: 4]
-            "status_changed_at": datetime.now().isoformat(),[cite: 4]
-            "accumulated_hours": 0.0,[cite: 4]
-        }).eq("equipment", equipment).eq("unit", unit).execute()[cite: 4]
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": datetime.now().isoformat(),
+            "accumulated_hours": 0.0,
+        }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
-        st.error(f"Gagal reset running hours: {e}")[cite: 4]
+        st.error(f"Gagal reset running hours: {e}")
 
 def reset_pump_install_date(equipment: str, unit: str) -> None:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        sb.table("pump_runtime").update([cite: 4]
-            {"install_date": datetime.now().date().isoformat()}[cite: 4]
-        ).eq("equipment", equipment).eq("unit", unit).execute()[cite: 4]
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update(
+            {"install_date": datetime.now().date().isoformat()}
+        ).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
-        st.error(f"Gagal reset umur pompa: {e}")[cite: 4]
+        st.error(f"Gagal reset umur pompa: {e}")
 
 def compute_running_hours(row: dict) -> float:
-    accum = float(row.get("accumulated_hours", 0) or 0)[cite: 4]
-    if row.get("status") == "running":[cite: 4]
+    accum = float(row.get("accumulated_hours", 0) or 0)
+    if row.get("status") == "running":
         try:
-            changed = pd.to_datetime(row["status_changed_at"])[cite: 4]
-            if changed.tzinfo is not None:[cite: 4]
-                changed = changed.tz_localize(None)[cite: 4]
-            delta = (pd.Timestamp.now() - changed).total_seconds() / 3600[cite: 4]
-            return accum + max(delta, 0)[cite: 4]
+            changed = pd.to_datetime(row["status_changed_at"])
+            if changed.tzinfo is not None:
+                changed = changed.tz_localize(None)
+            delta = (pd.Timestamp.now() - changed).total_seconds() / 3600
+            return accum + max(delta, 0)
         except Exception:
-            return accum[cite: 4]
-    return accum[cite: 4]
+            return accum
+    return accum
 
 def get_pump_age(install_date) -> str:
-    if not install_date or pd.isna(install_date):[cite: 4]
-        return None[cite: 4]
+    if not install_date or pd.isna(install_date):
+        return None
     try:
-        d = pd.to_datetime(install_date)[cite: 4]
-        now = pd.Timestamp.now()[cite: 4]
-        months = (now.year - d.year) * 12 + (now.month - d.month)[cite: 4]
-        if now.day < d.day:[cite: 4]
-            months -= 1[cite: 4]
-        months = max(months, 0)[cite: 4]
-        years, rem_months = divmod(months, 12)[cite: 4]
-        parts = [][cite: 4]
-        if years:[cite: 4]
-            parts.append(f"{years} th")[cite: 4]
-        parts.append(f"{rem_months} bln")[cite: 4]
-        return " ".join(parts)[cite: 4]
+        d = pd.to_datetime(install_date)
+        now = pd.Timestamp.now()
+        months = (now.year - d.year) * 12 + (now.month - d.month)
+        if now.day < d.day:
+            months -= 1
+        months = max(months, 0)
+        years, rem_months = divmod(months, 12)
+        parts = []
+        if years:
+            parts.append(f"{years} th")
+        parts.append(f"{rem_months} bln")
+        return " ".join(parts)
     except Exception:
-        return None[cite: 4]
+        return None
 
 def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
-        sb.table("pump_runtime").update([cite: 4]
-            {"install_date": str(install_date)}[cite: 4]
-        ).eq("equipment", equipment).eq("unit", unit).execute()[cite: 4]
+        sb = get_supabase(service_role=True)
+        sb.table("pump_runtime").update(
+            {"install_date": str(install_date)}
+        ).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
-        st.error(f"Gagal simpan tanggal instalasi: {e}")[cite: 4]
+        st.error(f"Gagal simpan tanggal instalasi: {e}")
 
-BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"][cite: 4]
+BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"]
 
 @st.cache_data(ttl=15)
 def get_bearing_install() -> pd.DataFrame:
-    cols = ["equipment", "unit", "posisi", "install_date"][cite: 4]
+    cols = ["equipment", "unit", "posisi", "install_date"]
     try:
-        sb = get_supabase()[cite: 4]
-        res = sb.table("bearing_install").select("equipment,unit,posisi,install_date").execute()[cite: 4]
-        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)[cite: 4]
+        sb = get_supabase()
+        res = sb.table("bearing_install").select("equipment,unit,posisi,install_date").execute()
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
     except Exception as e:
-        st.error(f"Gagal load umur bearing: {e}")[cite: 4]
-        return pd.DataFrame(columns=cols)[cite: 4]
+        st.error(f"Gagal load umur bearing: {e}")
+        return pd.DataFrame(columns=cols)
 
 def update_bearing_install(equipment: str, unit: str, posisi: str, install_date) -> None:
     try:
-        sb = get_supabase(service_role=True)[cite: 4]
+        sb = get_supabase(service_role=True)
         existing = (
-            sb.table("bearing_install").select("id")[cite: 4]
-            .eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi)[cite: 4]
-            .execute()[cite: 4]
+            sb.table("bearing_install").select("id")
+            .eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi)
+            .execute()
         )
-        if existing.data:[cite: 4]
-            sb.table("bearing_install").update([cite: 4]
-                {"install_date": str(install_date)}[cite: 4]
-            ).eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi).execute()[cite: 4]
+        if existing.data:
+            sb.table("bearing_install").update(
+                {"install_date": str(install_date)}
+            ).eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi).execute()
         else:
-            sb.table("bearing_install").insert({[cite: 4]
-                "equipment": equipment, "unit": unit, "posisi": posisi,[cite: 4]
-                "install_date": str(install_date),[cite: 4]
-            }).execute()[cite: 4]
+            sb.table("bearing_install").insert({
+                "equipment": equipment, "unit": unit, "posisi": posisi,
+                "install_date": str(install_date),
+            }).execute()
     except Exception as e:
-        st.error(f"Gagal simpan tanggal instalasi bearing: {e}")[cite: 4]
+        st.error(f"Gagal simpan tanggal instalasi bearing: {e}")
