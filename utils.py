@@ -293,15 +293,19 @@ def require_editor():
 def render_app_sidebar():
     with st.sidebar:
         try:
-            st.image("assets/logo_pln_ip.png", width=180)
+            st.image("assets/logo_pln_ip.png", width=190)
         except Exception:
             pass
         st.markdown("""
-        <div style="margin-top: 6px; margin-bottom: 12px;">
-            <div style="font-size: 16px; font-weight: 800; line-height: 1.2;">⚡ PLTU TBK</div>
-            <div style="font-size: 11px; opacity: .7; font-weight: 500;">Vibration & Asset Monitoring</div>
-            <div style="margin-top: 6px;">
-                <span style="font-size: 10px; font-weight: 700; background: rgba(22, 163, 74, 0.12); color: #16a34a; border: 1px solid rgba(22, 163, 74, 0.3); padding: 2px 8px; border-radius: 99px;">
+        <div style="margin-top: 10px; margin-bottom: 14px;">
+            <div style="font-size: 24px; font-weight: 900; line-height: 1.1; color: var(--text-color); letter-spacing: -0.02em;">
+                ⚡ PLTU TBK
+            </div>
+            <div style="font-size: 13px; opacity: .8; font-weight: 600; margin-top: 3px; color: color-mix(in srgb, var(--text-color) 80%, transparent);">
+                Vibration & Asset Monitoring
+            </div>
+            <div style="margin-top: 8px;">
+                <span style="font-size: 11px; font-weight: 700; background: rgba(22, 163, 74, 0.14); color: #16a34a; border: 1px solid rgba(22, 163, 74, 0.35); padding: 3px 10px; border-radius: 99px;">
                     ● Database Connected
                 </span>
             </div>
