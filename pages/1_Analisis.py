@@ -24,12 +24,12 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 .stat-card {
     border-radius: 12px;
     padding: 14px 16px;
-    border: 1px solid rgba(128,128,128,.15);
-    background: rgba(128,128,128,.03);
+    border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color) 60%, var(--background-color));
     height: 100%;
 }
 .stat-val { font-size: 22px; font-weight: 800; line-height: 1.1; margin-bottom: 4px; }
-.stat-lbl { font-size: 11px; opacity: .6; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.stat-lbl { font-size: 11px; opacity: .65; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 
 /* Zone badge inline */
 .zbadge {
@@ -38,18 +38,6 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
     font-size: 11px; font-weight: 700; letter-spacing: .03em;
     border: 1px solid transparent;
 }
-
-/* Tabel */
-.zt { width:100%; border-collapse:collapse; font-size:13px; }
-.zt thead tr { border-bottom: 2px solid rgba(128,128,128,.15); }
-.zt thead th {
-    padding: 10px 12px; font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .08em; opacity: .55;
-    text-align: left;
-}
-.zt tbody tr { border-bottom: 1px solid rgba(128,128,128,.07); }
-.zt tbody tr:hover { filter: brightness(1.06); }
-.zt td { padding: 8px 12px; vertical-align: middle; }
 </style>
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
@@ -105,9 +93,9 @@ def plotly_theme():
     return dict(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(size=12),
-        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.1)", zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.1)", zeroline=False),
+        font=dict(size=12, color="gray"),
+        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.15)", zeroline=False),
+        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.15)", zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=11),
         hovermode="x unified",
         margin=dict(l=10, r=10, t=50, b=10),
@@ -207,7 +195,6 @@ with t_trend:
         else:
             thr = None
 
-        # ── KPI Cards Ringkas ─────────────────────────────────────────────────
         render_section_header("Ringkasan Statistik Pengukuran")
         
         stat_cols = st.columns(4)
@@ -243,7 +230,7 @@ with t_trend:
 <div class="stat-card">
   <div class="stat-lbl">Tertinggi (Peak)</div>
   <div class="stat-val">{fmt_max} <span style="font-size:12px;opacity:.6;">{unit_sym}</span></div>
-  <div style="font-size:11px;opacity:.5;">Rata-rata: {fmt_mean} {unit_sym}</div>
+  <div style="font-size:11px;opacity:.6;">Rata-rata: {fmt_mean} {unit_sym}</div>
 </div>""", unsafe_allow_html=True)
 
         with stat_cols[2]:
@@ -255,7 +242,7 @@ with t_trend:
 <div class="stat-card">
   <div class="stat-lbl">Deviasi vs Sebelumnya</div>
   <div class="stat-val" style="color:{d_col};">{d_sym} {fmt_delta}</div>
-  <div style="font-size:11px;opacity:.5;">Terendah: {fmt_min} {unit_sym}</div>
+  <div style="font-size:11px;opacity:.6;">Terendah: {fmt_min} {unit_sym}</div>
 </div>""", unsafe_allow_html=True)
 
         with stat_cols[3]:
@@ -263,12 +250,11 @@ with t_trend:
 <div class="stat-card">
   <div class="stat-lbl">Jumlah Sampel</div>
   <div class="stat-val">{len(df_tr):,} <span style="font-size:12px;opacity:.6;">titik data</span></div>
-  <div style="font-size:11px;opacity:.5;">Rentang: {df_tr['date'].dt.strftime('%d/%m/%y').iloc[0]} - {df_tr['date'].dt.strftime('%d/%m/%y').iloc[-1]}</div>
+  <div style="font-size:11px;opacity:.6;">Rentang: {df_tr['date'].dt.strftime('%d/%m/%y').iloc[0]} - {df_tr['date'].dt.strftime('%d/%m/%y').iloc[-1]}</div>
 </div>""", unsafe_allow_html=True)
 
         st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
 
-        # ── Chart Plotly ──────────────────────────────────────────────────────
         render_section_header("Kurva Historis")
         fig = go.Figure()
         
@@ -300,7 +286,6 @@ with t_trend:
         )
         st.plotly_chart(fig, width="stretch")
 
-        # ── Tabel Riwayat ─────────────────────────────────────────────────────
         with st.expander("📋 **Lihat Log & Ekspor Data Mentah**"):
             df_export = df_tr[["date", "equipment", "unit", "titik", "direction", "value"]].copy()
             df_export["date"] = df_export["date"].dt.strftime("%Y-%m-%d")
@@ -353,7 +338,7 @@ with t_compare:
 
     if overlay:
         fig_cmp = go.Figure()
-        for sub, label, col_base in [(df_sub1, eq1, "#3b82f6"), (df_sub2, eq2, "#ef4444")]:
+        for sub, label in [(df_sub1, eq1), (df_sub2, eq2)]:
             for t_v in sorted(sub["titik"].unique()):
                 s_t = sub[sub["titik"] == t_v]
                 fig_cmp.add_trace(go.Scatter(
@@ -403,14 +388,12 @@ with t_pred:
         df_p_data = df_p_data[df_p_data["titik"] == titik_p]
     df_p_data = apply_range(df_p_data, "date", rng_p, p_from, p_to).sort_values("date")
 
-    # Pastikan minimal 3 titik data dan minimal 2 tanggal unik
     n_unique_dates = df_p_data["date"].dt.date.nunique()
     if len(df_p_data) < 3 or n_unique_dates < 2:
         st.warning("⚠️ Data historis tidak cukup untuk membuat regresi linier (minimal dibutuhkan data dari 2 tanggal berbeda). Coba ubah rentang waktu ke 'Semua Data'.")
     else:
         thr_p = get_threshold(eq_p)
         
-        # OLS Stabil tanpa matrix inversion / SVD
         df_p_data["t_day"] = (df_p_data["date"] - df_p_data["date"].min()).dt.total_seconds() / 86400.0
         x = df_p_data["t_day"].values.astype(float)
         y = df_p_data["value"].values.astype(float)
