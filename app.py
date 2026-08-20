@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from utils import (
-    save_to_db, load_history, parse_excel,
-    get_zone, get_threshold, THRESHOLD, add_zone_cols,
-    render_login_sidebar,
+    load_history, get_zone, get_threshold, add_zone_cols,
     get_temp_threshold, get_zone_temp,
-    get_pump_runtime, compute_running_hours, get_pump_age,
-    ZC, ZB, ZONE_LABEL, ZONE_ICON, UI, render_page_header, GLOBAL_UI_CSS,
+    get_pump_runtime, compute_running_hours,
+    ZC, ZB, render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(
@@ -17,13 +15,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Global CSS Adaptif ────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-/* Card Adaptif Modern */
 .eq-card-modern {
     border-radius: 12px;
     padding: 14px 16px;
@@ -113,32 +109,8 @@ def bar_pct(val, thr):
 
 df_hist = load_history()
 
-with st.sidebar:
-    try:
-        st.image("assets/logo_pln_ip.png", width=200)
-    except Exception:
-        pass
-    st.markdown("## ⚡ PLTU TBK")
-    st.caption("Monitoring Vibrasi · ISO 10816")
-    st.divider()
-    st.markdown("### Navigasi")
-    st.markdown("""
-<style>
-[data-testid="stPageLink"]:has(p:contains("📊 Monitor Vibrasi")) {
-    background: rgba(59,130,246,.12);
-    border-radius: 8px;
-    border-left: 3px solid #3b82f6;
-}
-</style>""", unsafe_allow_html=True)
-    st.page_link("app.py",                  label="📊 Monitor Vibrasi")
-    st.page_link("pages/1_Analisis.py",     label="📈 Analisis")
-    st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
-    st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Pompa")
-    st.divider()
-    if st.button("🔄 Refresh Data", key="sb_refresh", width="stretch"):
-        st.cache_data.clear()
-        st.rerun()
-    render_login_sidebar()
+# Render Sidebar Terpusat
+render_app_sidebar()
 
 if df_hist.empty:
     render_page_header("📊 Monitor Vibrasi & Status Operasi")
@@ -151,7 +123,7 @@ all_units = sorted(df_hist["unit"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEADER & LIVE CLOCK (WIB / GMT+7 - POJOK KANAN ATAS)
+# HEADER & LIVE CLOCK (WIB / GMT+7)
 # ══════════════════════════════════════════════════════════════════════════════
 head_col, clock_col = st.columns([3, 2])
 
@@ -313,7 +285,6 @@ for ico, lbl, val, col in kpi_items:
 kpi_html += "</div>"
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# Filter Status Kartu
 _zone_filter_map = {
     "Semua Status": None,
     f"🔴 Danger ({n_d})": "ZONE D",
@@ -330,7 +301,7 @@ zone_filter_key = _zone_filter_map[zone_filter_label]
 st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STATUS CARD PER EQUIPMENT (DENGAN IDENTITAS NAMA TITIK LENGKAP)
+# STATUS CARD PER EQUIPMENT
 # ══════════════════════════════════════════════════════════════════════════════
 df_card_lat = latest[
     latest["unit"].isin(sel_unit) &
