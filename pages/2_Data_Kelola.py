@@ -25,13 +25,6 @@ st.markdown("""
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-/* Custom Info & Warn Boxes */
-.card-box {
-    border-radius: 12px;
-    padding: 16px 18px;
-    border: 1px solid rgba(128,128,128,.15);
-    background: rgba(128,128,128,.04);
-}
 .warn-box {
     border-radius: 10px; padding: 14px 16px;
     border-left: 4px solid #d97706;
@@ -92,14 +85,13 @@ with tab_hist:
         df_hist["value"] = pd.to_numeric(df_hist["value"], errors="coerce")
         df_hist["date_str"] = df_hist["date"].dt.strftime("%Y-%m-%d")
 
-        # ── KPI Cards Ringkas ─────────────────────────────────────────────────
         n_total  = len(df_hist)
         n_equip  = df_hist["equipment"].nunique()
         n_unit   = df_hist["unit"].nunique()
         last_tgl = df_hist["date"].max().strftime("%d %b %Y") if pd.notna(df_hist["date"].max()) else "–"
 
         kpi_items = [
-            ("📄", "Total Baris", f"{n_total:,}", "#6366f1"),
+            ("📄", "Total Baris", f"{n_total:,}", "#4f46e5"),
             ("⚙️", "Equipment", str(n_equip), "#2563eb"),
             ("🏭", "Bagian Unit", str(n_unit), "#16a34a"),
             ("🕒", "Data Terakhir", last_tgl, "#d97706"),
@@ -107,14 +99,13 @@ with tab_hist:
         kpi_html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:10px 0 18px">'
         for ico, lbl, val, col in kpi_items:
             kpi_html += f"""
-<div style="background:{col}15;border:1px solid {col}30;border-radius:12px;padding:14px;text-align:center">
+<div style="background:{col}14;border:1px solid {col}30;border-radius:12px;padding:14px;text-align:center">
   <div style="font-size:22px;font-weight:800;color:{col};line-height:1.1">{val}</div>
-  <div style="font-size:11px;margin-top:6px;opacity:.7;font-weight:600">{ico} {lbl}</div>
+  <div style="font-size:11px;margin-top:6px;color:{col};font-weight:700">{ico} {lbl}</div>
 </div>"""
         kpi_html += "</div>"
         st.markdown(kpi_html, unsafe_allow_html=True)
 
-        # ── Filter Panel ──────────────────────────────────────────────────────
         with st.expander("🔍 **Filter & Pencarian Data**", expanded=True):
             fc1, fc2, fc3 = st.columns([2, 2, 2])
             min_d = df_hist["date"].min().date()
@@ -129,7 +120,6 @@ with tab_hist:
                 eq_opts = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
                 sel_eq = st.multiselect("Pilih Equipment", eq_opts, default=eq_opts, key="dk_filter_eq")
 
-        # Filtering logic
         if isinstance(date_range, tuple) and len(date_range) == 2:
             d_from, d_to = str(date_range[0]), str(date_range[1])
             df_show = df_hist[
@@ -151,7 +141,6 @@ with tab_hist:
 
         st.dataframe(df_disp, width="stretch", hide_index=True)
 
-        # ── Quick Export ──────────────────────────────────────────────────────
         col_dl1, col_dl2, _ = st.columns([1, 1, 3])
         df_exp = df_show.drop(columns=["id", "uploaded_at", "date_str"], errors="ignore")
         fname = f"vibration_data_{datetime.now().strftime('%Y%m%d_%H%M')}"
@@ -358,5 +347,5 @@ with tab_setting:
             col.markdown(f"""
 <div style="border-radius:10px;padding:12px;border:1px solid {tc}30;background:{tc}12;text-align:center">
   <div style="font-size:14px;font-weight:700;color:{tc};margin-bottom:4px">{title}</div>
-  <div style="font-size:11px;opacity:.8;line-height:1.4">{desc}</div>
+  <div style="font-size:11px;opacity:.85;line-height:1.4">{desc}</div>
 </div>""", unsafe_allow_html=True)
