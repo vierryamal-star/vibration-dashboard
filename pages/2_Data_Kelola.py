@@ -101,7 +101,7 @@ with tab_hist:
         kpi_items = [
             ("📄", "Total Baris", f"{n_total:,}", "#6366f1"),
             ("⚙️", "Equipment", str(n_equip), "#2563eb"),
-            ("🏭", "Unit Pembangkit", str(n_unit), "#16a34a"),
+            ("🏭", "Bagian Unit", str(n_unit), "#16a34a"),
             ("🕒", "Data Terakhir", last_tgl, "#d97706"),
         ]
         kpi_html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:10px 0 18px">'
@@ -124,7 +124,7 @@ with tab_hist:
                 date_range = st.date_input("Rentang Tanggal", value=(min_d, max_d), key="dk_filter_date")
             with fc2:
                 unit_opts = sorted(df_hist["unit"].dropna().unique())
-                sel_unit = st.multiselect("Pilih Unit", unit_opts, default=unit_opts, key="dk_filter_unit")
+                sel_unit = st.multiselect("Pilih Bagian Unit", unit_opts, default=unit_opts, key="dk_filter_unit")
             with fc3:
                 eq_opts = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
                 sel_eq = st.multiselect("Pilih Equipment", eq_opts, default=eq_opts, key="dk_filter_eq")
@@ -208,7 +208,7 @@ with tab_upload:
                     "Nama File": f.name,
                     "Status Validasi": "✅ Sesuai Format" if is_valid else "❌ Gagal / Kolom Kurang",
                     "Jumlah Baris": f"{len(df_pv):,}" if is_valid else "0",
-                    "Unit": ", ".join(df_pv["unit"].unique()) if is_valid else "–",
+                    "Bagian Unit": ", ".join(df_pv["unit"].unique()) if is_valid else "–",
                     "Equipment": df_pv["equipment"].nunique() if is_valid else 0,
                     "Rentang Tanggal": (
                         f"{pd.to_datetime(df_pv['date']).min().strftime('%d %b %Y')} s.d. "
@@ -242,7 +242,7 @@ with tab_upload:
             st.markdown("""
 Pastikan file Excel memiliki sheet **`Vibration_Data`** dengan susunan header berikut:
 * **`equipment`**: Nama mesin (contoh: *BFP A, ID Fan, Turbine 01*)
-* **`unit`**: Unit pembangkit (contoh: *TBK #1, TBK #2, TBK COM*)
+* **`unit`**: Bagian unit (contoh: *TBK #1, TBK #2, TBK CAH, TBK COM, TBK FF*)
 * **`titik`**: Titik ukur (contoh: *DE Motor, NDE Pump, Bearing 1*)
 * **`direction`**: Arah getaran / tipe (*H, V, A* untuk vibrasi atau *T* untuk temperatur)
 * **`date`**: Tanggal pengukuran (*YYYY-MM-DD* atau format tanggal Excel)
