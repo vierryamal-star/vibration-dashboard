@@ -119,7 +119,7 @@ with st.sidebar:
     render_login_sidebar()
 
 if df_hist.empty:
-    render_page_header("📊 Monitor Vibrasi & Operasi")
+    render_page_header("📊 Monitor Vibrasi & Status Operasi")
     st.info("📂 Belum ada data. Silakan upload data Excel pada menu **Data & Kelola**.")
     st.stop()
 
@@ -129,7 +129,7 @@ all_units = sorted(df_hist["unit"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEADER & TOP CONTROLS
+# HEADER & CLOCK
 # ══════════════════════════════════════════════════════════════════════════════
 render_page_header("📊 Monitor Vibrasi & Status Operasi")
 
@@ -147,49 +147,90 @@ def _live_clock():
 
 _live_clock()
 
-# Filter Ribbon
-with st.container():
-    fa, fb, fc = st.columns([2.5, 3.5, 2.5])
-    with fa:
-        st.caption("**🏭 Bagian Unit**")
-        sel_unit_btn = st.radio("Unit", ["All"] + all_units, horizontal=True,
-                                key="mon_unit", label_visibility="collapsed")
-        sel_unit = all_units if sel_unit_btn == "All" else [sel_unit_btn]
+# ══════════════════════════════════════════════════════════════════════════════
+# FILTER BAGIAN UNIT PINTAR (STATUS CHIPS)
+# ══════════════════════════════════════════════════════════════════════════════
+# Kalkulasi status terkini per Bagian Unit untuk label chip
+unit_status_summary = {}
+for u in all_units:
+    sub_u = df_hist[df_hist["unit"] == u]
+    sub_latest = (
+        sub_u[sub_u["direction"] != "T"]
+        .sort_values("date")
+        .groupby(["equipment", "titik", "direction"], as_index=False)
+        .last()
+    )
+    if not sub_latest.empty:
+        zones = sub_latest.apply(
+            lambda r: get_zone(r["value"], get_threshold(r["equipment"]))[0], axis=1
+        )
+        n_danger = (zones == "ZONE D").sum()
+        n_warn = (zones == "ZONE C").sum()
+        if n_danger > 0:
+            unit_status_summary[u] = f"🔴 {u} ({n_danger})"
+        elif n_warn > 0:
+            unit_status_summary[u] = f"🟡 {u} ({n_warn})"
+        else:
+            unit_status_summary[u] = f"✅ {u}"
+    else:
+        unit_status_summary[u] = u
 
-    all_equip = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
+unit_display_options = ["🏢 Semua Bagian Unit"] + [unit_status_summary[u] for u in all_units]
+unit_map_reverse = {unit_status_summary[u]: u for u in all_units}
+unit_map_reverse["🏢 Semua Bagian Unit"] = "All"
 
-    if st.session_state.get("_last_unit") != sel_unit_btn:
-        st.session_state["mon_equip"] = all_equip
-        st.session_state["_last_unit"] = sel_unit_btn
+st.caption("**🏭 Bagian Unit Pembangkit**")
+sel_unit_label = st.segmented_control(
+    "Bagian Unit",
+    options=unit_display_options,
+    default="🏢 Semua Bagian Unit",
+    key="mon_unit_segmented",
+    label_visibility="collapsed"
+)
 
-    with fb:
-        st.caption("**⚙️ Filter Equipment**")
-        with st.expander(f"Pilih Mesin ({len(all_equip)} terdaftar)", expanded=False):
-            if st.button("Pilih Semua Mesin", key="eq_selall", width="stretch"):
-                st.session_state["mon_equip"] = all_equip
-            if "mon_equip" in st.session_state:
-                st.session_state["mon_equip"] = [
-                    e for e in st.session_state["mon_equip"] if e in all_equip
-                ]
-            sel_equip = st.multiselect("Equipment", all_equip, key="mon_equip", label_visibility="collapsed")
+sel_unit_raw = unit_map_reverse.get(sel_unit_label, "All")
+sel_unit = all_units if sel_unit_raw == "All" else [sel_unit_raw]
 
-    if not sel_equip:
-        sel_equip = all_equip
+all_equip = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
 
-    with fc:
-        st.caption("**📅 Tampilan Data**")
-        date_mode = st.radio("Mode", ["🕐 Nilai Terbaru", "📅 Tanggal Spesifik"],
-                             horizontal=True, key="mon_date_mode", label_visibility="collapsed")
+# Reset session_state equipment saat unit berganti
+if st.session_state.get("_last_unit") != sel_unit_raw:
+    st.session_state["mon_equip"] = all_equip
+    st.session_state["_last_unit"] = sel_unit_raw
+
+# Filter Tambahan: Equipment & Mode Tanggal
+c_eq, c_dt = st.columns([3, 2])
+with c_eq:
+    with st.expander(f"⚙️ Filter Spesifik Equipment ({len(all_equip)} mesin)", expanded=False):
+        if st.button("Pilih Semua Mesin", key="eq_selall", width="stretch"):
+            st.session_state["mon_equip"] = all_equip
+        if "mon_equip" in st.session_state:
+            st.session_state["mon_equip"] = [
+                e for e in st.session_state["mon_equip"] if e in all_equip
+            ]
+        sel_equip = st.multiselect("Equipment", all_equip, key="mon_equip", label_visibility="collapsed")
+
+if not sel_equip:
+    sel_equip = all_equip
+
+with c_dt:
+    date_mode = st.radio(
+        "Mode Tampilan",
+        ["🕐 Nilai Terbaru", "📅 Tanggal Tertentu"],
+        horizontal=True,
+        key="mon_date_mode",
+        label_visibility="collapsed"
+    )
 
 sel_tgl_str = None
-if date_mode == "📅 Tanggal Spesifik":
-    sel_tgl = st.date_input("Tanggal", value=max(all_dates), min_value=min(all_dates), max_value=max(all_dates), key="mon_tgl")
+if date_mode == "📅 Tanggal Tertentu":
+    sel_tgl = st.date_input("Pilih Tanggal", value=max(all_dates), min_value=min(all_dates), max_value=max(all_dates), key="mon_tgl")
     sel_tgl_str = pd.to_datetime(sel_tgl).strftime("%Y-%m-%d")
     df_base = df_hist[
         df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
         (df_hist["date"].dt.date == sel_tgl)
     ].copy()
-    st.caption(f"Data tanggal: **{pd.to_datetime(sel_tgl_str).strftime('%d %b %Y')}**")
+    st.caption(f"Data arsip tanggal: **{pd.to_datetime(sel_tgl_str).strftime('%d %b %Y')}**")
 else:
     df_base = df_hist[
         df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip)
@@ -221,7 +262,7 @@ n_b = int((latest["zone"] == "ZONE B").sum())
 n_a = int((latest["zone"] == "ZONE A").sum())
 
 # ══════════════════════════════════════════════════════════════════════════════
-# KPI & STATUS OVERVIEW
+# KPI STATISTIK
 # ══════════════════════════════════════════════════════════════════════════════
 kpi_items = [
     ("📊", "Total Titik", str(total), "#6366f1"),
@@ -240,7 +281,7 @@ for ico, lbl, val, col in kpi_items:
 kpi_html += "</div>"
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# Filter Cepat Kartu
+# Filter Status Kartu
 _zone_filter_map = {
     "Semua Status": None,
     f"🔴 Danger ({n_d})": "ZONE D",
@@ -332,7 +373,6 @@ def _render_cards():
         row_data = match.iloc[0].to_dict()
         hours  = compute_running_hours(row_data)
         status = row_data.get("status", "stopped")
-        age    = get_pump_age(row_data.get("install_date"))
         rc = "#16a34a" if status == "running" else "#6b7280"
         dot = "🟢 Running" if status == "running" else "⚪ Stopped"
         
@@ -350,7 +390,6 @@ def _render_cards():
             is_danger = r["zk"] == "ZONE D"
             border_left = f"6px solid {bc}" if is_danger else f"4px solid {bc}"
             
-            # Sub-pill calculations
             zk_h = get_zone(r["H"], r["thr"])[0] if r["H"] is not None else "N/A"
             zk_v = get_zone(r["V"], r["thr"])[0] if r["V"] is not None else "N/A"
             zk_a = get_zone(r["A"], r["thr"])[0] if r["A"] is not None else "N/A"
