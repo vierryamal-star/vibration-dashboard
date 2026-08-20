@@ -27,23 +27,30 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 .eq-card-modern {
     border-radius: 12px;
     padding: 14px 16px;
-    border: 1px solid rgba(128,128,128,.15);
-    background: color-mix(in srgb, var(--background-color) 95%, transparent);
-    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+    border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color) 70%, var(--background-color));
+    box-shadow: 0 2px 10px rgba(0,0,0,.05);
     margin-bottom: 12px;
+    color: var(--text-color);
     transition: transform .15s ease, box-shadow .15s ease;
 }
 .eq-card-modern:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0,0,0,.08);
+    box-shadow: 0 6px 18px rgba(0,0,0,.1);
 }
 
-/* Modern Pill Matrix */
+.eq-subtext {
+    font-size: 11px;
+    color: color-mix(in srgb, var(--text-color) 70%, transparent);
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
 .pill-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
-    margin-top: 10px;
+    margin-top: 8px;
 }
 .pill-item {
     border-radius: 8px;
@@ -52,29 +59,46 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
     border: 1px solid transparent;
 }
 
-/* Table Style */
+details.eq-details {
+    margin-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent);
+    padding-top: 8px;
+}
+details.eq-details summary {
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--text-color) 75%, transparent);
+    list-style: none;
+    outline: none;
+}
+details.eq-details summary::-webkit-details-marker {
+    display: none;
+}
+
 .vt-wrap {
     border-radius: 12px; overflow: hidden;
-    border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
     margin-bottom: 24px;
     box-shadow: 0 2px 14px rgba(0,0,0,.06);
 }
 .vt {
     width: 100%; border-collapse: collapse; font-size: 13px;
     background: color-mix(in srgb, var(--background-color) 95%, transparent);
-    color: inherit;
+    color: var(--text-color);
 }
 .vt thead tr {
     background: color-mix(in srgb, var(--secondary-background-color) 100%, transparent);
-    border-bottom: 2px solid color-mix(in srgb, currentColor 10%, transparent);
+    border-bottom: 2px solid color-mix(in srgb, var(--text-color) 12%, transparent);
 }
 .vt thead th {
     padding: 11px 14px; font-size: 11px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .08em;
-    color: inherit; opacity: .6; white-space: nowrap;
+    color: color-mix(in srgb, var(--text-color) 75%, transparent);
+    white-space: nowrap;
 }
 .vt tbody tr {
-    border-bottom: 1px solid color-mix(in srgb, currentColor 6%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--text-color) 8%, transparent);
     transition: background .1s;
 }
 .vt tbody tr:hover { filter: brightness(1.05); }
@@ -129,7 +153,7 @@ all_units = sorted(df_hist["unit"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEADER & LIVE CLOCK (WIB / GMT+7 - SEBELAH KANAN)
+# HEADER & LIVE CLOCK (WIB / GMT+7 - POJOK KANAN ATAS)
 # ══════════════════════════════════════════════════════════════════════════════
 head_col, clock_col = st.columns([3, 2])
 
@@ -148,10 +172,10 @@ with clock_col:
         
         st.markdown(
             f'<div style="text-align:right;padding-top:4px;">'
-            f'  <div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#3b82f6;">'
-            f'    {_now.strftime("%H:%M:%S")} <span style="font-size:13px;font-weight:600;opacity:.7;">WIB</span>'
+            f'  <div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#2563eb;">'
+            f'    {_now.strftime("%H:%M:%S")} <span style="font-size:13px;font-weight:600;opacity:.75;">WIB</span>'
             f'  </div>'
-            f'  <div style="font-size:11px;font-weight:500;opacity:.6;margin-top:2px;">'
+            f'  <div style="font-size:11px;font-weight:600;color:color-mix(in srgb, var(--text-color) 70%, transparent);margin-top:2px;">'
             f'    {_hari}, {_now.day} {_bulan} {_now.year} (GMT+7)'
             f'  </div>'
             f'</div>',
@@ -275,7 +299,7 @@ n_a = int((latest["zone"] == "ZONE A").sum())
 # KPI STATISTIK
 # ══════════════════════════════════════════════════════════════════════════════
 kpi_items = [
-    ("📊", "Total Titik", str(total), "#6366f1"),
+    ("📊", "Total Titik", str(total), "#4f46e5"),
     ("🔵", "Accepted (A)", str(n_a), "#2563eb"),
     ("🟢", "Pre Warning (B)", str(n_b), "#16a34a"),
     ("🟡", "Warning (C)", str(n_c), "#d97706"),
@@ -284,9 +308,9 @@ kpi_items = [
 kpi_html = '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:8px 0 14px">'
 for ico, lbl, val, col in kpi_items:
     kpi_html += f"""
-<div style="background:{col}15;border:1px solid {col}30;border-radius:12px;padding:12px 8px;text-align:center">
+<div style="background:{col}14;border:1px solid {col}30;border-radius:12px;padding:12px 8px;text-align:center">
   <div style="font-size:24px;font-weight:800;color:{col};line-height:1">{val}</div>
-  <div style="font-size:11px;margin-top:4px;opacity:.75;font-weight:600">{ico} {lbl}</div>
+  <div style="font-size:11px;margin-top:4px;color:{col};font-weight:700">{ico} {lbl}</div>
 </div>"""
 kpi_html += "</div>"
 st.markdown(kpi_html, unsafe_allow_html=True)
@@ -336,14 +360,14 @@ def _render_pill(label, val, unit_s, zk, titik):
     if val is None or pd.isna(val):
         return f"""
 <div class="pill-item" style="background:rgba(128,128,128,.08);">
-  <div style="font-size:10px;font-weight:700;opacity:.4;">{label}</div>
-  <div style="font-size:13px;font-weight:600;opacity:.3;">–</div>
+  <div style="font-size:10px;font-weight:700;opacity:.5;">{label}</div>
+  <div style="font-size:13px;font-weight:600;opacity:.35;">–</div>
 </div>"""
-    c = ZC.get(zk, "#6b7280")
-    bg = ZB.get(zk, "transparent")
+    c = ZC.get(zk, "#4b5563")
+    bg = ZB.get(zk, "rgba(128,128,128,.08)")
     val_str = f"{val:.1f}" if unit_s == "°C" else f"{val:.2f}"
     return f"""
-<div class="pill-item" title="{titik or ''}" style="background:{bg};border-color:{c}40;">
+<div class="pill-item" title="{titik or ''}" style="background:{bg};border:1px solid {c}40;">
   <div style="font-size:10px;font-weight:700;color:{c};">{label}</div>
   <div style="font-size:13px;font-weight:800;color:{c};">{val_str}</div>
 </div>"""
@@ -378,7 +402,7 @@ def _render_cards():
         ] if not df_runtime_now.empty else pd.DataFrame()
         
         if match.empty:
-            return '<div style="font-size:11px;opacity:.5;margin-bottom:6px;">⏱️ Jam operasi belum diatur</div>'
+            return '<div style="font-size:11px;opacity:.6;margin-bottom:6px;">⏱️ Jam operasi belum diatur</div>'
         
         row_data = match.iloc[0].to_dict()
         hours  = compute_running_hours(row_data)
@@ -389,7 +413,7 @@ def _render_cards():
         return f"""
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;">
   <span style="color:{rc};font-weight:700;">{dot}</span>
-  <span style="font-weight:700;opacity:.85;">⏱️ {hours:,.1f} jam</span>
+  <span style="font-weight:700;color:var(--text-color);opacity:.9;">⏱️ {hours:,.1f} jam</span>
 </div>"""
 
     for i in range(0, len(eq_rows), 3):
@@ -419,21 +443,26 @@ def _render_cards():
   <div style="display:flex;justify-content:space-between;align-items:flex-start;">
     <div>
       <div style="font-size:15px;font-weight:800;line-height:1.2;">{r['eq']}</div>
-      <div style="font-size:11px;opacity:.5;margin-bottom:6px;">{r['unit']}</div>
+      <div class="eq-subtext">
+        {r['unit']} &nbsp;·&nbsp; 📅 {r['tgl']}
+      </div>
     </div>
-    <span style="font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:2px 8px;border-radius:99px;border:1px solid {bc}40;">
+    <span style="font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:3px 8px;border-radius:99px;border:1px solid {bc}50;">
       {r['zi']} {r['zl']}
     </span>
   </div>
   {_runtime_box(r['eq'], r['unit'])}
   <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px;">
-    <span style="opacity:.6;">Max Vibrasi:</span>
-    <span style="font-weight:700;color:{bc};">{r['mx']:.3f} mm/s</span>
+    <span style="color:color-mix(in srgb, var(--text-color) 75%, transparent);">Max Vibrasi:</span>
+    <span style="font-weight:800;color:{bc};">{r['mx']:.3f} mm/s</span>
   </div>
-  <div style="height:3px;border-radius:2px;background:rgba(128,128,128,.15);overflow:hidden;margin-top:4px;">
-    <div style="height:3px;width:{bar}%;background:{bc};"></div>
+  <div style="height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-top:4px;">
+    <div style="height:4px;width:{bar}%;background:{bc};"></div>
   </div>
-  {pills_html}
+  <details class="eq-details">
+    <summary>▸ Detail Arah &amp; Suhu</summary>
+    {pills_html}
+  </details>
 </div>""", unsafe_allow_html=True)
 
 _render_cards()
@@ -465,24 +494,24 @@ if det_unit_sel != "All":
 
 def _val_td(val, thr, show=True):
     if not show or val is None or pd.isna(val):
-        return '<td style="text-align:center;padding:8px 10px;opacity:.25;">–</td>'
+        return '<td style="text-align:center;padding:8px 10px;opacity:.3;">–</td>'
     zk = get_zone(val, thr)[0]
-    tc = ZC.get(zk, "#6b7280")
+    tc = ZC.get(zk, "#4b5563")
     bg = ZB.get(zk, "transparent")
     return f'<td style="text-align:center;padding:8px 10px;background:{bg};"><span style="font-weight:700;color:{tc};">{val:.3f}</span></td>'
 
 def _val_td_temp(val, thr, show=True):
     if not show or val is None or pd.isna(val):
-        return '<td style="text-align:center;padding:8px 10px;opacity:.25;">–</td>'
+        return '<td style="text-align:center;padding:8px 10px;opacity:.3;">–</td>'
     zk = get_zone_temp(val, thr)[0]
-    tc = ZC.get(zk, "#6b7280")
+    tc = ZC.get(zk, "#4b5563")
     bg = ZB.get(zk, "transparent")
     return f'<td style="text-align:center;padding:8px 10px;background:{bg};"><span style="font-weight:700;color:{tc};">{val:.1f}°C</span></td>'
 
 def _badge_td(zk, zi, zl):
-    tc = ZC.get(zk, "#6b7280")
+    tc = ZC.get(zk, "#4b5563")
     bg = ZB.get(zk, "transparent")
-    return f'<td style="padding:8px 12px;text-align:center;"><span style="background:{bg};color:{tc};border:1px solid {tc}40;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700;">{zi} {zl}</span></td>'
+    return f'<td style="padding:8px 12px;text-align:center;"><span style="background:{bg};color:{tc};border:1px solid {tc}50;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700;">{zi} {zl}</span></td>'
 
 def _render_tbl(df_unit, unit_label, df_unit_temp=None):
     equips = sorted(df_unit["equipment"].dropna().unique())
@@ -529,25 +558,25 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
 
             tgl = pd.to_datetime(df_t["date"].max()).strftime("%d %b %Y") if pd.notna(df_t["date"].max()) else "–"
 
-            eq_td = f'<td rowspan="{len(titiks)}" style="padding:10px 14px;font-size:13px;font-weight:700;vertical-align:middle;border-left:4px solid {eq_border};background:rgba(128,128,128,.03);">{eq}</td>' if i == 0 else ""
+            eq_td = f'<td rowspan="{len(titiks)}" style="padding:10px 14px;font-size:13px;font-weight:700;vertical-align:middle;border-left:4px solid {eq_border};background:rgba(128,128,128,.04);">{eq}</td>' if i == 0 else ""
 
             rows += (
                 f'<tr>'
                 + eq_td
-                + f'<td style="padding:8px 14px;opacity:.85;">{titik}</td>'
+                + f'<td style="padding:8px 14px;opacity:.9;">{titik}</td>'
                 + _val_td(h, thr, "H" in det_dir_sel)
                 + _val_td(v, thr, "V" in det_dir_sel)
                 + _val_td(a, thr, "A" in det_dir_sel)
                 + _val_td(max_v, thr)
                 + temp_td
                 + _badge_td(zk, zi, zl)
-                + f'<td style="padding:8px 14px;font-size:11px;opacity:.5;text-align:right;">{tgl}</td>'
+                + f'<td style="padding:8px 14px;font-size:11px;opacity:.6;text-align:right;">{tgl}</td>'
                 + '</tr>'
             )
 
     return (
         f'<div style="margin-bottom:24px;">'
-        f'<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.6;margin-bottom:8px;">🏭 {unit_label}</div>'
+        f'<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:color-mix(in srgb, var(--text-color) 70%, transparent);margin-bottom:8px;">🏭 {unit_label}</div>'
         f'<div class="vt-wrap"><table class="vt"><thead><tr>'
         f'<th style="text-align:left;min-width:140px;">Equipment</th>'
         f'<th style="text-align:left;min-width:120px;">Titik Ukur</th>'
