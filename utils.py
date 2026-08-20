@@ -446,23 +446,23 @@ def init_pump_runtime(equipment: str, unit: str):
             "equipment": equipment,
             "unit": unit,
             "status": "stopped",
-            "status_changed_at": now_wib.isoformat(),
+            "status_changed_at": now_wib.strftime("%Y-%m-%d %H:%M:%S"),
             "accumulated_hours": 0.0,
         }).execute()
 
 def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
     try:
         sb = get_supabase(service_role=True)
-        # Standardisasi timestamp ke format string naive datetime
         start_ts = pd.to_datetime(start_dt)
         if start_ts.tzinfo is not None:
             start_ts = start_ts.tz_convert("Asia/Jakarta").tz_localize(None)
+            
         sb.table("pump_runtime").update({
             "status": "running",
             "status_changed_at": start_ts.strftime("%Y-%m-%d %H:%M:%S"),
         }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
-        st.error(f"Gagal catat waktu mulai: {e}")
+        st.error(f"Gagal mencatat waktu mulai: {e}")
 
 def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
                        current_accum: float, current_changed_at) -> None:
@@ -477,9 +477,9 @@ def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
                 changed = pd.to_datetime(current_changed_at)
                 if changed.tzinfo is not None:
                     changed = changed.tz_convert("Asia/Jakarta").tz_localize(None)
-                delta_hours = max((stop_ts - changed).total_seconds() / 3600, 0)
+                delta_hours = max((stop_ts - changed).total_seconds() / 3600.0, 0.0)
             except Exception:
-                delta_hours = 0
+                delta_hours = 0.0
             new_accum = float(current_accum or 0) + delta_hours
         else:
             new_accum = float(current_accum or 0)
@@ -490,7 +490,7 @@ def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
             "accumulated_hours": new_accum,
         }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
-        st.error(f"Gagal catat waktu berhenti: {e}")
+        st.error(f"Gagal mencatat waktu berhenti: {e}")
 
 def reset_pump_runtime(equipment: str, unit: str) -> None:
     try:
@@ -515,19 +515,21 @@ def reset_pump_install_date(equipment: str, unit: str) -> None:
         st.error(f"Gagal reset umur pompa: {e}")
 
 def compute_running_hours(row: dict) -> float:
+    """Menghitung total jam berjalan. Jam saat status STOPPED dijamin tidak ikut terhitung."""
     accum = float(row.get("accumulated_hours", 0) or 0)
-    if row.get("status") == "running":
-        try:
-            changed = pd.to_datetime(row["status_changed_at"])
-            if changed.tzinfo is not None:
-                changed = changed.tz_convert("Asia/Jakarta").tz_localize(None)
-            
-            wib_now = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
-            delta = (wib_now - changed).total_seconds() / 3600
-            return accum + max(delta, 0)
-        except Exception:
-            return accum
-    return accum
+    if row.get("status") != "running":
+        return accum
+
+    try:
+        changed = pd.to_datetime(row["status_changed_at"])
+        if changed.tzinfo is not None:
+            changed = changed.tz_convert("Asia/Jakarta").tz_localize(None)
+        
+        wib_now = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
+        delta_seconds = (wib_now - changed).total_seconds()
+        return accum + max(delta_seconds / 3600.0, 0.0)
+    except Exception:
+        return accum
 
 def get_pump_age(install_date) -> str:
     if not install_date or pd.isna(install_date):
