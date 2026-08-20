@@ -54,7 +54,7 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 }
 .pill-item {
     border-radius: 8px;
-    padding: 6px 4px;
+    padding: 6px 3px;
     text-align: center;
     border: 1px solid transparent;
 }
@@ -332,7 +332,7 @@ zone_filter_key = _zone_filter_map[zone_filter_label]
 st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STATUS CARD PER EQUIPMENT (GRID VIEW)
+# STATUS CARD PER EQUIPMENT (DENGAN IDENTITAS NAMA TITIK LENGKAP)
 # ══════════════════════════════════════════════════════════════════════════════
 df_card_lat = latest[
     latest["unit"].isin(sel_unit) &
@@ -362,14 +362,20 @@ def _render_pill(label, val, unit_s, zk, titik):
 <div class="pill-item" style="background:rgba(128,128,128,.08);">
   <div style="font-size:10px;font-weight:700;opacity:.5;">{label}</div>
   <div style="font-size:13px;font-weight:600;opacity:.35;">–</div>
+  <div style="font-size:9px;opacity:.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">–</div>
 </div>"""
     c = ZC.get(zk, "#4b5563")
     bg = ZB.get(zk, "rgba(128,128,128,.08)")
     val_str = f"{val:.1f}" if unit_s == "°C" else f"{val:.2f}"
+    titik_str = str(titik) if titik and not pd.isna(titik) else "–"
+    
     return f"""
-<div class="pill-item" title="{titik or ''}" style="background:{bg};border:1px solid {c}40;">
+<div class="pill-item" title="{titik_str}" style="background:{bg};border:1px solid {c}40;">
   <div style="font-size:10px;font-weight:700;color:{c};">{label}</div>
   <div style="font-size:13px;font-weight:800;color:{c};">{val_str}</div>
+  <div style="font-size:9px;font-weight:600;color:{c};opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;">
+    {titik_str}
+  </div>
 </div>"""
 
 eq_rows = []
@@ -380,14 +386,27 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
     hv, ht = _max_dir(df_eq, "H")
     vv, vt = _max_dir(df_eq, "V")
     av, at = _max_dir(df_eq, "A")
-    all_v  = [x for x in [hv, vv, av] if x is not None and not pd.isna(x)]
-    mx     = max(all_v) if all_v else float("nan")
-    zk, zi, zl = get_zone(mx, thr)
+    
+    all_v = []
+    if hv is not None and not pd.isna(hv): all_v.append((hv, ht, "H"))
+    if vv is not None and not pd.isna(vv): all_v.append((vv, vt, "V"))
+    if av is not None and not pd.isna(av): all_v.append((av, at, "A"))
+    
+    if all_v:
+        mx_val, mx_titik, mx_dir = max(all_v, key=lambda x: x[0])
+    else:
+        mx_val, mx_titik, mx_dir = float("nan"), "–", ""
+
+    zk, zi, zl = get_zone(mx_val, thr)
     tv, tt = _max_temp(eq)
     tgl = pd.to_datetime(df_eq["date"].max()).strftime("%d %b %Y") if pd.notna(df_eq["date"].max()) else "–"
-    eq_rows.append(dict(eq=eq, unit=df_eq["unit"].iloc[0],
+    
+    eq_rows.append(dict(
+        eq=eq, unit=df_eq["unit"].iloc[0],
         H=hv, Ht=ht, V=vv, Vt=vt, A=av, At=at, T=tv, Tt=tt,
-        zk=zk, zi=zi, zl=zl, thr=thr, tgl=tgl, mx=mx))
+        zk=zk, zi=zi, zl=zl, thr=thr, tgl=tgl,
+        mx=mx_val, mx_titik=mx_titik, mx_dir=mx_dir
+    ))
 
 if zone_filter_key:
     eq_rows = [r for r in eq_rows if r["zk"] == zone_filter_key]
@@ -437,6 +456,8 @@ def _render_cards():
   {_render_pill("T (°C)", r['T'], "°C", zk_t, r['Tt'])}
 </div>"""
 
+            titik_info = f"Max ({r['mx_titik']} · {r['mx_dir']})" if r['mx_dir'] else "Max Vibrasi"
+
             with col:
                 st.markdown(f"""
 <div class="eq-card-modern" style="border-left:{border_left};">
@@ -452,9 +473,9 @@ def _render_cards():
     </span>
   </div>
   {_runtime_box(r['eq'], r['unit'])}
-  <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px;">
-    <span style="color:color-mix(in srgb, var(--text-color) 75%, transparent);">Max Vibrasi:</span>
-    <span style="font-weight:800;color:{bc};">{r['mx']:.3f} mm/s</span>
+  <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;">
+    <span style="color:color-mix(in srgb, var(--text-color) 75%, transparent);font-weight:600;">{titik_info}:</span>
+    <span style="font-weight:800;color:{bc};font-size:13px;">{r['mx']:.3f} mm/s</span>
   </div>
   <div style="height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-top:4px;">
     <div style="height:4px;width:{bar}%;background:{bc};"></div>
