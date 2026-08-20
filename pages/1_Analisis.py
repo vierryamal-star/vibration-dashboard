@@ -217,7 +217,6 @@ with t_trend:
         v_min = df_tr["value"].min()
         unit_sym = "°C" if is_temp else "mm/s"
 
-        # Format nilai string secara aman (mencegah ValueError)
         fmt_latest = f"{v_latest:.1f}" if is_temp else f"{v_latest:.3f}"
         fmt_max = f"{v_max:.1f}" if is_temp else f"{v_max:.3f}"
         fmt_mean = f"{v_mean:.1f}" if is_temp else f"{v_mean:.2f}"
