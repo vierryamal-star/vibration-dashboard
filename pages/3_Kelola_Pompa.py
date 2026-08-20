@@ -23,7 +23,6 @@ st.markdown("""
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-/* Status pill styling */
 .badge-running { background: rgba(34,197,94,.15); color: #16a34a; border: 1px solid #16a34a50; padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 11px; }
 .badge-stopped { background: rgba(107,114,128,.15); color: #6b7280; border: 1px solid #6b728050; padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 11px; }
 </style>
@@ -39,10 +38,10 @@ with st.sidebar:
     st.caption("Kelola Peralatan & Pompa")
     st.divider()
     st.markdown("### Navigasi")
-    st.page_link("app.py",                 label="📊 Monitor Vibrasi")
-    st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
-    st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
-    st.page_link("pages/3_Kelola_Pompa.py",label="🛠️ Kelola Pompa")
+    st.page_link("app.py",                  label="📊 Monitor Vibrasi")
+    st.page_link("pages/1_Analisis.py",     label="📈 Analisis")
+    st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
+    st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Pompa")
     st.divider()
     if st.button("🔄 Refresh Data", key="kp_refresh", width="stretch"):
         st.cache_data.clear()
@@ -68,28 +67,24 @@ def _safe_date(value):
     except Exception:
         return None
 
-# ── Load Data Runtime & Bearing ──────────────────────────────────────────────
 df_runtime_all = get_pump_runtime()
 df_bearing_all = get_bearing_install()
 
-# Pastikan inisialisasi untuk setiap unit & equipment
 eq_unit_pairs = (
     df_hist[["equipment", "unit"]].dropna().drop_duplicates()
     .sort_values(["unit", "equipment"])
 )
 
-# ── Header Ringkasan & Filter ────────────────────────────────────────────────
 col_filt, col_kpi1, col_kpi2 = st.columns([2, 1, 1])
 
 all_units_kp = sorted(df_hist["unit"].dropna().unique())
 with col_filt:
-    sel_unit_kp = st.selectbox("🏭 **Filter Unit Pabrik**", ["Semua Unit"] + all_units_kp, key="kp_unit_filter")
+    sel_unit_kp = st.selectbox("🏭 **Filter Bagian Unit**", ["Semua Bagian Unit"] + all_units_kp, key="kp_unit_filter")
 
 pairs_filtered = eq_unit_pairs.copy()
-if sel_unit_kp != "Semua Unit":
+if sel_unit_kp != "Semua Bagian Unit":
     pairs_filtered = pairs_filtered[pairs_filtered["unit"] == sel_unit_kp]
 
-# Hitung data metrik
 total_eq = len(pairs_filtered)
 running_cnt = 0
 for _, r in pairs_filtered.iterrows():
@@ -104,7 +99,6 @@ with col_kpi2:
 
 st.divider()
 
-# ── Panel Pemilihan Equipment (Target Edit) ──────────────────────────────────
 eq_options = [f"{r['equipment']} ({r['unit']})" for _, r in pairs_filtered.iterrows()]
 
 if not eq_options:
@@ -115,7 +109,6 @@ selected_eq_str = st.selectbox("🎯 **Pilih Equipment yang Akan Dikelola / Died
 sel_eq = selected_eq_str.split(" (")[0]
 sel_unit = selected_eq_str.split(" (")[1].replace(")", "")
 
-# Ambil data terkini untuk equipment yang dipilih
 match = df_runtime_all[(df_runtime_all["equipment"] == sel_eq) & (df_runtime_all["unit"] == sel_unit)]
 if match.empty:
     init_pump_runtime(sel_eq, sel_unit)
@@ -129,7 +122,6 @@ status = row_data.get("status", "stopped")
 hours_now = compute_running_hours(row_data)
 age = get_pump_age(row_data.get("install_date"))
 
-# ── Status Card Equipment Terpilih ───────────────────────────────────────────
 c_st1, c_st2, c_st3 = st.columns(3)
 with c_st1:
     st.markdown(f"**Status Saat Ini:**")
@@ -148,7 +140,6 @@ with c_st3:
 
 st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
-# ── Tabbed Operations Panel ──────────────────────────────────────────────────
 tab_op, tab_age, tab_bearing, tab_maint = st.tabs([
     "⏱️ Pencatatan Jam Operasi",
     "📅 Umur Unit Equipment",
@@ -162,7 +153,6 @@ with tab_op:
         st.markdown("#### ▶️ Mulai Operasi (Start)")
         st.caption("Ubah status menjadi **Running** dan mulai akumulasi jam kerja.")
         
-        # Shortcut aksi cepat
         if st.button("⚡ Start Sekarang (Waktu Saat Ini)", key="btn_quick_start", width="stretch", disabled=(status == "running")):
             start_pump_runtime(sel_eq, sel_unit, datetime.now())
             st.cache_data.clear()
