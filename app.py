@@ -7,7 +7,7 @@ from utils import (
     render_login_sidebar,
     get_temp_threshold, get_zone_temp,
     get_pump_runtime, compute_running_hours, get_pump_age,
-    ZC, ZB, ZONE_LABEL, ZONE_ICON,
+    ZC, ZB, ZONE_LABEL, ZONE_ICON, UI, render_page_header, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(
@@ -59,6 +59,7 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 .vt td{ padding:9px 14px; vertical-align:middle; }
 </style>
 """, unsafe_allow_html=True)
+st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 # ── Warna zone diimport dari utils.py (single source of truth — tidak lagi
 # didefinisikan ulang di sini, supaya kalau warna diubah cukup edit 1 tempat) ──
@@ -129,7 +130,7 @@ all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # HEADER + FILTER
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("## 📊 Monitor Vibrasi")
+render_page_header("📊 Monitor Vibrasi")
 
 # Jam live — DIISOLASI pakai st.fragment supaya cuma komponen jam ini yang
 # rerun tiap 1 detik, BUKAN seluruh halaman (filter, grafik, kartu, dll tetap diam).
@@ -303,6 +304,26 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# FILTER ZONE — terhubung dengan KPI di atas (klik pilih zone → kartu difilter)
+# ══════════════════════════════════════════════════════════════════════════════
+# Catatan teknis: kartu KPI di atas dirender sebagai HTML statis (st.markdown),
+# HTML murni tidak bisa memicu callback Python (tidak ada event JS ke Streamlit).
+# Jadi filter interaktifnya diwujudkan lewat kontrol terpisah di bawah KPI,
+# dengan warna & ikon yang sama persis supaya terasa terhubung secara visual.
+_zone_filter_map = {
+    "Semua":        None,
+    f"🔵 Accepted ({n_a})":    "ZONE A",
+    f"🟢 Pre Warning ({n_b})": "ZONE B",
+    f"🟡 Warning ({n_c})":     "ZONE C",
+    f"🔴 Danger ({n_d})":      "ZONE D",
+}
+zone_filter_label = st.radio(
+    "Filter kartu berdasarkan status", list(_zone_filter_map.keys()),
+    horizontal=True, key="zone_filter", label_visibility="collapsed",
+)
+zone_filter_key = _zone_filter_map[zone_filter_label]
+
+# ══════════════════════════════════════════════════════════════════════════════
 # STATUS CARD PER EQUIPMENT (vibrasi, suhu, running hours & umur pompa — 1 kartu)
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 🏭 Status per Equipment")
@@ -400,6 +421,10 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
         H=hv,Ht=ht, V=vv,Vt=vt, A=av,At=at, T=tv,Tt=tt,
         zk=zk,zi=zi,zl=zl, thr=thr, tgl=tgl, mx=mx))
 
+# Terapkan filter zone dari segmented control di atas (kalau "Semua", tidak difilter)
+if zone_filter_key:
+    eq_rows = [r for r in eq_rows if r["zk"] == zone_filter_key]
+
 # Kartu equipment (termasuk badge running hours) DIISOLASI pakai st.fragment
 # supaya cuma bagian ini yang rerun tiap 5 detik untuk update jam running —
 # filter, sidebar, dan bagian lain halaman TIDAK ikut re-render. Ini yang
@@ -446,30 +471,50 @@ def _render_equipment_cards():
             bg  = ZB.get(r["zk"],"transparent")
             bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
             rt_html = _runtime_badge(r["eq"], r["unit"])
-            col.markdown(f"""
-<div class="eq-card" style="
-  border:1px solid {bc}30; border-left:4px solid {bc};
-  border-radius:0 12px 12px 0; padding:14px; margin-bottom:10px;
-  background:{bg};">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
-    <div style="font-size:15px;font-weight:700;line-height:1.3">{r['eq']}</div>
-    <div style="font-size:11px;opacity:.45;white-space:nowrap;margin-left:6px">{r['tgl']}</div>
-  </div>
-  <div style="font-size:12px;opacity:.45;margin-bottom:10px">{r['unit']}</div>
+            is_danger = r["zk"] == "ZONE D"
+            # Card Danger dapat aksen lebih tegas: border kiri lebih tebal + glow
+            # merah subtle — supaya langsung menarik perhatian dibanding card normal.
+            border_w = "6px" if is_danger else "4px"
+            shadow   = UI["shadow_danger"] if is_danger else "none"
+
+            with col:
+                # Ringkasan SELALU terlihat + Detail native HTML <details>/<summary>.
+                # PENTING: ini BUKAN st.expander() — sengaja dihindari karena fragment
+                # ini re-run tiap 5 detik, dan st.expander() Streamlit tetap eksekusi
+                # isinya di sisi Python tiap render meski collapsed (persis masalah
+                # performa yang sama seperti di halaman Kelola Pompa). <details> HTML
+                # native cuma expand/collapse di browser — nol biaya render Python
+                # tambahan, karena string HTML-nya sudah pasti dibuat sekali per render.
+                detail_html = f"""
   {rt_html}
-  <div style="display:flex;gap:5px;margin-bottom:10px">
+  <div style="display:flex;gap:5px">
     {_dir_pill("H",r['H'],r['thr'],r['Ht'])}
     {_dir_pill("V",r['V'],r['thr'],r['Vt'])}
     {_dir_pill("A",r['A'],r['thr'],r['At'])}
     {_temp_pill(r['eq'],r['T'],r['Tt'])}
+  </div>"""
+                st.markdown(f"""
+<div class="eq-card" style="
+  border:1px solid {bc}30; border-left:{border_w} solid {bc};
+  border-radius:0 {UI['radius_card']} {UI['radius_card']} 0; padding:{UI['pad_card']};
+  margin-bottom:10px; background:{bg}; box-shadow:{shadow};">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
+    <div style="font-size:{UI['font_lg']};font-weight:700;line-height:1.3">{r['eq']}</div>
+    <div style="font-size:{UI['font_sm']};opacity:.45;white-space:nowrap;margin-left:6px">{r['tgl']}</div>
   </div>
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-    <span style="font-size:13px;font-weight:700;color:{bc}">{r['zi']} {r['zl']}</span>
-    <span style="font-size:12px;font-weight:600;color:{bc};opacity:.8">{r['mx']:.3f} mm/s</span>
+  <div style="font-size:{UI['font_base']};opacity:.45;margin-bottom:8px">{r['unit']}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <span style="font-size:{UI['font_md']};font-weight:700;color:{bc}">{r['zi']} {r['zl']}</span>
+    <span style="font-size:{UI['font_base']};font-weight:600;color:{bc};opacity:.8">{r['mx']:.3f} mm/s</span>
   </div>
-  <div style="height:3px;border-radius:2px;background:rgba(128,128,128,.2);overflow:hidden">
+  <div style="height:3px;border-radius:2px;background:rgba(128,128,128,.2);overflow:hidden;margin-top:6px">
     <div style="height:3px;width:{bar}%;background:{bc};border-radius:2px"></div>
   </div>
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;font-size:{UI['font_sm']};font-weight:600;opacity:.6;
+                    list-style:none;outline:none">▸ Detail vibrasi &amp; suhu</summary>
+    <div style="margin-top:8px">{detail_html}</div>
+  </details>
 </div>""", unsafe_allow_html=True)
 
 _render_equipment_cards()
