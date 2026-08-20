@@ -151,7 +151,7 @@ all_units = sorted(df_hist["unit"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEADER & LIVE CLOCK (WIB / GMT+7)
+# HEADER & LIVE CLOCK (WIB / GMT+7 - POJOK KANAN ATAS)
 # ══════════════════════════════════════════════════════════════════════════════
 head_col, clock_col = st.columns([3, 2])
 
@@ -330,7 +330,7 @@ zone_filter_key = _zone_filter_map[zone_filter_label]
 st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STATUS CARD PER EQUIPMENT
+# STATUS CARD PER EQUIPMENT (DENGAN IDENTITAS NAMA TITIK LENGKAP)
 # ══════════════════════════════════════════════════════════════════════════════
 df_card_lat = latest[
     latest["unit"].isin(sel_unit) &
@@ -425,7 +425,7 @@ def _render_cards():
         hours  = compute_running_hours(row_data)
         status = row_data.get("status", "stopped")
         rc = "#16a34a" if status == "running" else "#6b7280"
-        dot = '<span class="live-dot" style="color:#16a34a;">●</span> Running' if status == "running" else '<span style="color:#6b7280;">○</span> Stopped'
+        dot = "🟢 Running" if status == "running" else "⚪ Stopped"
         
         return f"""
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;">
@@ -440,7 +440,7 @@ def _render_cards():
             bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
             is_danger = r["zk"] == "ZONE D"
             border_left = f"6px solid {bc}" if is_danger else f"4px solid {bc}"
-            danger_class = "card-danger-glow" if is_danger else ""
+            danger_class = "card-danger-glow-static" if is_danger else ""
             
             zk_h = get_zone(r["H"], r["thr"])[0] if r["H"] is not None else "N/A"
             zk_v = get_zone(r["V"], r["thr"])[0] if r["V"] is not None else "N/A"
