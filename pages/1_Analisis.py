@@ -7,14 +7,14 @@ import io, sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from utils import (
-    load_history, get_zone, get_threshold, THRESHOLD, add_zone_cols, render_login_sidebar,
+    load_history, get_zone, get_threshold,
     get_temp_threshold, get_zone_temp,
-    ZC, ZB, ZONE_LABEL, ZONE_ICON, UI, render_page_header, render_section_header, GLOBAL_UI_CSS,
+    ZC, ZB, render_page_header, render_section_header,
+    render_app_sidebar, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(page_title="Analisis Vibrasi — PLTU TBK", page_icon="📈", layout="wide")
 
-# ── Global Styling ────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
@@ -29,36 +29,12 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 }
 .stat-val { font-size: 22px; font-weight: 800; line-height: 1.1; margin-bottom: 4px; }
 .stat-lbl { font-size: 11px; opacity: .65; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-
-.zbadge {
-    display: inline-flex; align-items: center; gap: 4px;
-    border-radius: 99px; padding: 3px 10px;
-    font-size: 11px; font-weight: 700; letter-spacing: .03em;
-    border: 1px solid transparent;
-}
 </style>
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    try:
-        st.image("assets/logo_pln_ip.png", width=200)
-    except Exception:
-        pass
-    st.markdown("## ⚡ PLTU TBK")
-    st.caption("Monitoring Vibrasi · ISO 10816")
-    st.divider()
-    st.markdown("### Navigasi")
-    st.page_link("app.py",                  label="📊 Monitor Vibrasi")
-    st.page_link("pages/1_Analisis.py",     label="📈 Analisis")
-    st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
-    st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Pompa")
-    st.divider()
-    if st.button("🔄 Refresh Data", key="sb_refresh_a", width="stretch"):
-        st.cache_data.clear()
-        st.rerun()
-    render_login_sidebar()
+# Render Sidebar Terpusat
+render_app_sidebar()
 
 render_page_header("📈 Analisis & Tren Vibrasi")
 
@@ -119,7 +95,7 @@ def add_threshold_bands(fig, thr):
     fig.add_hrect(y0=0, y1=thr["A"], fillcolor="rgba(37,99,235,0.06)", line_width=0, annotation_text="Zone A (Good)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#2563eb")
     fig.add_hrect(y0=thr["A"], y1=thr["B"], fillcolor="rgba(22,163,74,0.06)", line_width=0, annotation_text="Zone B (Pre-Warning)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#16a34a")
     fig.add_hrect(y0=thr["B"], y1=thr["C"], fillcolor="rgba(217,119,6,0.06)", line_width=0, annotation_text="Zone C (Warning)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#d97706")
-    fig.add_hline(y=thr["C"], line_dash="dash", line_color="#dc2626", line_width=1.5, annotation_text="Zone D (Danger Threshold)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#dc2626")
+    fig.add_hline(y=thr["C"], line_dash="dash", line_color="#dc2626", line_width=1.5, annotation_text="Zone D (Danger Limit)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#dc2626")
     return fig
 
 def add_threshold_bands_temp(fig, thr):
