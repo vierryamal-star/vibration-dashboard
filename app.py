@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from utils import (
     save_to_db, load_history, parse_excel,
     get_zone, get_threshold, THRESHOLD, add_zone_cols,
@@ -129,28 +129,40 @@ all_units = sorted(df_hist["unit"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEADER & CLOCK
+# HEADER & LIVE CLOCK (WIB / GMT+7 - SEBELAH KANAN)
 # ══════════════════════════════════════════════════════════════════════════════
-render_page_header("📊 Monitor Vibrasi & Status Operasi")
+head_col, clock_col = st.columns([3, 2])
 
-@st.fragment(run_every="1s")
-def _live_clock():
-    _now = datetime.now()
-    _hari = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"][_now.weekday()]
-    _bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
-              "Agustus","September","Oktober","November","Desember"][_now.month]
-    st.markdown(
-        f'<div style="font-size:12px;opacity:.65;margin-top:-6px;margin-bottom:12px">'
-        f'🕐 {_hari}, {_now.day} {_bulan} {_now.year} &nbsp;·&nbsp; '
-        f'<span style="font-variant-numeric:tabular-nums;font-weight:700">{_now.strftime("%H:%M:%S")}</span>'
-        f'</div>', unsafe_allow_html=True)
+with head_col:
+    render_page_header("📊 Monitor Vibrasi & Status Operasi")
 
-_live_clock()
+with clock_col:
+    @st.fragment(run_every="1s")
+    def _live_clock():
+        wib_tz = timezone(timedelta(hours=7))
+        _now = datetime.now(wib_tz)
+        
+        _hari = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"][_now.weekday()]
+        _bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
+                  "Agustus","September","Oktober","November","Desember"][_now.month]
+        
+        st.markdown(
+            f'<div style="text-align:right;padding-top:4px;">'
+            f'  <div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#3b82f6;">'
+            f'    {_now.strftime("%H:%M:%S")} <span style="font-size:13px;font-weight:600;opacity:.7;">WIB</span>'
+            f'  </div>'
+            f'  <div style="font-size:11px;font-weight:500;opacity:.6;margin-top:2px;">'
+            f'    {_hari}, {_now.day} {_bulan} {_now.year} (GMT+7)'
+            f'  </div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    _live_clock()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FILTER BAGIAN UNIT PINTAR (STATUS CHIPS)
 # ══════════════════════════════════════════════════════════════════════════════
-# Kalkulasi status terkini per Bagian Unit untuk label chip
 unit_status_summary = {}
 for u in all_units:
     sub_u = df_hist[df_hist["unit"] == u]
@@ -193,12 +205,10 @@ sel_unit = all_units if sel_unit_raw == "All" else [sel_unit_raw]
 
 all_equip = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
 
-# Reset session_state equipment saat unit berganti
 if st.session_state.get("_last_unit") != sel_unit_raw:
     st.session_state["mon_equip"] = all_equip
     st.session_state["_last_unit"] = sel_unit_raw
 
-# Filter Tambahan: Equipment & Mode Tanggal
 c_eq, c_dt = st.columns([3, 2])
 with c_eq:
     with st.expander(f"⚙️ Filter Spesifik Equipment ({len(all_equip)} mesin)", expanded=False):
