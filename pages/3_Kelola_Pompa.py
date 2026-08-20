@@ -2,13 +2,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, time as dtime
 from utils import (
-    load_history, render_login_sidebar, require_editor,
+    load_history, require_editor,
     get_pump_runtime, init_pump_runtime,
     start_pump_runtime, stop_pump_runtime,
     reset_pump_runtime, reset_pump_install_date,
     compute_running_hours, get_pump_age, update_pump_install_date,
     get_bearing_install, update_bearing_install, BEARING_POSISI,
-    render_page_header, GLOBAL_UI_CSS,
+    render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(
@@ -29,24 +29,8 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
-with st.sidebar:
-    try:
-        st.image("assets/logo_pln_ip.png", width=200)
-    except Exception:
-        pass
-    st.markdown("## ⚡ PLTU TBK")
-    st.caption("Kelola Peralatan & Pompa")
-    st.divider()
-    st.markdown("### Navigasi")
-    st.page_link("app.py",                  label="📊 Monitor Vibrasi")
-    st.page_link("pages/1_Analisis.py",     label="📈 Analisis")
-    st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
-    st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Pompa")
-    st.divider()
-    if st.button("🔄 Refresh Data", key="kp_refresh", width="stretch"):
-        st.cache_data.clear()
-        st.rerun()
-    render_login_sidebar()
+# Render Sidebar Terpusat
+render_app_sidebar()
 
 render_page_header("🛠️ Kelola Jam Operasi & Umur Komponen")
 
