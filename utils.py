@@ -82,26 +82,11 @@ div[data-testid="stExpander"] {
     box-shadow: 0 2px 10px rgba(0,0,0,.03) !important;
 }
 
-/* Pulsing red glow for Zone D Cards */
-@keyframes danger-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
-    70% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
-}
-.card-danger-glow {
-    animation: danger-pulse 2s infinite ease-in-out;
-    border-color: rgba(220, 38, 38, 0.4) !important;
-}
-
-/* Pulsing green dot for Running status */
-@keyframes green-pulse {
-    0% { transform: scale(0.95); opacity: 0.8; }
-    50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 4px #16a34a); }
-    100% { transform: scale(0.95); opacity: 0.8; }
-}
-.live-dot {
-    display: inline-block;
-    animation: green-pulse 1.8s infinite ease-in-out;
+/* Static Accent & Glow Ringan untuk Zone D (Bebas Lag / 0% Beban Repaint) */
+.card-danger-glow-static {
+    border-color: rgba(220, 38, 38, 0.45) !important;
+    box-shadow: 0 0 12px rgba(220, 38, 38, 0.18) !important;
+    background: color-mix(in srgb, rgba(220, 38, 38, 0.05) 50%, var(--secondary-background-color)) !important;
 }
 
 @media (max-width: 992px) {
