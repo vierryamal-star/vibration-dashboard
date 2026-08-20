@@ -1,48 +1,36 @@
 import streamlit as st
 import pandas as pd
 import io
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import sys, os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from utils import (
     load_history, save_to_db, parse_excel,
     delete_by_dates, delete_all,
-    THRESHOLD, render_login_sidebar, check_role
+    THRESHOLD, render_login_sidebar, check_role,
+    render_page_header, GLOBAL_UI_CSS, UI,
 )
 
-st.set_page_config(page_title="Data & Kelola — PLTU TBK", page_icon="🗄️", layout="wide")
+st.set_page_config(
+    page_title="Data & Kelola — PLTU TBK",
+    page_icon="🗄️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ── Global Styling ────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
+section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-/* Tab styling */
-div[data-testid="stTabs"] > div > div[role="tablist"] {
-    gap: 4px;
-    border-bottom: 2px solid rgba(128,128,128,.15);
-    padding-bottom: 0;
-}
-div[data-testid="stTabs"] button[role="tab"] {
-    font-size: 13px; font-weight: 600;
-    padding: 8px 18px; border-radius: 8px 8px 0 0;
-}
-
-/* Metric card */
-.mk-card {
-    border-radius: 10px; padding: 16px 18px;
+/* Custom Info & Warn Boxes */
+.card-box {
+    border-radius: 12px;
+    padding: 16px 18px;
     border: 1px solid rgba(128,128,128,.15);
     background: rgba(128,128,128,.04);
-}
-.mk-val { font-size: 28px; font-weight: 800; line-height: 1; }
-.mk-lbl { font-size: 11px; opacity: .5; margin-top: 5px; font-weight: 500; }
-
-/* Info box */
-.info-box {
-    border-radius: 10px; padding: 14px 16px;
-    border-left: 4px solid #2563eb;
-    background: rgba(37,99,235,.07);
-    font-size: 13px; line-height: 1.6;
 }
 .warn-box {
     border-radius: 10px; padding: 14px 16px;
@@ -56,386 +44,319 @@ div[data-testid="stTabs"] button[role="tab"] {
     background: rgba(220,38,38,.08);
     font-size: 13px; line-height: 1.6;
 }
-
-/* Format tabel */
-.ft { width:100%; border-collapse:collapse; font-size:13px; }
-.ft thead tr { border-bottom: 2px solid rgba(128,128,128,.15); }
-.ft thead th {
-    padding: 10px 14px; font-size:10px; font-weight:700;
-    text-transform:uppercase; letter-spacing:.08em; opacity:.5; text-align:left;
-}
-.ft tbody tr { border-bottom: 1px solid rgba(128,128,128,.07); }
-.ft tbody tr:hover { filter: brightness(1.06); }
-.ft td { padding: 9px 14px; vertical-align: middle; font-size:13px; }
-
-/* Section header */
-.sec-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
-.sec-bar  { width:4px; height:20px; border-radius:2px;
-            background:linear-gradient(180deg,#2563eb,#0891b2); flex-shrink:0; }
-.sec-title{ font-size:15px; font-weight:700; }
 </style>
 """, unsafe_allow_html=True)
+st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    try: st.image("assets/logo_pln_ip.png", width=200)
-    except: pass
+    try:
+        st.image("assets/logo_pln_ip.png", width=200)
+    except Exception:
+        pass
     st.markdown("## ⚡ PLTU TBK")
-    st.caption("Monitoring Vibrasi · ISO 10816")
+    st.caption("Manajemen Data & Konfigurasi")
     st.divider()
     st.markdown("### Navigasi")
-    st.page_link("app.py",                 label="📊 Monitor")
-    st.page_link("pages/1_Analisis.py",    label="📈 Analisis")
-    st.page_link("pages/2_Data_Kelola.py", label="🗄️ Data & Kelola")
-    st.page_link("pages/3_Kelola_Pompa.py",label="🛠️ Kelola Pompa")
+    st.page_link("app.py",                  label="📊 Monitor Vibrasi")
+    st.page_link("pages/1_Analisis.py",     label="📈 Analisis")
+    st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
+    st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Pompa")
+    st.divider()
+    if st.button("🔄 Refresh Data", key="dk_refresh", width="stretch"):
+        st.cache_data.clear()
+        st.rerun()
     render_login_sidebar()
 
 role = check_role()
 
-def sec_header(title):
-    st.markdown(f'<div class="sec-head"><div class="sec-bar"></div>'
-                f'<span class="sec-title">{title}</span></div>', unsafe_allow_html=True)
-
-st.markdown("## 🗄️ Data & Kelola")
+render_page_header("🗄️ Manajemen Data & Konfigurasi")
 
 tab_hist, tab_upload, tab_hapus, tab_setting = st.tabs([
-    "📋 Histori Data",
-    "⬆️ Upload Data",
+    "📋 Eksplorasi Data",
+    "⬆️ Upload Excel",
     "🗑️ Hapus Data",
-    "⚙️ Pengaturan",
+    "⚙️ Konfigurasi Threshold",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB HISTORI
+# TAB 1: EKSPLORASI DATA
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_hist:
     df_hist = load_history()
 
     if df_hist.empty:
-        st.markdown('<div class="info-box">📂 Belum ada data historis. Upload file Excel di tab <b>Upload Data</b>.</div>',
-                    unsafe_allow_html=True)
+        st.info("📂 Database masih kosong. Buka tab **Upload Excel** untuk menambahkan data.")
     else:
-        df_hist["date"]  = pd.to_datetime(df_hist["date"],  errors="coerce")
-        df_hist["value"] = pd.to_numeric(df_hist["value"],  errors="coerce")
+        df_hist["date"] = pd.to_datetime(df_hist["date"], errors="coerce")
+        df_hist["value"] = pd.to_numeric(df_hist["value"], errors="coerce")
         df_hist["date_str"] = df_hist["date"].dt.strftime("%Y-%m-%d")
 
-        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
-        # ── KPI ringkas ───────────────────────────────────────────────────────
+        # ── KPI Cards Ringkas ─────────────────────────────────────────────────
         n_total  = len(df_hist)
         n_equip  = df_hist["equipment"].nunique()
         n_unit   = df_hist["unit"].nunique()
         last_tgl = df_hist["date"].max().strftime("%d %b %Y") if pd.notna(df_hist["date"].max()) else "–"
 
-        k1, k2, k3, k4 = st.columns(4)
-        for col, val, lbl in [
-            (k1, f"{n_total:,}",  "Total Baris"),
-            (k2, str(n_equip),    "Equipment"),
-            (k3, str(n_unit),     "Unit"),
-            (k4, last_tgl,        "Data Terakhir"),
-        ]:
-            col.markdown(f'<div class="mk-card"><div class="mk-val">{val}</div>'
-                         f'<div class="mk-lbl">{lbl}</div></div>', unsafe_allow_html=True)
+        kpi_items = [
+            ("📄", "Total Baris", f"{n_total:,}", "#6366f1"),
+            ("⚙️", "Equipment", str(n_equip), "#2563eb"),
+            ("🏭", "Unit Pembangkit", str(n_unit), "#16a34a"),
+            ("🕒", "Data Terakhir", last_tgl, "#d97706"),
+        ]
+        kpi_html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:10px 0 18px">'
+        for ico, lbl, val, col in kpi_items:
+            kpi_html += f"""
+<div style="background:{col}15;border:1px solid {col}30;border-radius:12px;padding:14px;text-align:center">
+  <div style="font-size:22px;font-weight:800;color:{col};line-height:1.1">{val}</div>
+  <div style="font-size:11px;margin-top:6px;opacity:.7;font-weight:600">{ico} {lbl}</div>
+</div>"""
+        kpi_html += "</div>"
+        st.markdown(kpi_html, unsafe_allow_html=True)
 
-        st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
-
-        # ── Filter ───────────────────────────────────────────────────────────
-        sec_header("Filter Data")
-        fc1, fc2, fc3 = st.columns([2, 2, 2])
-        with fc1:
+        # ── Filter Panel ──────────────────────────────────────────────────────
+        with st.expander("🔍 **Filter & Pencarian Data**", expanded=True):
+            fc1, fc2, fc3 = st.columns([2, 2, 2])
             min_d = df_hist["date"].min().date()
             max_d = df_hist["date"].max().date()
-            date_range = st.date_input("Rentang Tanggal", value=(min_d, max_d), key="hist_date")
-        with fc2:
-            unit_opts = sorted(df_hist["unit"].dropna().unique())
-            sel_unit  = st.multiselect("Unit", unit_opts, default=unit_opts, key="hist_unit")
-        with fc3:
-            eq_opts  = sorted(df_hist["equipment"].dropna().unique())
-            sel_eq   = st.multiselect("Equipment", eq_opts, default=eq_opts, key="hist_eq")
+            
+            with fc1:
+                date_range = st.date_input("Rentang Tanggal", value=(min_d, max_d), key="dk_filter_date")
+            with fc2:
+                unit_opts = sorted(df_hist["unit"].dropna().unique())
+                sel_unit = st.multiselect("Pilih Unit", unit_opts, default=unit_opts, key="dk_filter_unit")
+            with fc3:
+                eq_opts = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
+                sel_eq = st.multiselect("Pilih Equipment", eq_opts, default=eq_opts, key="dk_filter_eq")
 
-        if len(date_range) == 2:
+        # Filtering logic
+        if isinstance(date_range, tuple) and len(date_range) == 2:
             d_from, d_to = str(date_range[0]), str(date_range[1])
             df_show = df_hist[
                 (df_hist["date_str"] >= d_from) &
                 (df_hist["date_str"] <= d_to) &
                 (df_hist["unit"].isin(sel_unit)) &
                 (df_hist["equipment"].isin(sel_eq))
-            ]
+            ].copy()
         else:
-            df_show = df_hist[df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_eq)]
+            df_show = df_hist[df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_eq)].copy()
 
-        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-        sec_header(f"Data ({len(df_show):,} baris)")
+        st.markdown(f"**Menampilkan `{len(df_show):,}` baris data sesuai filter:**")
 
-        df_disp = df_show.drop(columns=["id","uploaded_at","date_str"], errors="ignore").copy()
+        df_disp = df_show.drop(columns=["id", "uploaded_at", "date_str"], errors="ignore").copy()
         if "date" in df_disp.columns:
             df_disp["date"] = pd.to_datetime(df_disp["date"]).dt.strftime("%d %b %Y")
         if "value" in df_disp.columns:
             df_disp["value"] = df_disp["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
+
         st.dataframe(df_disp, width="stretch", hide_index=True)
 
-        # ── Download ──────────────────────────────────────────────────────────
-        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-        dl1, dl2, _ = st.columns([1, 1, 3])
-        df_exp = df_show.drop(columns=["id","uploaded_at","date_str"], errors="ignore")
-        fname  = f"vibration_{datetime.now().strftime('%Y%m%d')}"
-        with dl1:
-            st.download_button("⬇️ Download CSV", df_exp.to_csv(index=False).encode("utf-8"),
-                               file_name=f"{fname}.csv", mime="text/csv", width="stretch")
-        with dl2:
+        # ── Quick Export ──────────────────────────────────────────────────────
+        col_dl1, col_dl2, _ = st.columns([1, 1, 3])
+        df_exp = df_show.drop(columns=["id", "uploaded_at", "date_str"], errors="ignore")
+        fname = f"vibration_data_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        
+        with col_dl1:
+            st.download_button(
+                "⬇️ Download CSV",
+                df_exp.to_csv(index=False).encode("utf-8"),
+                file_name=f"{fname}.csv",
+                mime="text/csv",
+                width="stretch"
+            )
+        with col_dl2:
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as w:
                 df_exp.to_excel(w, index=False, sheet_name="Data")
-            st.download_button("⬇️ Download Excel", buf.getvalue(),
-                               file_name=f"{fname}.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               width="stretch")
+            st.download_button(
+                "⬇️ Download Excel (.xlsx)",
+                buf.getvalue(),
+                file_name=f"{fname}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch"
+            )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB UPLOAD
+# TAB 2: UPLOAD DATA
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_upload:
     if role != "editor":
-        st.markdown('<div class="warn-box">🔒 Upload hanya tersedia untuk <b>Editor</b>. Silakan login di sidebar.</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="warn-box">🔒 Fitur Upload Data hanya dapat diakses oleh <b>Editor</b>. Silakan login pada menu di sidebar.</div>', unsafe_allow_html=True)
     else:
-        sec_header("Upload File Excel")
-        st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+        st.markdown("#### ⬆️ Import Data Vibrasi / Suhu")
+        st.caption("Upload satu atau beberapa file Excel (.xlsx) dengan lembar kerja bernama **`Vibration_Data`**.")
 
         uploaded = st.file_uploader(
-            "Pilih satu atau beberapa file Excel (.xlsx)",
-            type=["xlsx"], accept_multiple_files=True,
-            help="Sheet: Vibration_Data — kolom: Equipment, Unit, Titik Ukur, Direction, Date, Value"
+            "Drop file Excel di sini atau klik untuk memilih",
+            type=["xlsx"],
+            accept_multiple_files=True,
+            help="Kolom wajib: equipment, unit, titik, direction, date, value"
         )
 
         if uploaded:
-            st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-
-            # Preview
+            st.markdown("---")
             preview_rows = []
+            parsed_dfs = []
+            
             for f in uploaded:
                 df_pv = parse_excel(f)
+                is_valid = not df_pv.empty
+                if is_valid:
+                    parsed_dfs.append((f.name, df_pv))
+                
                 preview_rows.append({
-                    "File": f.name,
-                    "Baris": len(df_pv),
-                    "Equipment": df_pv["equipment"].nunique() if not df_pv.empty else 0,
+                    "Nama File": f.name,
+                    "Status Validasi": "✅ Sesuai Format" if is_valid else "❌ Gagal / Kolom Kurang",
+                    "Jumlah Baris": f"{len(df_pv):,}" if is_valid else "0",
+                    "Unit": ", ".join(df_pv["unit"].unique()) if is_valid else "–",
+                    "Equipment": df_pv["equipment"].nunique() if is_valid else 0,
                     "Rentang Tanggal": (
-                        f"{pd.to_datetime(df_pv['date']).min().strftime('%d %b %Y')} – "
+                        f"{pd.to_datetime(df_pv['date']).min().strftime('%d %b %Y')} s.d. "
                         f"{pd.to_datetime(df_pv['date']).max().strftime('%d %b %Y')}"
-                        if not df_pv.empty else "–"
+                        if is_valid else "–"
                     ),
                 })
-            df_pv_tbl = pd.DataFrame(preview_rows)
-            st.markdown("**Preview file yang akan diupload:**")
-            st.dataframe(df_pv_tbl, width="stretch", hide_index=True)
-            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
 
-            if st.button("⬆️ Simpan ke Database", type="primary", width="content"):
-                total_saved = total_skip = 0
-                for file in uploaded:
-                    df_new = parse_excel(file)
-                    if not df_new.empty:
-                        saved   = save_to_db(df_new)
-                        skipped = len(df_new) - saved
-                        total_saved += saved; total_skip += skipped
-                        st.success(f"✅ **{file.name}** — {saved} baris disimpan · {skipped} duplikat dilewati")
-                if total_saved > 0:
-                    st.success(f"🎉 Total **{total_saved}** baris baru berhasil disimpan.")
+            st.markdown("**Hasil Pengecekan File:**")
+            st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
+
+            if parsed_dfs:
+                if st.button("🚀 Simpan Semua Data ke Database", type="primary", width="stretch"):
+                    total_saved = total_skip = 0
+                    progress_bar = st.progress(0.0)
+                    
+                    for idx, (fname, df_data) in enumerate(parsed_dfs):
+                        saved = save_to_db(df_data)
+                        skipped = len(df_data) - saved
+                        total_saved += saved
+                        total_skip += skipped
+                        progress_bar.progress((idx + 1) / len(parsed_dfs))
+                        
+                    st.success(f"🎉 Selesai! **{total_saved:,}** baris baru tersimpan ke database.")
+                    if total_skip > 0:
+                        st.info(f"ℹ️ **{total_skip:,}** baris duplikat dilewati secara otomatis.")
                     st.cache_data.clear()
-                if total_skip > 0:
-                    st.info(f"ℹ️ {total_skip} baris duplikat dilewati (sudah ada di database).")
+                    st.rerun()
 
-        st.divider()
-
-        sec_header("Format File yang Didukung")
-        st.markdown("Sheet **`Vibration_Data`** dengan kolom-kolom berikut:")
-
-        fmt_rows = [
-            ("Equipment",    "Nama equipment",             "Turbine 01, BFP A, ID Fan"),
-            ("Unit",         "Unit PLTU",                  "TBK #1, TBK #2, TBK COM"),
-            ("Titik Ukur",   "Posisi pengukuran",          "DE Motor, NDE Pump, Bearing 1"),
-            ("Direction",    "Arah: H / V / A",            "H"),
-            ("Date",         "Tanggal pengukuran",         "06/05/2026"),
-            ("Value (mm/s)", "Nilai vibrasi RMS",          "2.450"),
-        ]
-        rows_html = ""
-        for i, (col, ket, ex) in enumerate(fmt_rows):
-            bg = "rgba(128,128,128,.03)" if i%2==1 else "transparent"
-            rows_html += (f'<tr style="background:{bg}">'
-                          f'<td style="padding:9px 14px;font-weight:700;font-family:monospace;color:#2563eb">{col}</td>'
-                          f'<td style="padding:9px 14px">{ket}</td>'
-                          f'<td style="padding:9px 14px;opacity:.65;font-style:italic">{ex}</td>'
-                          f'</tr>')
-        st.markdown(f"""
-<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(128,128,128,.15)">
-<table class="ft">
-<thead><tr>
-  <th>Kolom</th><th>Keterangan</th><th>Contoh</th>
-</tr></thead>
-<tbody>{rows_html}</tbody></table></div>""", unsafe_allow_html=True)
+        with st.expander("ℹ️ Panduan Format Kolom Excel"):
+            st.markdown("""
+Pastikan file Excel memiliki sheet **`Vibration_Data`** dengan susunan header berikut:
+* **`equipment`**: Nama mesin (contoh: *BFP A, ID Fan, Turbine 01*)
+* **`unit`**: Unit pembangkit (contoh: *TBK #1, TBK #2, TBK COM*)
+* **`titik`**: Titik ukur (contoh: *DE Motor, NDE Pump, Bearing 1*)
+* **`direction`**: Arah getaran / tipe (*H, V, A* untuk vibrasi atau *T* untuk temperatur)
+* **`date`**: Tanggal pengukuran (*YYYY-MM-DD* atau format tanggal Excel)
+* **`value`**: Angka nilai pengukuran RMS (mm/s) atau Suhu (°C)
+            """)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB HAPUS
+# TAB 3: HAPUS DATA
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_hapus:
     if role != "editor":
-        st.markdown('<div class="warn-box">🔒 Hapus data hanya tersedia untuk <b>Editor</b>. Silakan login di sidebar.</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="warn-box">🔒 Fitur Penghapusan Data hanya dapat diakses oleh <b>Editor</b>.</div>', unsafe_allow_html=True)
     else:
         df_hapus = load_history()
         if df_hapus.empty:
-            st.info("Tidak ada data untuk dihapus.")
+            st.info("Database kosong, tidak ada data yang dapat dihapus.")
         else:
-            df_hapus["date"]     = pd.to_datetime(df_hapus["date"], errors="coerce")
+            df_hapus["date"] = pd.to_datetime(df_hapus["date"], errors="coerce")
             df_hapus["date_str"] = df_hapus["date"].dt.strftime("%Y-%m-%d")
 
-            h_tab1, h_tab2 = st.tabs(["🗓️ Hapus Per Tanggal", "⚠️ Hapus Semua"])
+            del_tab1, del_tab2 = st.tabs(["🗓️ Hapus Berdasarkan Tanggal", "⚠️ Hapus Seluruh Database"])
 
-            # ── Hapus Per Tanggal ─────────────────────────────────────────────
-            with h_tab1:
-                st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-
+            with del_tab1:
                 avail_dates = sorted(df_hapus["date_str"].dropna().unique(), reverse=True)
 
-                if not avail_dates:
-                    st.markdown('<div class="warn-box">⚠️ Tidak ada data yang bisa dihapus.</div>',
-                                unsafe_allow_html=True)
-                else:
-                    # Tampilkan ringkasan tanggal yang tersedia
-                    summ_avail = (
-                        df_hapus.groupby("date_str").size().reset_index(name="Jumlah Baris")
-                        .sort_values("date_str", ascending=False)
-                    )
-                    summ_avail["Tanggal"] = summ_avail["date_str"].apply(
-                        lambda d: datetime.strptime(d,"%Y-%m-%d").strftime("%d %B %Y"))
-
-                    sec_header(f"Tanggal Tersedia ({len(avail_dates)} tanggal)")
-                    # Tabel ringkasan tersedia
-                    rows_s = ""
-                    for i, (_, r) in enumerate(summ_avail.iterrows()):
-                        bg = "rgba(128,128,128,.03)" if i%2==1 else "transparent"
-                        rows_s += (f'<tr style="background:{bg}">'
-                                   f'<td style="padding:9px 14px">{r["Tanggal"]}</td>'
-                                   f'<td style="padding:9px 14px;text-align:right;font-weight:600">'
-                                   f'{r["Jumlah Baris"]:,} baris</td></tr>')
-                    st.markdown(f"""
-<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(128,128,128,.15);margin-bottom:16px">
-<table class="ft" style="width:100%">
-<thead><tr><th>Tanggal</th><th style="text-align:right">Jumlah Baris</th></tr></thead>
-<tbody>{rows_s}</tbody></table></div>""", unsafe_allow_html=True)
-
+                col_sel, col_prev = st.columns([1, 1])
+                with col_sel:
+                    st.markdown("##### Pilih Tanggal Pengukuran")
                     sel_dates = st.multiselect(
-                        "Pilih tanggal yang akan dihapus",
+                        "Pilih tanggal yang ingin dihapus:",
                         options=avail_dates,
-                        format_func=lambda d: datetime.strptime(d,"%Y-%m-%d").strftime("%d %B %Y"),
-                        key="del_dates",
+                        format_func=lambda d: datetime.strptime(d, "%Y-%m-%d").strftime("%d %B %Y"),
+                        key="del_sel_dates"
                     )
 
+                with col_prev:
                     if sel_dates:
-                        df_prev = df_hapus[df_hapus["date_str"].isin(sel_dates)]
-                        n_del   = len(df_prev)
-
-                        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="warn-box">⚠️ Akan menghapus <b>{n_del:,} baris</b> dari <b>{len(sel_dates)} tanggal</b> yang dipilih.</div>',
-                                    unsafe_allow_html=True)
-                        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-
-                        ba, _ = st.columns([1,4])
-                        with ba:
-                            if st.button(f"🗑️ Hapus {n_del:,} Baris", key="btn_del_date",
-                                         type="secondary", width="stretch"):
-                                with st.spinner("Menghapus..."):
-                                    delete_by_dates(sel_dates)
-                                st.success("✅ Data berhasil dihapus.")
-                                st.cache_data.clear()
-                                st.rerun()
-                    else:
-                        st.caption("Pilih minimal satu tanggal untuk melanjutkan.")
-
-            # ── Hapus Semua ───────────────────────────────────────────────────
-            with h_tab2:
-                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-                total_rows = len(df_hapus)
-
-                st.markdown(f'<div class="danger-box">🔴 Aksi ini akan menghapus <b>seluruh {total_rows:,} baris</b> data secara permanen dan tidak dapat dibatalkan.</div>',
-                            unsafe_allow_html=True)
-                st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
-
-                konfirmasi = st.text_input("Ketik **HAPUS SEMUA** untuk konfirmasi:", key="konfirm_all",
-                                           placeholder="HAPUS SEMUA")
-                bb, _ = st.columns([1,4])
-                with bb:
-                    if st.button("🗑️ Hapus Semua Data", key="btn_del_all",
-                                 type="secondary", width="stretch"):
-                        if konfirmasi.strip() == "HAPUS SEMUA":
-                            with st.spinner("Menghapus semua data..."):
-                                delete_all()
-                            st.success("✅ Semua data berhasil dihapus.")
+                        df_del_preview = df_hapus[df_hapus["date_str"].isin(sel_dates)]
+                        n_del = len(df_del_preview)
+                        st.markdown(f'<div class="warn-box">⚠️ Sebanyak <b>{n_del:,} baris</b> dari <b>{len(sel_dates)} tanggal</b> akan dihapus permanen.</div>', unsafe_allow_html=True)
+                        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+                        
+                        if st.button(f"🗑️ Konfirmasi Hapus ({n_del:,} Baris)", type="secondary", width="stretch"):
+                            with st.spinner("Menghapus data..."):
+                                delete_by_dates(sel_dates)
+                            st.success("Data berhasil dihapus.")
                             st.cache_data.clear()
                             st.rerun()
-                        else:
-                            st.error("❌ Konfirmasi tidak sesuai. Ketik: HAPUS SEMUA (huruf kapital)")
+                    else:
+                        st.caption("Pilih minimal satu tanggal pada dropdown di samping.")
+
+            with del_tab2:
+                total_db_rows = len(df_hapus)
+                st.markdown(f'<div class="danger-box">🔴 <b>PERINGATAN:</b> Aksi ini akan menghapus <b>seluruh {total_db_rows:,} baris</b> data historis di Supabase dan tidak bisa dibatalkan.</div>', unsafe_allow_html=True)
+                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+
+                col_confirm, col_btn = st.columns([2, 1])
+                with col_confirm:
+                    confirm_text = st.text_input("Ketik **HAPUS SEMUA** untuk konfirmasi penghapusan:", placeholder="HAPUS SEMUA")
+                with col_btn:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    if st.button("🚨 Hapus Semua Data", type="primary", width="stretch", disabled=(confirm_text.strip() != "HAPUS SEMUA")):
+                        with st.spinner("Membersihkan seluruh database..."):
+                            delete_all()
+                        st.success("Seluruh data berhasil dihapus.")
+                        st.cache_data.clear()
+                        st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB PENGATURAN
+# TAB 4: PENGATURAN THRESHOLD
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_setting:
     if role != "editor":
-        st.markdown('<div class="warn-box">🔒 Pengaturan hanya tersedia untuk <b>Editor</b>. Silakan login di sidebar.</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="warn-box">🔒 Pengaturan threshold hanya dapat disesuaikan oleh <b>Editor</b>.</div>', unsafe_allow_html=True)
     else:
-        sec_header("Threshold ISO 10816 (mm/s RMS)")
-        st.caption("⚠️ Perubahan hanya berlaku untuk **browser/sesi Anda sendiri** — "
-                   "tidak memengaruhi tampilan user lain, dan akan hilang saat tab ditutup "
-                   "(bukan disimpan permanen ke database).")
-        st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+        st.markdown("#### ⚙️ Konfigurasi Batas Standar Vibrasi (ISO 10816)")
+        st.caption("Pengaturan ini berlaku untuk sesi aktif browser Anda.")
 
-        # Ambil nilai override sesi saat ini (kalau ada) sebagai default form,
-        # supaya form menunjukkan nilai yang sudah pernah disimpan di sesi ini.
         _thr_cur = st.session_state.get("threshold_override", {})
-        _turbine_cur  = _thr_cur.get("Turbine", THRESHOLD["Turbine"])
-        _pumpfan_cur  = _thr_cur.get("Pump/Fan", THRESHOLD["Pump/Fan"])
+        _turbine_cur = _thr_cur.get("Turbine", THRESHOLD["Turbine"])
+        _pumpfan_cur = _thr_cur.get("Pump/Fan", THRESHOLD["Pump/Fan"])
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**🔧 Turbine**")
-            ta = st.number_input("Accepted <",      value=float(_turbine_cur["A"]), step=0.1, key="ta")
-            tb = st.number_input("Pre Warning ≤",   value=float(_turbine_cur["B"]), step=0.1, key="tb")
-            tc_val = st.number_input("Warning ≤",   value=float(_turbine_cur["C"]), step=0.1, key="tc")
-            st.caption("Di atas Warning → Danger")
-        with c2:
-            st.markdown("**🔧 Pump / Fan**")
-            pa = st.number_input("Accepted <",      value=float(_pumpfan_cur["A"]), step=0.1, key="pa")
-            pb = st.number_input("Pre Warning ≤",   value=float(_pumpfan_cur["B"]), step=0.1, key="pb")
-            pc_val = st.number_input("Warning ≤",   value=float(_pumpfan_cur["C"]), step=0.1, key="pc")
-            st.caption("Di atas Warning → Danger")
+        col_t, col_p = st.columns(2)
+        with col_t:
+            st.markdown("**🔧 Klasifikasi Turbin**")
+            ta = st.number_input("Zone A (Accepted) <", value=float(_turbine_cur["A"]), step=0.1, key="ta_cfg")
+            tb = st.number_input("Zone B (Pre Warning) ≤", value=float(_turbine_cur["B"]), step=0.1, key="tb_cfg")
+            tc = st.number_input("Zone C (Warning) ≤", value=float(_turbine_cur["C"]), step=0.1, key="tc_cfg")
 
-        st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-        sv, _ = st.columns([1,4])
-        with sv:
-            if st.button("💾 Simpan Threshold", type="primary", width="stretch"):
-                # FIX: simpan ke session_state (per-sesi), BUKAN mutasi dict THRESHOLD
-                # global — dulu ini bocor ke SEMUA user karena Streamlit satu proses
-                # server dipakai bersama semua sesi.
-                st.session_state["threshold_override"] = {
-                    "Turbine":  {"A": ta, "B": tb, "C": tc_val},
-                    "Pump/Fan": {"A": pa, "B": pb, "C": pc_val},
-                }
-                st.success("✅ Threshold diperbarui.")
+        with col_p:
+            st.markdown("**🔧 Klasifikasi Pompa / Fan**")
+            pa = st.number_input("Zone A (Accepted) <", value=float(_pumpfan_cur["A"]), step=0.1, key="pa_cfg")
+            pb = st.number_input("Zone B (Pre Warning) ≤", value=float(_pumpfan_cur["B"]), step=0.1, key="pb_cfg")
+            pc = st.number_input("Zone C (Warning) ≤", value=float(_pumpfan_cur["C"]), step=0.1, key="pc_cfg")
 
-    st.divider()
-    sec_header("Legenda Status Zona")
-    lg1, lg2, lg3, lg4 = st.columns(4)
-    zone_data = [
-        (lg1, "#2563eb", "rgba(37,99,235,.1)",   "🔵 Accepted",    "Vibrasi normal\nTidak ada tindakan"),
-        (lg2, "#16a34a", "rgba(22,163,74,.1)",   "🟢 Pre Warning", "Mulai dipantau\nlebih sering"),
-        (lg3, "#d97706", "rgba(217,119,6,.1)",   "🟡 Warning",     "Jadwalkan\npemeriksaan"),
-        (lg4, "#dc2626", "rgba(220,38,38,.1)",   "🔴 Danger",      "Tindakan segera\ndiperlukan"),
-    ]
-    for col, tc, bg, title, desc in zone_data:
-        col.markdown(f"""
-<div style="border-radius:10px;padding:14px;border:1px solid {tc}30;
-            background:{bg};text-align:center">
-  <div style="font-size:15px;font-weight:700;color:{tc};margin-bottom:5px">{title}</div>
-  <div style="font-size:12px;opacity:.7;line-height:1.5">{desc}</div>
+        if st.button("💾 Simpan Konfigurasi Batas", type="primary", width="stretch"):
+            st.session_state["threshold_override"] = {
+                "Turbine": {"A": ta, "B": tb, "C": tc},
+                "Pump/Fan": {"A": pa, "B": pb, "C": pc},
+            }
+            st.success("✅ Konfigurasi threshold berhasil diperbarui untuk sesi ini.")
+
+        st.divider()
+        st.markdown("**Keterangan Zona ISO:**")
+        lg1, lg2, lg3, lg4 = st.columns(4)
+        leg_items = [
+            (lg1, "#2563eb", "🔵 Accepted", "Kondisi sangat baik, operasi normal."),
+            (lg2, "#16a34a", "🟢 Pre Warning", "Kondisi wajar, mulai lakukan pemantauan tren."),
+            (lg3, "#d97706", "🟡 Warning", "Kondisi menurun, jadwalkan investigasi/pemeliharaan."),
+            (lg4, "#dc2626", "🔴 Danger", "Kondisi kritis, potensi kerusakan tinggi — tindak segera."),
+        ]
+        for col, tc, title, desc in leg_items:
+            col.markdown(f"""
+<div style="border-radius:10px;padding:12px;border:1px solid {tc}30;background:{tc}12;text-align:center">
+  <div style="font-size:14px;font-weight:700;color:{tc};margin-bottom:4px">{title}</div>
+  <div style="font-size:11px;opacity:.8;line-height:1.4">{desc}</div>
 </div>""", unsafe_allow_html=True)
