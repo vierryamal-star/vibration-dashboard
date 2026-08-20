@@ -20,7 +20,6 @@ st.markdown("""
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-/* Stat card */
 .stat-card {
     border-radius: 12px;
     padding: 14px 16px;
@@ -31,7 +30,6 @@ section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 .stat-val { font-size: 22px; font-weight: 800; line-height: 1.1; margin-bottom: 4px; }
 .stat-lbl { font-size: 11px; opacity: .65; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 
-/* Zone badge inline */
 .zbadge {
     display: inline-flex; align-items: center; gap: 4px;
     border-radius: 99px; padding: 3px 10px;
@@ -64,7 +62,6 @@ with st.sidebar:
 
 render_page_header("📈 Analisis & Tren Vibrasi")
 
-# ── Load Data ─────────────────────────────────────────────────────────────────
 df_hist = load_history()
 if df_hist.empty:
     st.info("📂 Belum ada data historis. Silakan upload data di halaman **Data & Kelola**.")
@@ -101,27 +98,17 @@ def plotly_theme():
         margin=dict(l=10, r=10, t=50, b=10),
     )
 
-def add_threshold_lines(fig, thr):
-    styles = [
-        (thr["A"], "#2563eb", "dot",  1, f"Zone A ≤{thr['A']}"),
-        (thr["B"], "#16a34a", "dot",  1, f"Zone B ≤{thr['B']}"),
-        (thr["C"], "#dc2626", "dash", 1.5, f"Zone C ≤{thr['C']}"),
-    ]
-    for y, col, dash, w, lbl in styles:
-        fig.add_hline(y=y, line_dash=dash, line_color=col, line_width=w,
-                      annotation_text=lbl, annotation_position="top left",
-                      annotation_font_size=10, annotation_font_color=col)
+def add_threshold_bands(fig, thr):
+    fig.add_hrect(y0=0, y1=thr["A"], fillcolor="rgba(37,99,235,0.06)", line_width=0, annotation_text="Zone A (Good)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#2563eb")
+    fig.add_hrect(y0=thr["A"], y1=thr["B"], fillcolor="rgba(22,163,74,0.06)", line_width=0, annotation_text="Zone B (Pre-Warning)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#16a34a")
+    fig.add_hrect(y0=thr["B"], y1=thr["C"], fillcolor="rgba(217,119,6,0.06)", line_width=0, annotation_text="Zone C (Warning)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#d97706")
+    fig.add_hline(y=thr["C"], line_dash="dash", line_color="#dc2626", line_width=1.5, annotation_text="Zone D (Danger Threshold)", annotation_position="top left", annotation_font_size=9, annotation_font_color="#dc2626")
     return fig
 
-def add_threshold_lines_temp(fig, thr):
-    styles = [
-        (thr["normal"], "#2563eb", "dot", 1, f"Normal ≤{thr['normal']}°C"),
-        (thr["danger"], "#dc2626", "dash", 1.5, f"Danger >{thr['danger']}°C"),
-    ]
-    for y, col, dash, w, lbl in styles:
-        fig.add_hline(y=y, line_dash=dash, line_color=col, line_width=w,
-                      annotation_text=lbl, annotation_position="top left",
-                      annotation_font_size=10, annotation_font_color=col)
+def add_threshold_bands_temp(fig, thr):
+    fig.add_hrect(y0=0, y1=thr["normal"], fillcolor="rgba(37,99,235,0.06)", line_width=0, annotation_text="Normal Range", annotation_position="top left", annotation_font_size=9, annotation_font_color="#2563eb")
+    fig.add_hrect(y0=thr["normal"], y1=thr["danger"], fillcolor="rgba(217,119,6,0.06)", line_width=0, annotation_text="Warning Range", annotation_position="top left", annotation_font_size=9, annotation_font_color="#d97706")
+    fig.add_hline(y=thr["danger"], line_dash="dash", line_color="#dc2626", line_width=1.5, annotation_text="Critical Limit", annotation_position="top left", annotation_font_size=9, annotation_font_color="#dc2626")
     return fig
 
 def rng_filter_ui(key_prefix):
@@ -145,7 +132,6 @@ def rng_filter_ui(key_prefix):
 def df_to_csv(df):
     return df.to_csv(index=False).encode("utf-8")
 
-# ── Tabs Navigasi Mode Analisis ───────────────────────────────────────────────
 t_trend, t_compare, t_pred = st.tabs([
     "📈 Tren & Riwayat Detail",
     "⚖️ Komparasi Lintas Equipment",
@@ -273,9 +259,9 @@ with t_trend:
                 ))
 
         if not is_temp:
-            fig = add_threshold_lines(fig, thr)
+            fig = add_threshold_bands(fig, thr)
         elif thr is not None:
-            fig = add_threshold_lines_temp(fig, thr)
+            fig = add_threshold_bands_temp(fig, thr)
 
         fig.update_layout(
             title=dict(text=f"Tren {sel_eq} ({sel_unit})", font_size=14),
@@ -429,7 +415,7 @@ with t_pred:
             marker=dict(symbol="diamond", size=6)
         ))
         
-        fig_p = add_threshold_lines(fig_p, thr_p)
+        fig_p = add_threshold_bands(fig_p, thr_p)
         fig_p.update_layout(
             title=f"Proyeksi Nilai Vibrasi {n_forward} Hari ke Depan ({eq_p})",
             yaxis_title="Vibrasi RMS (mm/s)",
