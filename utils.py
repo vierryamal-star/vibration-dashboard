@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import streamlit as st
 
 # ── Threshold Vibrasi (ISO 10816) ──────────────────────────────────────────
@@ -73,7 +73,6 @@ def render_section_header(title: str) -> None:
 
 GLOBAL_UI_CSS = """
 <style>
-/* Base typography */
 * { font-variant-numeric: tabular-nums; }
 
 div[data-testid="stExpander"] {
@@ -82,7 +81,6 @@ div[data-testid="stExpander"] {
     box-shadow: 0 2px 10px rgba(0,0,0,.03) !important;
 }
 
-/* Static Accent & Glow Ringan untuk Zone D (Bebas Lag / 0% Beban Repaint) */
 .card-danger-glow-static {
     border-color: rgba(220, 38, 38, 0.45) !important;
     box-shadow: 0 0 12px rgba(220, 38, 38, 0.18) !important;
@@ -285,30 +283,96 @@ def check_role():
         st.session_state["role"] = "viewer"
     return st.session_state["role"]
 
-def render_login_sidebar():
-    role = check_role()
-    st.sidebar.divider()
-    if role == "editor":
-        st.sidebar.success("🔓 Mode: **Editor**")
-        if st.sidebar.button("🔒 Logout", key="sb_logout"):
-            st.session_state["role"] = "viewer"
-            st.rerun()
-    else:
-        st.sidebar.info("👁️ Mode: **Viewer**")
-        with st.sidebar.expander("🔑 Login Editor"):
-            pwd = st.text_input("Password", type="password", key="sb_pwd_input")
-            if st.button("Login", key="sb_login_btn"):
-                if pwd == EDITOR_PASSWORD:
-                    st.session_state["role"] = "editor"
-                    st.rerun()
-                else:
-                    st.error("Password salah.")
-
 def require_editor():
     if check_role() != "editor":
         st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
         return False
     return True
+
+# ── Sidebar Terpusat & Modern ─────────────────────────────────────────────────
+def render_app_sidebar():
+    with st.sidebar:
+        try:
+            st.image("assets/logo_pln_ip.png", width=180)
+        except Exception:
+            pass
+        st.markdown("""
+        <div style="margin-top: 6px; margin-bottom: 12px;">
+            <div style="font-size: 16px; font-weight: 800; line-height: 1.2;">⚡ PLTU TBK</div>
+            <div style="font-size: 11px; opacity: .7; font-weight: 500;">Vibration & Asset Monitoring</div>
+            <div style="margin-top: 6px;">
+                <span style="font-size: 10px; font-weight: 700; background: rgba(22, 163, 74, 0.12); color: #16a34a; border: 1px solid rgba(22, 163, 74, 0.3); padding: 2px 8px; border-radius: 99px;">
+                    ● Database Connected
+                </span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+
+        st.caption("**NAVIGASI UTAMA**")
+        st.page_link("app.py",                  label="📊 Monitor Vibrasi")
+        st.page_link("pages/1_Analisis.py",     label="📈 Analisis Tren")
+        st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
+        st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Jam Operasi")
+
+        st.divider()
+
+        if st.button("🔄 Segarkan Data", key="sb_sync_btn", width="stretch"):
+            st.cache_data.clear()
+            st.rerun()
+
+        # Ringkasan Global Alert
+        df_h = load_history()
+        if not df_h.empty:
+            df_lat = (
+                df_h[df_h["direction"] != "T"]
+                .sort_values("date")
+                .groupby(["equipment", "titik", "direction"], as_index=False)
+                .last()
+            )
+            df_lat = add_zone_cols(df_lat)
+            n_d = (df_lat["zone"] == "ZONE D").sum()
+            n_c = (df_lat["zone"] == "ZONE C").sum()
+            
+            df_rt = get_pump_runtime()
+            n_run = (df_rt["status"] == "running").sum() if not df_rt.empty else 0
+
+            st.markdown(f"""
+            <div style="background: color-mix(in srgb, var(--secondary-background-color) 80%, transparent); border-radius: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent); margin: 12px 0;">
+                <div style="font-size: 10px; font-weight: 700; opacity: .6; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;">Ringkasan Alarm Global</div>
+                <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700;">
+                    <span style="color: #dc2626;">🔴 {n_d} Danger</span>
+                    <span style="color: #d97706;">🟡 {n_c} Warning</span>
+                    <span style="color: #16a34a;">🟢 {n_run} Running</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        role = check_role()
+        st.divider()
+        if role == "editor":
+            st.success("🔓 Mode: **Editor**")
+            if st.button("🔒 Logout", key="sb_logout", width="stretch"):
+                st.session_state["role"] = "viewer"
+                st.rerun()
+        else:
+            st.info("👁️ Mode: **Viewer**")
+            with st.expander("🔑 Login Editor"):
+                pwd = st.text_input("Password", type="password", key="sb_pwd_input")
+                if st.button("Login", key="sb_login_btn", width="stretch"):
+                    if pwd == EDITOR_PASSWORD:
+                        st.session_state["role"] = "editor"
+                        st.rerun()
+                    else:
+                        st.error("Password salah.")
+
+        st.markdown("""
+        <div style="font-size: 10px; text-align: center; opacity: .45; margin-top: 20px;">
+            ISO 10816 Standard Compliance<br>
+            © 2026 PLTU TBK · v2.4
+        </div>
+        """, unsafe_allow_html=True)
 
 # ── Running Hours Pompa ──────────────────────────────────────────────────────
 @st.cache_data(ttl=15)
