@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, time as dtime
+from datetime import datetime, date, time as dtime, timezone, timedelta
+import sys, os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from utils import (
     load_history, require_editor,
     get_pump_runtime, init_pump_runtime,
@@ -23,8 +26,8 @@ st.markdown("""
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-.badge-running { background: rgba(34,197,94,.15); color: #16a34a; border: 1px solid #16a34a50; padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 11px; }
-.badge-stopped { background: rgba(107,114,128,.15); color: #6b7280; border: 1px solid #6b728050; padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 11px; }
+.badge-running { background: rgba(34,197,94,.15); color: #16a34a; border: 1px solid #16a34a50; padding: 3px 10px; border-radius: 99px; font-weight: 800; font-size: 11px; }
+.badge-stopped { background: rgba(107,114,128,.15); color: #6b7280; border: 1px solid #6b728050; padding: 3px 10px; border-radius: 99px; font-weight: 800; font-size: 11px; }
 </style>
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
@@ -98,7 +101,7 @@ if match.empty:
     init_pump_runtime(sel_eq, sel_unit)
     st.cache_data.clear()
     row_data = {"status": "stopped", "accumulated_hours": 0.0,
-                "status_changed_at": datetime.now().isoformat(), "install_date": None}
+                "status_changed_at": datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None).isoformat(), "install_date": None}
 else:
     row_data = match.iloc[0].to_dict()
 
@@ -131,6 +134,8 @@ tab_op, tab_age, tab_bearing, tab_maint = st.tabs([
     "⚠️ Overhaul & Reset"
 ])
 
+wib_now = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
+
 with tab_op:
     col_run, col_stop = st.columns(2)
     with col_run:
@@ -138,14 +143,14 @@ with tab_op:
         st.caption("Ubah status menjadi **Running** dan mulai akumulasi jam kerja.")
         
         if st.button("⚡ Start Sekarang (Waktu Saat Ini)", key="btn_quick_start", width="stretch", disabled=(status == "running")):
-            start_pump_runtime(sel_eq, sel_unit, datetime.now())
+            start_pump_runtime(sel_eq, sel_unit, wib_now)
             st.cache_data.clear()
             st.success("Operasi berhasil dimulai.")
             st.rerun()
             
         with st.expander("Opsi Tanggal & Jam Manual (Start)"):
-            s_date = st.date_input("Tanggal Mulai", value=date.today(), key="kp_s_date")
-            s_time = st.time_input("Jam Mulai", value=dtime(0, 0), key="kp_s_time")
+            s_date = st.date_input("Tanggal Mulai", value=wib_now.date(), key="kp_s_date")
+            s_time = st.time_input("Jam Mulai", value=dtime(wib_now.hour, wib_now.minute), key="kp_s_time")
             if st.button("💾 Simpan Manual Start", key="btn_man_start", width="stretch", disabled=(status == "running")):
                 start_dt = datetime.combine(s_date, s_time)
                 start_pump_runtime(sel_eq, sel_unit, start_dt)
@@ -159,7 +164,7 @@ with tab_op:
         
         if st.button("⚡ Stop Sekarang (Waktu Saat Ini)", key="btn_quick_stop", width="stretch", disabled=(status == "stopped")):
             stop_pump_runtime(
-                sel_eq, sel_unit, datetime.now(), status,
+                sel_eq, sel_unit, wib_now, status,
                 float(row_data.get("accumulated_hours", 0) or 0),
                 row_data.get("status_changed_at")
             )
@@ -168,8 +173,8 @@ with tab_op:
             st.rerun()
             
         with st.expander("Opsi Tanggal & Jam Manual (Stop)"):
-            e_date = st.date_input("Tanggal Berhenti", value=date.today(), key="kp_e_date")
-            e_time = st.time_input("Jam Berhenti", value=dtime(0, 0), key="kp_e_time")
+            e_date = st.date_input("Tanggal Berhenti", value=wib_now.date(), key="kp_e_date")
+            e_time = st.time_input("Jam Berhenti", value=dtime(wib_now.hour, wib_now.minute), key="kp_e_time")
             if st.button("💾 Simpan Manual Stop", key="btn_man_stop", width="stretch", disabled=(status == "stopped")):
                 stop_dt = datetime.combine(e_date, e_time)
                 stop_pump_runtime(
@@ -190,7 +195,7 @@ with tab_age:
     with col_dt:
         new_inst_date = st.date_input(
             "Tanggal Instalasi Unit Fisik",
-            value=existing_inst or date.today(),
+            value=existing_inst or wib_now.date(),
             key="kp_eq_inst_date"
         )
     with col_act:
@@ -223,7 +228,7 @@ with tab_bearing:
             st.caption(f"Umur: **{b_age or '–'}**")
             b_val = st.date_input(
                 "Tgl Pasang",
-                value=b_existing_date or date.today(),
+                value=b_existing_date or wib_now.date(),
                 key=f"b_input_{sel_eq}_{sel_unit}_{bi}",
                 label_visibility="collapsed"
             )
