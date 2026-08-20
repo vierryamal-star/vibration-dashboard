@@ -91,11 +91,28 @@ def plotly_theme():
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(size=12, color="gray"),
-        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.15)", zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,.15)", zeroline=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=11),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(128,128,128,.15)",
+            zeroline=False,
+            type="date",
+            tickformat="%d %b %Y",
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(128,128,128,.15)",
+            zeroline=False
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.22,
+            xanchor="center",
+            x=0.5,
+            font_size=11
+        ),
         hovermode="x unified",
-        margin=dict(l=10, r=10, t=50, b=10),
+        margin=dict(l=10, r=10, t=60, b=80),
     )
 
 def add_threshold_bands(fig, thr):
@@ -254,7 +271,7 @@ with t_trend:
                     mode="lines+markers",
                     name=t_val if is_temp else f"{t_val} ({d})",
                     line=dict(color=color, width=2, dash=LS_LIST[i % 4]),
-                    marker=dict(size=5),
+                    marker=dict(size=6),
                     hovertemplate=f"<b>{t_val} ({d})</b><br>Tgl: %{{x|%d %b %Y}}<br>Nilai: %{{y:.3f}} {unit_sym}<extra></extra>"
                 ))
 
@@ -264,10 +281,17 @@ with t_trend:
             fig = add_threshold_bands_temp(fig, thr)
 
         fig.update_layout(
-            title=dict(text=f"Tren {sel_eq} ({sel_unit})", font_size=14),
+            title=dict(
+                text=f"<b>Tren Vibrasi / Suhu:</b> {sel_eq} ({sel_unit})",
+                font=dict(size=14, color="var(--text-color)"),
+                x=0,
+                y=0.98,
+                xanchor="left",
+                yanchor="top"
+            ),
             xaxis_title="Tanggal Pengukuran",
             yaxis_title=f"Besaran ({unit_sym})",
-            height=430,
+            height=460,
             **plotly_theme()
         )
         st.plotly_chart(fig, width="stretch")
@@ -334,7 +358,12 @@ with t_compare:
                     marker=dict(size=5),
                     hovertemplate=f"<b>{label} ({t_v})</b><br>%{{x|%d %b %Y}}<br>%{{y:.3f}} {unit_sym_c}<extra></extra>"
                 ))
-        fig_cmp.update_layout(title="Perbandingan Langsung", yaxis_title=f"Besaran ({unit_sym_c})", height=450, **plotly_theme())
+        fig_cmp.update_layout(
+            title=dict(text="<b>Perbandingan Tren Langsung</b>", font=dict(size=14, color="var(--text-color)")),
+            yaxis_title=f"Besaran ({unit_sym_c})",
+            height=460,
+            **plotly_theme()
+        )
         st.plotly_chart(fig_cmp, width="stretch")
     else:
         g1, g2 = st.columns(2)
@@ -343,14 +372,24 @@ with t_compare:
             for t_v in sorted(df_sub1["titik"].unique()):
                 s_t = df_sub1[df_sub1["titik"] == t_v]
                 fig1.add_trace(go.Scatter(x=s_t["date"], y=s_t["value"], mode="lines+markers", name=t_v))
-            fig1.update_layout(title=f"{eq1}", yaxis_title=f"Besaran ({unit_sym_c})", height=380, **plotly_theme())
+            fig1.update_layout(
+                title=dict(text=f"<b>{eq1}</b>", font=dict(size=13, color="var(--text-color)")),
+                yaxis_title=f"Besaran ({unit_sym_c})",
+                height=380,
+                **plotly_theme()
+            )
             st.plotly_chart(fig1, width="stretch")
         with g2:
             fig2 = go.Figure()
             for t_v in sorted(df_sub2["titik"].unique()):
                 s_t = df_sub2[df_sub2["titik"] == t_v]
                 fig2.add_trace(go.Scatter(x=s_t["date"], y=s_t["value"], mode="lines+markers", name=t_v))
-            fig2.update_layout(title=f"{eq2}", yaxis_title=f"Besaran ({unit_sym_c})", height=380, **plotly_theme())
+            fig2.update_layout(
+                title=dict(text=f"<b>{eq2}</b>", font=dict(size=13, color="var(--text-color)")),
+                yaxis_title=f"Besaran ({unit_sym_c})",
+                height=380,
+                **plotly_theme()
+            )
             st.plotly_chart(fig2, width="stretch")
 
 # ==============================================================================
@@ -417,9 +456,9 @@ with t_pred:
         
         fig_p = add_threshold_bands(fig_p, thr_p)
         fig_p.update_layout(
-            title=f"Proyeksi Nilai Vibrasi {n_forward} Hari ke Depan ({eq_p})",
+            title=dict(text=f"<b>Proyeksi Tren Nilai Vibrasi {n_forward} Hari ke Depan</b> ({eq_p})", font=dict(size=14, color="var(--text-color)")),
             yaxis_title="Vibrasi RMS (mm/s)",
-            height=430,
+            height=460,
             **plotly_theme()
         )
         st.plotly_chart(fig_p, width="stretch")
