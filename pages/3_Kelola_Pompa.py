@@ -8,6 +8,7 @@ from utils import (
     reset_pump_runtime, reset_pump_install_date,
     compute_running_hours, get_pump_age, update_pump_install_date,
     get_bearing_install, update_bearing_install, BEARING_POSISI,
+    UI, render_page_header, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(
@@ -25,6 +26,7 @@ st.markdown("""
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 </style>
 """, unsafe_allow_html=True)
+st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 # ── Sidebar (konsisten dengan app.py) ─────────────────────────────────────────
 with st.sidebar:
@@ -44,7 +46,7 @@ with st.sidebar:
         st.rerun()
     render_login_sidebar()
 
-st.markdown("## 🛠️ Kelola Pompa")
+render_page_header("🛠️ Kelola Pompa")
 st.caption("Catat tanggal & jam **mulai**/**berhenti** operasi dan tanggal instalasi (umur) "
            "untuk setiap equipment. Berlaku untuk **semua equipment**, tidak dibatasi jenisnya. "
            "Perubahan langsung terlihat di halaman **Monitor Vibrasi**.")
