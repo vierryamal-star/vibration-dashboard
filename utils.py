@@ -188,7 +188,7 @@ def load_history() -> pd.DataFrame:
 def save_to_db(df: pd.DataFrame) -> int:
     try:
         sb = get_supabase(service_role=True)
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone(timedelta(hours=7))).isoformat()
         existing_keys = set()
         start = 0
         batch_size = 1000
@@ -423,10 +423,10 @@ def render_app_sidebar():
         </div>
         """, unsafe_allow_html=True)
 
-# ── Running Hours Pompa ──────────────────────────────────────────────────────
+# ── Running Hours Pompa (Zona Waktu WIB Terpadu) ──────────────────────────────
 @st.cache_data(ttl=15)
 def get_pump_runtime() -> pd.DataFrame:
-    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours"]
+    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours", "install_date"]
     try:
         sb = get_supabase()
         res = sb.table("pump_runtime").select(
@@ -441,20 +441,25 @@ def init_pump_runtime(equipment: str, unit: str):
     sb = get_supabase(service_role=True)
     res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()
     if not res.data:
+        now_wib = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
         sb.table("pump_runtime").insert({
             "equipment": equipment,
             "unit": unit,
             "status": "stopped",
-            "status_changed_at": datetime.now().isoformat(),
+            "status_changed_at": now_wib.isoformat(),
             "accumulated_hours": 0.0,
         }).execute()
 
 def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
     try:
         sb = get_supabase(service_role=True)
+        # Standardisasi timestamp ke format string naive datetime
+        start_ts = pd.to_datetime(start_dt)
+        if start_ts.tzinfo is not None:
+            start_ts = start_ts.tz_convert("Asia/Jakarta").tz_localize(None)
         sb.table("pump_runtime").update({
             "status": "running",
-            "status_changed_at": pd.Timestamp(start_dt).isoformat(),
+            "status_changed_at": start_ts.strftime("%Y-%m-%d %H:%M:%S"),
         }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
         st.error(f"Gagal catat waktu mulai: {e}")
@@ -463,21 +468,25 @@ def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
                        current_accum: float, current_changed_at) -> None:
     try:
         sb = get_supabase(service_role=True)
-        stop_ts = pd.Timestamp(stop_dt)
+        stop_ts = pd.to_datetime(stop_dt)
+        if stop_ts.tzinfo is not None:
+            stop_ts = stop_ts.tz_convert("Asia/Jakarta").tz_localize(None)
+        
         if current_status == "running":
             try:
                 changed = pd.to_datetime(current_changed_at)
                 if changed.tzinfo is not None:
-                    changed = changed.tz_localize(None)
+                    changed = changed.tz_convert("Asia/Jakarta").tz_localize(None)
                 delta_hours = max((stop_ts - changed).total_seconds() / 3600, 0)
             except Exception:
                 delta_hours = 0
             new_accum = float(current_accum or 0) + delta_hours
         else:
             new_accum = float(current_accum or 0)
+            
         sb.table("pump_runtime").update({
             "status": "stopped",
-            "status_changed_at": stop_ts.isoformat(),
+            "status_changed_at": stop_ts.strftime("%Y-%m-%d %H:%M:%S"),
             "accumulated_hours": new_accum,
         }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
@@ -486,9 +495,10 @@ def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
 def reset_pump_runtime(equipment: str, unit: str) -> None:
     try:
         sb = get_supabase(service_role=True)
+        now_wib = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
         sb.table("pump_runtime").update({
             "status": "stopped",
-            "status_changed_at": datetime.now().isoformat(),
+            "status_changed_at": now_wib.strftime("%Y-%m-%d %H:%M:%S"),
             "accumulated_hours": 0.0,
         }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
@@ -497,8 +507,9 @@ def reset_pump_runtime(equipment: str, unit: str) -> None:
 def reset_pump_install_date(equipment: str, unit: str) -> None:
     try:
         sb = get_supabase(service_role=True)
+        now_wib = datetime.now(timezone(timedelta(hours=7))).date()
         sb.table("pump_runtime").update(
-            {"install_date": datetime.now().date().isoformat()}
+            {"install_date": now_wib.isoformat()}
         ).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
         st.error(f"Gagal reset umur pompa: {e}")
@@ -509,8 +520,10 @@ def compute_running_hours(row: dict) -> float:
         try:
             changed = pd.to_datetime(row["status_changed_at"])
             if changed.tzinfo is not None:
-                changed = changed.tz_localize(None)
-            delta = (pd.Timestamp.now() - changed).total_seconds() / 3600
+                changed = changed.tz_convert("Asia/Jakarta").tz_localize(None)
+            
+            wib_now = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
+            delta = (wib_now - changed).total_seconds() / 3600
             return accum + max(delta, 0)
         except Exception:
             return accum
@@ -521,7 +534,7 @@ def get_pump_age(install_date) -> str:
         return None
     try:
         d = pd.to_datetime(install_date)
-        now = pd.Timestamp.now()
+        now = datetime.now(timezone(timedelta(hours=7))).date()
         months = (now.year - d.year) * 12 + (now.month - d.month)
         if now.day < d.day:
             months -= 1
