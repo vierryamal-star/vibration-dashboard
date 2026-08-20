@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from utils import (
     load_history, get_zone, get_threshold, THRESHOLD, add_zone_cols, render_login_sidebar,
     get_temp_threshold, get_zone_temp,
+    ZC, ZB, ZONE_LABEL, ZONE_ICON, UI, render_page_header, render_section_header, GLOBAL_UI_CSS,
 )
 
 st.set_page_config(page_title="Analisis — PLTU TBK", page_icon="📈", layout="wide")
@@ -64,13 +65,12 @@ div[data-testid="stRadio"] > div { gap: 8px; }
 .sec-title { font-size: 15px; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
+st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 # ── Konstanta ─────────────────────────────────────────────────────────────────
-ZC = {"ZONE A":"#3b82f6","ZONE B":"#22c55e","ZONE C":"#d97706","ZONE D":"#dc2626","N/A":"#6b7280"}
-ZB = {"ZONE A":"rgba(59,130,246,.13)","ZONE B":"rgba(34,197,94,.13)",
-      "ZONE C":"rgba(217,119,6,.14)","ZONE D":"rgba(220,38,38,.14)","N/A":"rgba(107,114,128,.1)"}
-ZONE_LABEL = {"ZONE A":"Accepted","ZONE B":"Pre Warning","ZONE C":"Warning","ZONE D":"Danger","N/A":"N/A"}
-ZONE_ICON  = {"ZONE A":"🔵","ZONE B":"🟢","ZONE C":"🟡","ZONE D":"🔴","N/A":"⬜"}
+# ZC/ZB/ZONE_LABEL/ZONE_ICON diimport dari utils.py (single source of truth) —
+# sebelumnya didefinisikan ulang di sini secara terpisah dari app.py, sekarang
+# disatukan supaya warna & label zone konsisten di semua halaman.
 COLORS_DIR = {"H":"#3b82f6","V":"#10b981","A":"#f59e0b"}
 LS_LIST    = ["solid","dash","dot","dashdot"]
 DAYS_MAP   = {"7 Hari":7,"30 Hari":30,"90 Hari":90,"180 Hari":180}
@@ -102,7 +102,7 @@ with st.sidebar:
         st.rerun()
     render_login_sidebar()
 
-st.markdown("## 📈 Analisis Vibrasi")
+render_page_header("📈 Analisis Vibrasi")
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 df_hist = load_history()
@@ -322,8 +322,10 @@ def add_threshold_lines_temp(fig, thr):
     return fig
 
 def sec_header(title):
-    st.markdown(f'<div class="sec-head"><div class="sec-bar"></div>'
-                f'<span class="sec-title">{title}</span></div>', unsafe_allow_html=True)
+    # Delegasi ke render_section_header (utils.py) — dulu ini render manual pakai
+    # CSS class lokal (.sec-head/.sec-bar) yang beda styling-nya dari app.py.
+    # Sekarang pakai fungsi terpusat supaya section header identik di semua halaman.
+    render_section_header(title)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODE 1 — TREND DETAIL
