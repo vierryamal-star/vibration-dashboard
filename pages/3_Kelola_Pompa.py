@@ -126,7 +126,7 @@ c_st1, c_st2, c_st3 = st.columns(3)
 with c_st1:
     st.markdown(f"**Status Saat Ini:**")
     if status == "running":
-        st.markdown('<span class="badge-running"><span class="live-dot">●</span> RUNNING (BEROPERASI)</span>', unsafe_allow_html=True)
+        st.markdown('<span class="badge-running">🟢 RUNNING (BEROPERASI)</span>', unsafe_allow_html=True)
     else:
         st.markdown('<span class="badge-stopped">⚪ STOPPED (STANDBY/MATI)</span>', unsafe_allow_html=True)
 
