@@ -1,64 +1,83 @@
 """
-Rotor Balance — Single-Plane Balancing Calculator
+Rotor Balance — Kalkulator Single-Plane Balancing
 ---------------------------------------------------
-Drop this file into your Streamlit multi-page app's `pages/` folder
-(e.g. rename to `pages/8_Rotor_Balance.py`) and it will show up as a
-page in your existing app's sidebar navigation automatically.
+File ini untuk folder `pages/` di repo dashboard kamu, sebagai
+`pages/4_Rotor_Balance.py`.
 
-If you want to run it standalone to test first:
-    streamlit run Rotor_Balance.py
+Metode: single-plane (4-step) vector balancing method.
+  1. Ukur getaran awal (tanpa trial weight)      -> O
+  2. Pasang trial weight pada sudut tertentu     -> T
+  3. Ukur ulang getaran (dengan trial weight)    -> O+T
+  4. Hitung vector untuk dapat correction weight & sudut pemasangannya.
 
-Method: classic single-plane (4-step) vector balancing.
-  1. Run rotor, record original vibration: amplitude + phase   -> O
-  2. Stop, attach a trial weight at a known angle               -> T
-  3. Run again, record new vibration: amplitude + phase         -> O+T
-  4. Vector math gives the correction weight and where to place it.
-
-No external services, no data storage — pure calculation page.
+Tidak ada koneksi database — murni halaman kalkulasi.
 """
 
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
+from utils import render_app_sidebar, render_page_header, GLOBAL_UI_CSS
 
 # ---------------------------------------------------------------------------
-# Page config — wrapped in try/except because a multi-page app usually already
-# calls st.set_page_config() once in its main entry file. Calling it twice
-# raises an error, so we swallow that here.
+# Page config
 # ---------------------------------------------------------------------------
 try:
-    st.set_page_config(page_title="Rotor Balance", page_icon="⚙️", layout="wide")
+    st.set_page_config(
+        page_title="Rotor Balance — PLTU TBK",
+        page_icon="⚙️",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
 except Exception:
     pass
 
+# Sama seperti app.py: sembunyikan nav bawaan Streamlit, pakai sidebar custom
+st.markdown(
+    '<style>[data-testid="stSidebarNav"]{ display:none; }</style>',
+    unsafe_allow_html=True,
+)
+st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+.rb-step-card {
+    border-radius: 12px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color) 70%, var(--background-color));
+    margin-bottom: 10px;
+}
+.rb-step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #2563eb; color: white; font-size: 12px; font-weight: 800;
+    margin-right: 8px; flex-shrink: 0;
+}
+.rb-step-title { font-weight: 700; font-size: 14px; }
+.rb-step-desc { font-size: 12.5px; opacity: .8; margin-top: 4px; margin-left: 32px; }
+.rb-result-card {
+    border-radius: 14px;
+    padding: 20px;
+    background: linear-gradient(135deg, rgba(22,163,74,.10), rgba(37,99,235,.08));
+    border: 1px solid rgba(22,163,74,.35);
+    margin: 14px 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+render_app_sidebar()
 
 # ---------------------------------------------------------------------------
-# Core balancing math
+# Matematika inti
 # ---------------------------------------------------------------------------
 def to_complex(amp: float, phase_deg: float) -> complex:
     return amp * np.exp(1j * np.radians(phase_deg))
 
 
-def balance_single_plane(
-    o_amp: float,
-    o_phase: float,
-    t_weight: float,
-    t_angle: float,
-    ot_amp: float,
-    ot_phase: float,
-):
-    """
-    Single-plane (static) balancing via the 4-step vector method.
-
-    o_amp, o_phase   : original vibration amplitude & phase (no trial weight)
-    t_weight, t_angle: trial weight mass & the angle it was placed at
-    ot_amp, ot_phase : vibration amplitude & phase WITH the trial weight fitted
-
-    Returns dict with effect vector, sensitivity, correction weight & angle.
-    """
+def balance_single_plane(o_amp, o_phase, t_weight, t_angle, ot_amp, ot_phase):
     O = to_complex(o_amp, o_phase)
     OT = to_complex(ot_amp, ot_phase)
-    effect = OT - O  # vibration change caused purely by the trial weight
+    effect = OT - O
 
     effect_amp = float(np.abs(effect))
     effect_phase = float(np.degrees(np.angle(effect)) % 360)
@@ -66,18 +85,12 @@ def balance_single_plane(
     if effect_amp == 0 or t_weight == 0:
         return None
 
-    sensitivity = effect_amp / t_weight  # vibration units per gram of weight
-
+    sensitivity = effect_amp / t_weight
     correction_weight = o_amp / sensitivity
-
-    # Angle to rotate the trial weight by, so its effect cancels the original vibration
     angle_shift = (np.degrees(np.angle(O)) - np.degrees(np.angle(effect))) % 360
     correction_angle = (t_angle + angle_shift) % 360
 
     return {
-        "O": O,
-        "OT": OT,
-        "effect": effect,
         "effect_amp": effect_amp,
         "effect_phase": effect_phase,
         "sensitivity": sensitivity,
@@ -86,44 +99,36 @@ def balance_single_plane(
     }
 
 
-def polar_plot(o_amp, o_phase, t_angle, ot_amp, ot_phase, corr_weight, corr_angle, unit_label):
+def polar_plot(o_amp, o_phase, ot_amp, ot_phase, corr_angle, unit_label):
     max_r = max(o_amp, ot_amp, 1e-6) * 1.25
-
     fig = go.Figure()
 
-    # O (original) vector — line from center + marker
     fig.add_trace(go.Scatterpolar(
         r=[0, o_amp], theta=[o_phase, o_phase], mode="lines+markers",
-        line=dict(color="#c0392b", width=2), marker=dict(size=[0, 10]),
-        name="O (original)",
+        line=dict(color="#c0392b", width=3), marker=dict(size=[0, 11]),
+        name="O · Getaran awal",
     ))
-
-    # O+T (trial run) vector
     fig.add_trace(go.Scatterpolar(
         r=[0, ot_amp], theta=[ot_phase, ot_phase], mode="lines+markers",
-        line=dict(color="#2980b9", width=2), marker=dict(size=[0, 10]),
-        name="O+T (trial run)",
+        line=dict(color="#2980b9", width=3), marker=dict(size=[0, 11]),
+        name="O+T · Dengan trial weight",
     ))
-
-    # Correction angle — drawn at a fixed reference radius since it's a different
-    # unit (grams) to the vibration vectors, so its own magnitude isn't to scale
     fig.add_trace(go.Scatterpolar(
         r=[0, max_r * 0.9], theta=[corr_angle, corr_angle], mode="lines+markers",
-        line=dict(color="#27ae60", width=2, dash="dash"),
-        marker=dict(size=[0, 12], symbol="triangle-up"),
-        name="Correction angle",
+        line=dict(color="#16a34a", width=3, dash="dash"),
+        marker=dict(size=[0, 13], symbol="triangle-up"),
+        name="Sudut correction weight",
     ))
 
     fig.update_layout(
         polar=dict(
-            radialaxis=dict(range=[0, max_r], showticklabels=True),
-            angularaxis=dict(direction="counterclockwise", rotation=0),
+            radialaxis=dict(range=[0, max_r], showticklabels=True, ticksuffix=f" {unit_label}"),
+            angularaxis=dict(direction="counterclockwise", rotation=0, ticksuffix="°"),
         ),
-        title=f"Vibration vectors ({unit_label})",
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2),
-        margin=dict(t=50, b=60, l=40, r=40),
-        height=480,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25),
+        margin=dict(t=30, b=70, l=40, r=40),
+        height=440,
     )
     return fig
 
@@ -131,70 +136,140 @@ def polar_plot(o_amp, o_phase, t_angle, ot_amp, ot_phase, corr_weight, corr_angl
 # ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
-st.title("⚙️ Rotor Balance — Single-Plane Calculator")
-st.caption(
-    "Four-step vector method for single-plane (static) field balancing. "
-    "Enter your original run and trial-weight run readings below."
-)
+render_page_header("⚙️ Rotor Balance — Kalkulator Single-Plane")
+st.caption("Metode vector 4-langkah untuk balancing satu bidang (static balancing).")
 
-col1, col2 = st.columns(2)
+tab_panduan, tab_kalkulator = st.tabs(["📖 Panduan Penggunaan", "🧮 Kalkulator"])
 
-with col1:
-    st.subheader("1 · Original run (no trial weight)")
-    o_amp = st.number_input("Original vibration amplitude", min_value=0.0, value=4.0, step=0.1, key="o_amp")
-    o_phase = st.number_input("Original vibration phase (°)", min_value=0.0, max_value=360.0, value=60.0, step=1.0, key="o_phase")
-    unit_label = st.selectbox("Amplitude unit", ["mm/s", "mils", "µm", "g"], index=0)
+# ── TAB PANDUAN ──────────────────────────────────────────────────────────
+with tab_panduan:
+    steps = [
+        ("Ukur getaran awal (O)",
+         "Jalankan rotor dalam kondisi normal. Catat amplitudo dan phase angle getaran dari "
+         "titik referensi tetap di poros (keyphasor / reflective tape + strobe atau tachometer)."),
+        ("Matikan mesin, pasang trial weight",
+         "Pasang beban percobaan dengan massa yang diketahui pasti (misal 10 gram) di sudut "
+         "tertentu dari titik referensi yang sama."),
+        ("Jalankan ulang, ukur getaran dengan trial weight (O+T)",
+         "Nyalakan rotor lagi. Ukur amplitudo dan phase angle getaran yang baru, dari referensi "
+         "yang persis sama seperti langkah 1."),
+        ("Isi semua nilai di tab Kalkulator, lalu hitung",
+         "Kalkulator menghitung effect vector dari trial weight, sensitivity rotor, dan hasil "
+         "akhirnya: berapa gram correction weight dan di sudut berapa."),
+        ("Pasang correction weight, lepas trial weight",
+         "Matikan mesin. Lepas trial weight, pasang correction weight sesuai hasil kalkulasi — "
+         "diukur dari referensi dan arah yang sama seperti sebelumnya."),
+        ("Jalankan lagi untuk verifikasi",
+         "Ukur getaran akhir. Kalau sudah turun ke Zone A/B ISO 10816, selesai. Kalau belum, "
+         "ulangi sebagai trial run baru — pakai hasil correction sebagai O yang baru."),
+    ]
+    for i, (title, desc) in enumerate(steps, start=1):
+        st.markdown(f"""
+        <div class="rb-step-card">
+            <div><span class="rb-step-num">{i}</span><span class="rb-step-title">{title}</span></div>
+            <div class="rb-step-desc">{desc}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-with col2:
-    st.subheader("2 · Trial run (with trial weight fitted)")
-    t_weight = st.number_input("Trial weight mass (g)", min_value=0.0, value=10.0, step=0.5, key="t_weight")
-    t_angle = st.number_input("Trial weight placement angle (°)", min_value=0.0, max_value=360.0, value=0.0, step=1.0, key="t_angle")
-    ot_amp = st.number_input("Trial-run vibration amplitude", min_value=0.0, value=5.6, step=0.1, key="ot_amp")
-    ot_phase = st.number_input("Trial-run vibration phase (°)", min_value=0.0, max_value=360.0, value=127.0, step=1.0, key="ot_phase")
+    st.warning(
+        "⚠️ **Penting:** ukur phase angle dari titik referensi dan arah yang **sama persis** "
+        "di ketiga langkah pengukuran. Kalau referensinya berubah-ubah, sudut correction "
+        "weight yang dihasilkan bisa salah arah.",
+        icon="⚠️",
+    )
 
-st.info(
-    "Phase angle convention: measure from the same fixed reference mark on the shaft "
-    "each time (e.g. keyphasor / reflective tape), in the same direction, for all three readings.",
-    icon="ℹ️",
-)
+# ── TAB KALKULATOR ───────────────────────────────────────────────────────
+with tab_kalkulator:
+    unit_label = st.selectbox(
+        "Satuan amplitudo getaran", ["mm/s", "mils", "µm", "g"], index=0,
+        help="Satuan yang kamu pakai untuk membaca amplitudo dari alat ukur getaran.",
+    )
 
-if st.button("Calculate correction", type="primary", use_container_width=True):
-    result = balance_single_plane(o_amp, o_phase, t_weight, t_angle, ot_amp, ot_phase)
+    st.markdown("##### 1 · Getaran awal (sebelum pasang trial weight)")
+    c1, c2 = st.columns(2)
+    o_amp = c1.number_input(
+        f"Amplitudo awal ({unit_label})", min_value=0.0, value=4.0, step=0.1, key="o_amp",
+        help="Nilai getaran yang terbaca sebelum trial weight dipasang.",
+    )
+    o_phase = c2.number_input(
+        "Phase angle awal (°)", min_value=0.0, max_value=360.0, value=60.0, step=1.0, key="o_phase",
+        help="Sudut fase getaran, diukur dari titik referensi tetap di poros.",
+    )
 
-    if result is None:
-        st.error("Trial weight effect came out as zero — check that the trial-run reading actually differs from the original run.")
-    else:
-        st.divider()
-        r1, r2, r3 = st.columns(3)
-        r1.metric("Correction weight", f"{result['correction_weight']:.2f} g")
-        r2.metric("Correction angle", f"{result['correction_angle']:.1f}°")
-        r3.metric("Sensitivity", f"{result['sensitivity']:.3f} {unit_label}/g")
+    st.markdown("##### 2 · Trial weight yang dipasang")
+    c3, c4 = st.columns(2)
+    t_weight = c3.number_input(
+        "Massa trial weight (gram)", min_value=0.0, value=10.0, step=0.5, key="t_weight",
+        help="Massa beban percobaan yang kamu pasang pada rotor.",
+    )
+    t_angle = c4.number_input(
+        "Sudut pemasangan trial weight (°)", min_value=0.0, max_value=360.0, value=0.0, step=1.0, key="t_angle",
+        help="Sudut di mana trial weight dipasang, dari referensi yang sama.",
+    )
 
-        st.caption(
-            f"Effect vector of the trial weight: {result['effect_amp']:.2f} {unit_label} "
-            f"@ {result['effect_phase']:.1f}°"
-        )
+    st.markdown("##### 3 · Getaran setelah trial weight terpasang")
+    c5, c6 = st.columns(2)
+    ot_amp = c5.number_input(
+        f"Amplitudo trial run ({unit_label})", min_value=0.0, value=5.6, step=0.1, key="ot_amp",
+        help="Nilai getaran yang terbaca setelah trial weight dipasang.",
+    )
+    ot_phase = c6.number_input(
+        "Phase angle trial run (°)", min_value=0.0, max_value=360.0, value=127.0, step=1.0, key="ot_phase",
+        help="Sudut fase getaran saat trial weight terpasang, referensi sama seperti langkah 1.",
+    )
 
-        fig = polar_plot(o_amp, o_phase, t_angle, ot_amp, ot_phase,
-                          result["correction_weight"], result["correction_angle"], unit_label)
-        st.plotly_chart(fig, use_container_width=True)
+    st.button("🧮 Hitung Correction Weight", type="primary", use_container_width=True, key="calc_btn")
 
-        st.success(
-            f"Place **{result['correction_weight']:.2f} g** at **{result['correction_angle']:.1f}°** "
-            "from your reference mark (same direction you measured phase in), replacing the trial weight.",
-            icon="✅",
-        )
+    if st.session_state.get("calc_btn"):
+        result = balance_single_plane(o_amp, o_phase, t_weight, t_angle, ot_amp, ot_phase)
 
-        with st.expander("How this was calculated"):
-            st.markdown(
-                "- Original and trial-run vibration readings are converted to vectors "
-                "(amplitude ∠ phase).\n"
-                "- The **effect vector** is the trial-run vector minus the original vector — "
-                "this isolates the vibration change caused purely by the trial weight.\n"
-                "- **Sensitivity** = effect amplitude ÷ trial weight mass.\n"
-                "- **Correction weight** = original amplitude ÷ sensitivity.\n"
-                "- **Correction angle** = trial weight angle, rotated by the angular difference "
-                "between the original vector and the effect vector."
+        if result is None:
+            st.error(
+                "Effect vector dari trial weight = 0 — cek lagi, kemungkinan nilai trial run "
+                "sama persis dengan nilai getaran awal (belum ada perubahan terukur).",
+                icon="🚫",
             )
-else:
-    st.caption("Fill in the readings above and press **Calculate correction**.")
+        else:
+            st.markdown(f"""
+            <div class="rb-result-card">
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.7;margin-bottom:10px;">
+                    Hasil Perhitungan
+                </div>
+                <div style="display:flex;gap:32px;flex-wrap:wrap;">
+                    <div>
+                        <div style="font-size:11px;opacity:.7;">Correction Weight</div>
+                        <div style="font-size:26px;font-weight:800;color:#16a34a;">{result['correction_weight']:.2f} g</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;opacity:.7;">Sudut Pemasangan</div>
+                        <div style="font-size:26px;font-weight:800;color:#2563eb;">{result['correction_angle']:.1f}°</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;opacity:.7;">Sensitivity Rotor</div>
+                        <div style="font-size:26px;font-weight:800;">{result['sensitivity']:.3f}</div>
+                        <div style="font-size:10px;opacity:.6;">{unit_label}/g</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.success(
+                f"➡️ Lepas trial weight, lalu pasang **{result['correction_weight']:.2f} gram** "
+                f"pada sudut **{result['correction_angle']:.1f}°** dari titik referensi yang sama.",
+                icon="✅",
+            )
+
+            fig = polar_plot(o_amp, o_phase, ot_amp, ot_phase, result["correction_angle"], unit_label)
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Lihat detail perhitungan"):
+                st.markdown(
+                    f"- **Effect vector** (perubahan getaran akibat trial weight): "
+                    f"{result['effect_amp']:.2f} {unit_label} @ {result['effect_phase']:.1f}°\n"
+                    f"- **Sensitivity** = effect amplitude ÷ massa trial weight = {result['sensitivity']:.3f} {unit_label}/g\n"
+                    f"- **Correction weight** = amplitudo awal ÷ sensitivity\n"
+                    f"- **Sudut correction** = sudut trial weight, digeser sebesar selisih sudut "
+                    f"antara vector getaran awal dan effect vector"
+                )
+    else:
+        st.caption("Isi semua nilai di atas, lalu klik **Hitung Correction Weight**.")
