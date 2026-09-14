@@ -19,7 +19,7 @@ No external services, no data storage — pure calculation page.
 
 import numpy as np
 import streamlit as st
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 # ---------------------------------------------------------------------------
 # Page config — wrapped in try/except because a multi-page app usually already
@@ -87,36 +87,44 @@ def balance_single_plane(
 
 
 def polar_plot(o_amp, o_phase, t_angle, ot_amp, ot_phase, corr_weight, corr_angle, unit_label):
-    fig = plt.figure(figsize=(5.5, 5.5))
-    ax = fig.add_subplot(111, projection="polar")
-    ax.set_theta_zero_location("E")
-    ax.set_theta_direction(1)  # counter-clockwise, standard math convention
-
     max_r = max(o_amp, ot_amp, 1e-6) * 1.25
 
-    ax.plot([np.radians(o_phase)], [o_amp], "o", color="#c0392b", markersize=9)
-    ax.annotate("O (original)", (np.radians(o_phase), o_amp),
-                textcoords="offset points", xytext=(8, 6), fontsize=9, color="#c0392b")
+    fig = go.Figure()
 
-    ax.plot([np.radians(ot_phase)], [ot_amp], "o", color="#2980b9", markersize=9)
-    ax.annotate("O+T (trial run)", (np.radians(ot_phase), ot_amp),
-                textcoords="offset points", xytext=(8, 6), fontsize=9, color="#2980b9")
+    # O (original) vector — line from center + marker
+    fig.add_trace(go.Scatterpolar(
+        r=[0, o_amp], theta=[o_phase, o_phase], mode="lines+markers",
+        line=dict(color="#c0392b", width=2), marker=dict(size=[0, 10]),
+        name="O (original)",
+    ))
 
-    ax.annotate(
-        "",
-        xy=(np.radians(corr_angle), min(corr_weight / max(corr_weight, 1) * max_r * 0.001, max_r)),
-        xytext=(0, 0),
-        annotation_clip=False,
+    # O+T (trial run) vector
+    fig.add_trace(go.Scatterpolar(
+        r=[0, ot_amp], theta=[ot_phase, ot_phase], mode="lines+markers",
+        line=dict(color="#2980b9", width=2), marker=dict(size=[0, 10]),
+        name="O+T (trial run)",
+    ))
+
+    # Correction angle — drawn at a fixed reference radius since it's a different
+    # unit (grams) to the vibration vectors, so its own magnitude isn't to scale
+    fig.add_trace(go.Scatterpolar(
+        r=[0, max_r * 0.9], theta=[corr_angle, corr_angle], mode="lines+markers",
+        line=dict(color="#27ae60", width=2, dash="dash"),
+        marker=dict(size=[0, 12], symbol="triangle-up"),
+        name="Correction angle",
+    ))
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(range=[0, max_r], showticklabels=True),
+            angularaxis=dict(direction="counterclockwise", rotation=0),
+        ),
+        title=f"Vibration vectors ({unit_label})",
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2),
+        margin=dict(t=50, b=60, l=40, r=40),
+        height=480,
     )
-    # Correction weight direction marker (drawn at a fixed reference radius so it's visible
-    # regardless of its own magnitude scale, since it's in different units to vibration)
-    ax.plot([np.radians(corr_angle)], [max_r * 0.9], "^", color="#27ae60", markersize=11)
-    ax.annotate("Correction angle", (np.radians(corr_angle), max_r * 0.9),
-                textcoords="offset points", xytext=(8, 6), fontsize=9, color="#27ae60")
-
-    ax.set_rmax(max_r)
-    ax.set_title(f"Vibration vectors ({unit_label})", fontsize=11, pad=20)
-    ax.grid(True, alpha=0.3)
     return fig
 
 
@@ -169,7 +177,7 @@ if st.button("Calculate correction", type="primary", use_container_width=True):
 
         fig = polar_plot(o_amp, o_phase, t_angle, ot_amp, ot_phase,
                           result["correction_weight"], result["correction_angle"], unit_label)
-        st.pyplot(fig, use_container_width=False)
+        st.plotly_chart(fig, use_container_width=True)
 
         st.success(
             f"Place **{result['correction_weight']:.2f} g** at **{result['correction_angle']:.1f}°** "
