@@ -364,6 +364,7 @@ def render_app_sidebar():
         st.page_link("pages/1_Analisis.py",     label="📈 Analisis Tren")
         st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
         st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Jam Operasi")
+        st.page_link("pages/4_Rotor_Balance.py", label="⚙️ Rotor Balance")
 
         st.divider()
 
