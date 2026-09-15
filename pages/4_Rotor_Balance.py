@@ -200,18 +200,18 @@ with tab_kalkulator:
     st.markdown("##### 1 · Getaran awal (sebelum pasang trial weight)")
     c1, c2 = st.columns(2)
     o_amp = c1.number_input(
-        f"Amplitudo awal ({unit_label})", min_value=0.0, value=4.0, step=0.1, key="o_amp",
+        f"Amplitudo awal ({unit_label})", min_value=0.0, value=0.0, step=0.1, key="o_amp",
         help="Nilai getaran yang terbaca sebelum trial weight dipasang.",
     )
     o_phase = c2.number_input(
-        "Phase angle awal (°)", min_value=0.0, max_value=360.0, value=60.0, step=1.0, key="o_phase",
+        "Phase angle awal (°)", min_value=0.0, max_value=360.0, value=0.0, step=1.0, key="o_phase",
         help="Sudut fase getaran, diukur dari titik referensi tetap di poros.",
     )
 
     st.markdown("##### 2 · Trial weight yang dipasang")
     c3, c4 = st.columns(2)
     t_weight = c3.number_input(
-        "Massa trial weight (gram)", min_value=0.0, value=10.0, step=0.5, key="t_weight",
+        "Massa trial weight (gram)", min_value=0.0, value=0.0, step=0.5, key="t_weight",
         help="Massa beban percobaan yang kamu pasang pada rotor.",
     )
     t_angle = c4.number_input(
@@ -222,11 +222,11 @@ with tab_kalkulator:
     st.markdown("##### 3 · Getaran setelah trial weight terpasang")
     c5, c6 = st.columns(2)
     ot_amp = c5.number_input(
-        f"Amplitudo trial run ({unit_label})", min_value=0.0, value=5.6, step=0.1, key="ot_amp",
+        f"Amplitudo trial run ({unit_label})", min_value=0.0, value=0.0, step=0.1, key="ot_amp",
         help="Nilai getaran yang terbaca setelah trial weight dipasang.",
     )
     ot_phase = c6.number_input(
-        "Phase angle trial run (°)", min_value=0.0, max_value=360.0, value=127.0, step=1.0, key="ot_phase",
+        "Phase angle trial run (°)", min_value=0.0, max_value=360.0, value=0.0, step=1.0, key="ot_phase",
         help="Sudut fase getaran saat trial weight terpasang, referensi sama seperti langkah 1.",
     )
 
