@@ -88,7 +88,10 @@ def balance_single_plane(o_amp, o_phase, t_weight, t_angle, ot_amp, ot_phase):
     sensitivity = effect_amp / t_weight
     correction_weight = o_amp / sensitivity
     angle_shift = (np.degrees(np.angle(O)) - np.degrees(np.angle(effect))) % 360
-    correction_angle = (t_angle + angle_shift) % 360
+    # +180: correction weight is ADDED opposite the heavy spot (matches PLTU's official
+    # "Balance Rotor" app convention — verified against their SOP worked example:
+    # 5.9@357 / 204@177 / 49@250 -> 24g @ 110 deg)
+    correction_angle = (t_angle + angle_shift + 180) % 360
 
     return {
         "effect_amp": effect_amp,
@@ -145,23 +148,30 @@ tab_panduan, tab_kalkulator = st.tabs(["📖 Panduan Penggunaan", "🧮 Kalkulat
 with tab_panduan:
     steps = [
         ("Ukur getaran awal (O)",
-         "Jalankan rotor dalam kondisi normal. Catat amplitudo dan phase angle getaran dari "
-         "titik referensi tetap di poros (keyphasor / reflective tape + strobe atau tachometer)."),
+         "Jalankan rotor dalam kondisi normal. Catat amplitudo overall dan phase angle 1x rpm "
+         "dari titik referensi tetap di poros (reflector + tachometer). Kalau nilai 1x-nya sudah "
+         "≥ 3 mm/s, baru lanjut proses balancing — kalau belum, cek dulu penyebab getaran lain."),
         ("Matikan mesin, pasang trial weight",
-         "Pasang beban percobaan dengan massa yang diketahui pasti (misal 10 gram) di sudut "
-         "tertentu dari titik referensi yang sama."),
+         "Sesuai SOP PB.14.1.6.3.16.KRI: tentukan sudut trial weight dengan mengurangi fase "
+         "initial run dengan 180° (titik lawan fase). Pasang trial weight seberat 100–200 gram "
+         "di sudut tersebut."),
         ("Jalankan ulang, ukur getaran dengan trial weight (O+T)",
          "Nyalakan rotor lagi. Ukur amplitudo dan phase angle getaran yang baru, dari referensi "
-         "yang persis sama seperti langkah 1."),
+         "yang persis sama seperti langkah 1. Ulangi pengukuran peak & phase 2–3× untuk memastikan "
+         "datanya konsisten. Setelah datanya fix, **matikan mesin dan lepas trial weight** — sesuai "
+         "SOP, ini dilakukan sebelum lanjut menghitung, bukan nanti bareng pasang correction weight."),
         ("Isi semua nilai di tab Kalkulator, lalu hitung",
          "Kalkulator menghitung effect vector dari trial weight, sensitivity rotor, dan hasil "
-         "akhirnya: berapa gram correction weight dan di sudut berapa."),
-        ("Pasang correction weight, lepas trial weight",
-         "Matikan mesin. Lepas trial weight, pasang correction weight sesuai hasil kalkulasi — "
-         "diukur dari referensi dan arah yang sama seperti sebelumnya."),
+         "akhirnya: berapa gram correction weight dan di sudut berapa — sudah disesuaikan dengan "
+         "konvensi app Balance Rotor yang biasa dipakai (correction weight ditambahkan di sisi "
+         "berlawanan dari heavy spot)."),
+        ("Pasang correction weight",
+         "Trial weight sudah dilepas di langkah 3. Sekarang pasang correction weight sesuai hasil "
+         "kalkulasi — diukur dari referensi dan arah yang sama seperti sebelumnya."),
         ("Jalankan lagi untuk verifikasi",
-         "Ukur getaran akhir. Kalau sudah turun ke Zone A/B ISO 10816, selesai. Kalau belum, "
-         "ulangi sebagai trial run baru — pakai hasil correction sebagai O yang baru."),
+         "Ukur getaran akhir (1x rpm). Kalau sudah turun di bawah 3 mm/s, balancing selesai. "
+         "Kalau masih ≥ 3 mm/s, ulangi sebagai trial run baru — pakai correction weight yang "
+         "barusan dipasang sebagai trial mass yang baru, hitung ulang correction-nya."),
     ]
     for i, (title, desc) in enumerate(steps, start=1):
         st.markdown(f"""
@@ -170,6 +180,8 @@ with tab_panduan:
             <div class="rb-step-desc">{desc}</div>
         </div>
         """, unsafe_allow_html=True)
+
+    st.caption("Mengikuti SOP PLN Indonesia Power — Instruksi Balancing Rotor (No. Dok: PB.14.1.6.3.16.KRI).")
 
     st.warning(
         "⚠️ **Penting:** ukur phase angle dari titik referensi dan arah yang **sama persis** "
