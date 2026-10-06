@@ -1,6 +1,33 @@
+import hmac
+import time
+from datetime import datetime, date, timezone, timedelta
+
+import numpy as np
 import pandas as pd
-from datetime import datetime, timezone, timedelta
 import streamlit as st
+
+# ── Waktu WIB (satu sumber kebenaran) ────────────────────────────────────────
+WIB = timezone(timedelta(hours=7))
+
+
+def now_wib() -> datetime:
+    """Waktu sekarang di WIB (GMT+7), tanpa tzinfo (naive)."""
+    return datetime.now(WIB).replace(tzinfo=None)
+
+
+def today_wib() -> date:
+    return datetime.now(WIB).date()
+
+
+def _to_wib_naive(value) -> pd.Timestamp:
+    """Ubah nilai waktu apa pun menjadi Timestamp naive dalam WIB."""
+    ts = pd.to_datetime(value)
+    if pd.isna(ts):
+        raise ValueError("Nilai waktu tidak valid")
+    if ts.tzinfo is not None:
+        ts = ts.tz_convert("Asia/Jakarta").tz_localize(None)
+    return ts
+
 
 # ── Threshold Vibrasi (ISO 10816) ──────────────────────────────────────────
 THRESHOLD = {
@@ -109,6 +136,8 @@ def get_temp_threshold(equipment: str, titik: str):
     if "WINDING" in t:
         return THRESHOLD_TEMP["WINDING"]
     if "MOTOR" in t:
+        # TODO(verifikasi): titik "NDE Motor" saat ini memakai batas WINDING (99/140 °C).
+        # Pastikan memang disengaja — bearing NDE motor biasanya memakai batas bearing.
         return THRESHOLD_TEMP["WINDING"] if "NDE" in t else THRESHOLD_TEMP["BEARING DE MOTOR"]
     if any(k in t for k in ["POMPA", "PUMP", "FAN"]):
         return THRESHOLD_TEMP["BEARING NDE DRIVEN" if "NDE" in t else "BEARING DE DRIVEN"]
@@ -124,14 +153,51 @@ def get_zone_temp(value, thr):
     else:
         return "ZONE D", "🔴", "Danger"
 
-def get_supabase(service_role=False):
+# ── Koneksi Supabase ─────────────────────────────────────────────────────────
+@st.cache_resource(show_spinner=False)
+def _supabase_client(url: str, key: str):
+    """Client dibuat sekali per (url, key), bukan di setiap pemanggilan."""
     from supabase import create_client
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
+def get_supabase(service_role=False):
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
+    return _supabase_client(url, key)
+
+def _paged_select(sb, table: str, cols: str, order_cols=("date", "id"),
+                  desc: bool = False, query_mod=None, batch: int = 1000) -> list:
+    """
+    Ambil semua baris dengan pagination yang STABIL.
+
+    Pagination dengan range() hanya aman kalau urutannya deterministik. Banyak baris
+    punya tanggal yang sama, jadi diberi tie-breaker kedua (id). Kalau kolom tie-breaker
+    tidak ada di tabel, otomatis fallback ke urutan kolom pertama saja.
+    """
+    def _run(order_list):
+        rows, start = [], 0
+        while True:
+            q = sb.table(table).select(cols)
+            if query_mod is not None:
+                q = query_mod(q)
+            for c in order_list:
+                q = q.order(c, desc=desc)
+            data = q.range(start, start + batch - 1).execute().data or []
+            rows.extend(data)
+            if len(data) < batch:
+                return rows
+            start += batch
+
+    try:
+        return _run(order_cols)
+    except Exception:
+        if len(order_cols) > 1:
+            return _run(order_cols[:1])
+        raise
+
+# ── Threshold & Zona ─────────────────────────────────────────────────────────
 def get_threshold(equipment: str):
-    name = equipment.upper()
+    name = str(equipment).upper()
     key = "Turbine" if "TURBINE" in name else "Pump/Fan"
     overrides = st.session_state.get("threshold_override")
     if overrides and key in overrides:
@@ -150,32 +216,77 @@ def get_zone(value, thr):
     else:
         return "ZONE D", "🔴", "Danger"
 
+def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Tambahkan kolom thr_type, zone, zone_icon, zone_label.
+
+    Memakai get_threshold() sehingga override threshold dari halaman Data & Kelola
+    ikut berlaku (sebelumnya memakai THRESHOLD default sehingga KPI/sidebar bisa
+    berbeda dengan kartu equipment). Versi ini juga vektorisasi, bukan apply per baris.
+    """
+    df = df.copy()
+    df["thr_type"] = df["equipment"].map(
+        lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan"
+    )
+    if df.empty:
+        for c in ("zone", "zone_icon", "zone_label"):
+            df[c] = pd.Series(dtype=object)
+        return df
+
+    vals = pd.to_numeric(df["value"], errors="coerce").to_numpy(dtype=float)
+    temp_mask = df["direction"].eq("T").to_numpy()
+    zone = np.full(len(df), "N/A", dtype=object)
+
+    # Vibrasi
+    if (~temp_mask).any():
+        eqs = df["equipment"].astype(str)
+        thr_by_eq = {e: get_threshold(e) for e in eqs.unique()}
+        a = eqs.map({e: t["A"] for e, t in thr_by_eq.items()}).to_numpy(dtype=float)
+        b = eqs.map({e: t["B"] for e, t in thr_by_eq.items()}).to_numpy(dtype=float)
+        c = eqs.map({e: t["C"] for e, t in thr_by_eq.items()}).to_numpy(dtype=float)
+        vz = np.select(
+            [np.isnan(vals) | np.isnan(a), vals < a, vals <= b, vals <= c],
+            ["N/A", "ZONE A", "ZONE B", "ZONE C"],
+            default="ZONE D",
+        )
+        zone[~temp_mask] = vz[~temp_mask]
+
+    # Suhu
+    if temp_mask.any():
+        sub = df.loc[temp_mask, ["equipment", "titik"]]
+        cache, normal, danger = {}, [], []
+        for key in zip(sub["equipment"], sub["titik"]):
+            if key not in cache:
+                cache[key] = get_temp_threshold(*key)
+            normal.append(cache[key]["normal"])
+            danger.append(cache[key]["danger"])
+        tv = vals[temp_mask]
+        normal = np.asarray(normal, dtype=float)
+        danger = np.asarray(danger, dtype=float)
+        tz = np.select(
+            [np.isnan(tv), tv <= normal, tv < danger],
+            ["N/A", "ZONE A", "ZONE C"],
+            default="ZONE D",
+        )
+        zone[temp_mask] = tz
+
+    df["zone"] = zone
+    df["zone_icon"] = df["zone"].map(ZONE_ICON)
+    label = df["zone"].map(ZONE_LABEL)
+    is_temp_normal = pd.Series(temp_mask, index=df.index) & df["zone"].eq("ZONE A")
+    df["zone_label"] = label.where(~is_temp_normal, "Normal")
+    return df
+
+# ── Data Vibrasi (Supabase) ──────────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def load_history() -> pd.DataFrame:
     try:
         sb = get_supabase()
-        all_rows = []
-        batch_size = 1000
-        start = 0
-        _cols = "equipment,unit,titik,direction,date,value"
-
-        while True:
-            res = (
-                sb.table("vibration")
-                .select(_cols)
-                .order("date", desc=True)
-                .range(start, start + batch_size - 1)
-                .execute()
-            )
-            rows = res.data if res.data else []
-            if not rows:
-                break
-            all_rows.extend(rows)
-            if len(rows) < batch_size:
-                break
-            start += batch_size
-
-        df = pd.DataFrame(all_rows)
+        rows = _paged_select(
+            sb, "vibration", "equipment,unit,titik,direction,date,value",
+            order_cols=("date", "id"), desc=True,
+        )
+        df = pd.DataFrame(rows)
         if not df.empty:
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df["value"] = pd.to_numeric(df["value"], errors="coerce")
@@ -185,61 +296,79 @@ def load_history() -> pd.DataFrame:
         st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
 
-def save_to_db(df: pd.DataFrame) -> int:
+_KEY_COLS = ["equipment", "unit", "titik", "direction"]
+
+def save_to_db_detailed(df: pd.DataFrame):
+    """
+    Simpan data baru ke tabel vibration, lewati duplikat.
+
+    Return (jumlah_baris_tersimpan, pesan_error | None). Berbeda dengan save_to_db(),
+    pemanggil bisa membedakan "semua duplikat" (0, None) dari "gagal" (0, "pesan").
+    Kalau gagal di tengah jalan, jumlah yang sudah masuk tetap dilaporkan.
+    """
+    if not _assert_editor():
+        return 0, "Hanya Editor yang dapat menyimpan data."
+    if df is None or df.empty:
+        return 0, None
+
+    inserted = 0
     try:
         sb = get_supabase(service_role=True)
-        now = datetime.now(timezone(timedelta(hours=7))).isoformat()
-        existing_keys = set()
-        start = 0
-        batch_size = 1000
-        
-        while True:
-            res = (
-                sb.table("vibration")
-                .select("equipment,unit,titik,direction,date")
-                .range(start, start + batch_size - 1)
-                .execute()
-            )
-            rows = res.data if res.data else []
-            if not rows:
-                break
-            for row in rows:
-                key = f"{str(row['equipment']).strip()}|{str(row['unit']).strip()}|{str(row['titik']).strip()}|{str(row['direction']).strip()}|{str(row['date'])[:10]}"
-                existing_keys.add(key)
-            if len(rows) < batch_size:
-                break
-            start += batch_size
+        now = datetime.now(WIB).isoformat()
 
-        rows_to_insert = []
-        for _, r in df.iterrows():
-            date_str = str(r["date"])[:10] if pd.notna(r["date"]) else ""
-            key = f"{str(r['equipment']).strip()}|{str(r['unit']).strip()}|{str(r['titik']).strip()}|{str(r['direction']).strip()}|{date_str}"
-            if key not in existing_keys:
-                rows_to_insert.append({
-                    "equipment":   str(r["equipment"]).strip(),
-                    "unit":        str(r["unit"]).strip(),
-                    "titik":       str(r["titik"]).strip(),
-                    "direction":   str(r["direction"]).strip(),
-                    "date":        date_str,
-                    "value":       float(r["value"]) if pd.notna(r["value"]) else None,
-                    "uploaded_at": now,
-                })
-                existing_keys.add(key)
+        work = df.copy()
+        for c in _KEY_COLS:
+            work[c] = work[c].astype(str).str.strip()
+        work["date"] = pd.to_datetime(work["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        work["value"] = pd.to_numeric(work["value"], errors="coerce")
+        work = work.dropna(subset=["date", "value"])
+        if work.empty:
+            return 0, None
+        work["_key"] = work[_KEY_COLS + ["date"]].agg("|".join, axis=1)
+        work = work.drop_duplicates("_key")
 
-        inserted_count = 0
-        if rows_to_insert:
-            insert_batch_size = 500
-            for i in range(0, len(rows_to_insert), insert_batch_size):
-                batch = rows_to_insert[i:i + insert_batch_size]
-                sb.table("vibration").insert(batch).execute()
-                inserted_count += len(batch)
-                
-        return inserted_count
+        # Hanya unduh data existing pada rentang tanggal file ini (bukan seluruh tabel).
+        d_min, d_max = work["date"].min(), work["date"].max()
+        existing_rows = _paged_select(
+            sb, "vibration", "equipment,unit,titik,direction,date",
+            order_cols=("date", "id"),
+            query_mod=lambda q: q.gte("date", d_min).lte("date", d_max),
+        )
+        existing_keys = {
+            "|".join([str(r["equipment"]).strip(), str(r["unit"]).strip(),
+                      str(r["titik"]).strip(), str(r["direction"]).strip(),
+                      str(r["date"])[:10]])
+            for r in existing_rows
+        }
+
+        new_rows = work[~work["_key"].isin(existing_keys)]
+        if new_rows.empty:
+            return 0, None
+
+        records = new_rows[_KEY_COLS + ["date", "value"]].to_dict("records")
+        for rec in records:
+            rec["value"] = float(rec["value"])
+            rec["uploaded_at"] = now
+
+        step = 500
+        for i in range(0, len(records), step):
+            batch = records[i:i + step]
+            sb.table("vibration").insert(batch).execute()
+            inserted += len(batch)
+        return inserted, None
     except Exception as e:
-        st.error(f"Gagal simpan data: {e}")
-        return 0
+        return inserted, str(e)
+
+def save_to_db(df: pd.DataFrame) -> int:
+    """Versi kompatibel: return jumlah baris tersimpan, error ditampilkan lewat st.error."""
+    inserted, err = save_to_db_detailed(df)
+    if err:
+        st.error(f"Gagal simpan data: {err}")
+    return inserted
 
 def delete_by_dates(dates: list) -> int:
+    if not _assert_editor():
+        return 0
     try:
         sb = get_supabase(service_role=True)
         total = 0
@@ -253,6 +382,8 @@ def delete_by_dates(dates: list) -> int:
         return 0
 
 def delete_all() -> int:
+    if not _assert_editor():
+        return 0
     try:
         sb = get_supabase(service_role=True)
         res = sb.table("vibration").delete().neq("equipment", "").execute()
@@ -288,51 +419,78 @@ def parse_excel(file) -> pd.DataFrame:
     df = df.dropna(subset=["value"])
     return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
 
-def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["thr_type"] = df["equipment"].apply(lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan")
-
-    def _zone_row(r):
-        if r["direction"] == "T":
-            thr = get_temp_threshold(r["equipment"], r["titik"])
-            return get_zone_temp(r["value"], thr)
-        return get_zone(r["value"], THRESHOLD[r["thr_type"]])
-
-    z = df.apply(_zone_row, axis=1)
-    df["zone"], df["zone_icon"], df["zone_label"] = zip(*z)
-    return df
-
-EDITOR_PASSWORD = "pltu2026"
+# ── Autentikasi Editor ───────────────────────────────────────────────────────
+# Password TIDAK lagi ditulis di kode. Atur di .streamlit/secrets.toml (lokal)
+# atau menu Secrets di Streamlit Cloud:
+#     EDITOR_PASSWORD = "isi-password-baru"
+_MAX_LOGIN_ATTEMPTS = 5
+_LOGIN_LOCK_SECONDS = 60
 
 def check_role():
     if "role" not in st.session_state:
         st.session_state["role"] = "viewer"
     return st.session_state["role"]
 
-def render_login_sidebar():
-    role = check_role()
-    st.sidebar.divider()
-    if role == "editor":
-        st.sidebar.success("🔓 Mode: **Editor**")
-        if st.sidebar.button("🔒 Logout", key="sb_logout_btn_single"):
-            st.session_state["role"] = "viewer"
-            st.rerun()
-    else:
-        st.sidebar.info("👁️ Mode: **Viewer**")
-        with st.sidebar.expander("🔑 Login Editor"):
-            pwd = st.text_input("Password", type="password", key="sb_pwd_input_single")
-            if st.button("Login", key="sb_login_btn_single", width="stretch"):
-                if pwd == EDITOR_PASSWORD:
-                    st.session_state["role"] = "editor"
-                    st.rerun()
-                else:
-                    st.error("Password salah.")
+def _verify_editor_password(pwd: str) -> bool:
+    try:
+        expected = str(st.secrets["EDITOR_PASSWORD"])
+    except Exception:
+        return False
+    if not expected:
+        return False
+    return hmac.compare_digest(pwd.encode("utf-8"), expected.encode("utf-8"))
+
+def _try_login(pwd: str):
+    """Return None jika sukses, atau string pesan error."""
+    now = time.time()
+    lock_until = st.session_state.get("_login_lock_until", 0)
+    if lock_until > now:
+        return f"Terlalu banyak percobaan. Coba lagi dalam {int(lock_until - now) + 1} detik."
+    try:
+        st.secrets["EDITOR_PASSWORD"]
+    except Exception:
+        return "EDITOR_PASSWORD belum diatur di secrets. Hubungi admin dashboard."
+
+    if _verify_editor_password(pwd):
+        st.session_state["role"] = "editor"
+        st.session_state["_login_fails"] = 0
+        return None
+
+    fails = st.session_state.get("_login_fails", 0) + 1
+    if fails >= _MAX_LOGIN_ATTEMPTS:
+        st.session_state["_login_lock_until"] = now + _LOGIN_LOCK_SECONDS
+        fails = 0
+    st.session_state["_login_fails"] = fails
+    return "Password salah."
 
 def require_editor():
     if check_role() != "editor":
         st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
         return False
     return True
+
+def _assert_editor() -> bool:
+    """Guard di fungsi tulis: tombol yang disembunyikan di UI saja tidak cukup."""
+    if check_role() != "editor":
+        st.error("🔒 Aksi ini hanya dapat dilakukan oleh Editor.")
+        return False
+    return True
+
+# ── Ringkasan alarm (di-cache, sadar override threshold) ─────────────────────
+@st.cache_data(ttl=60, show_spinner=False)
+def _alarm_summary(thr_sig: str):
+    # NB: nama argumen tanpa awalan "_" supaya ikut menjadi cache key.
+    df_h = load_history()
+    if df_h.empty:
+        return 0, 0
+    df_lat = (
+        df_h[df_h["direction"] != "T"]
+        .sort_values("date")
+        .groupby(["unit", "equipment", "titik", "direction"], as_index=False)
+        .last()
+    )
+    df_lat = add_zone_cols(df_lat)
+    return int((df_lat["zone"] == "ZONE D").sum()), int((df_lat["zone"] == "ZONE C").sum())
 
 # ── Sidebar Terpusat & Modern ─────────────────────────────────────────────────
 def render_app_sidebar():
@@ -356,7 +514,7 @@ def render_app_sidebar():
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
+
         st.divider()
 
         st.caption("**NAVIGASI UTAMA**")
@@ -373,31 +531,20 @@ def render_app_sidebar():
             st.rerun()
 
         # Ringkasan Global Alert
-        df_h = load_history()
-        if not df_h.empty:
-            df_lat = (
-                df_h[df_h["direction"] != "T"]
-                .sort_values("date")
-                .groupby(["equipment", "titik", "direction"], as_index=False)
-                .last()
-            )
-            df_lat = add_zone_cols(df_lat)
-            n_d = (df_lat["zone"] == "ZONE D").sum()
-            n_c = (df_lat["zone"] == "ZONE C").sum()
-            
-            df_rt = get_pump_runtime()
-            n_run = (df_rt["status"] == "running").sum() if not df_rt.empty else 0
+        n_d, n_c = _alarm_summary(repr(st.session_state.get("threshold_override")))
+        df_rt = get_pump_runtime()
+        n_run = int((df_rt["status"] == "running").sum()) if not df_rt.empty else 0
 
-            st.markdown(f"""
-            <div style="background: color-mix(in srgb, var(--secondary-background-color) 80%, transparent); border-radius: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent); margin: 12px 0;">
-                <div style="font-size: 10px; font-weight: 700; opacity: .6; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;">Ringkasan Alarm Global</div>
-                <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700;">
-                    <span style="color: #dc2626;">🔴 {n_d} Danger</span>
-                    <span style="color: #d97706;">🟡 {n_c} Warning</span>
-                    <span style="color: #16a34a;">🟢 {n_run} Running</span>
-                </div>
+        st.markdown(f"""
+        <div style="background: color-mix(in srgb, var(--secondary-background-color) 80%, transparent); border-radius: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent); margin: 12px 0;">
+            <div style="font-size: 10px; font-weight: 700; opacity: .6; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;">Ringkasan Alarm Global</div>
+            <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700;">
+                <span style="color: #dc2626;">🔴 {n_d} Danger</span>
+                <span style="color: #d97706;">🟡 {n_c} Warning</span>
+                <span style="color: #16a34a;">🟢 {n_run} Running</span>
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
         role = check_role()
         st.divider()
@@ -411,11 +558,11 @@ def render_app_sidebar():
             with st.expander("🔑 Login Editor"):
                 pwd = st.text_input("Password", type="password", key="sb_pwd_input_main")
                 if st.button("Login", key="sb_login_btn_main", width="stretch"):
-                    if pwd == EDITOR_PASSWORD:
-                        st.session_state["role"] = "editor"
-                        st.rerun()
+                    err = _try_login(pwd)
+                    if err:
+                        st.error(err)
                     else:
-                        st.error("Password salah.")
+                        st.rerun()
 
         st.markdown("""
         <div style="font-size: 10px; text-align: center; opacity: .45; margin-top: 20px;">
@@ -438,26 +585,46 @@ def get_pump_runtime() -> pd.DataFrame:
         st.error(f"Gagal load running hours: {e}")
         return pd.DataFrame(columns=cols)
 
-def init_pump_runtime(equipment: str, unit: str):
-    sb = get_supabase(service_role=True)
-    res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()
-    if not res.data:
-        now_wib = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
-        sb.table("pump_runtime").insert({
-            "equipment": equipment,
-            "unit": unit,
-            "status": "stopped",
-            "status_changed_at": now_wib.strftime("%Y-%m-%d %H:%M:%S"),
-            "accumulated_hours": 0.0,
-        }).execute()
+def _fetch_pump_row(sb, equipment: str, unit: str):
+    """Baca baris terbaru langsung dari DB (bukan dari cache 15 detik)."""
+    res = (
+        sb.table("pump_runtime")
+        .select("status,status_changed_at,accumulated_hours")
+        .eq("equipment", equipment).eq("unit", unit)
+        .limit(1).execute()
+    )
+    return res.data[0] if res.data else None
 
-def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
+def init_pump_runtime(equipment: str, unit: str):
+    if not _assert_editor():
+        return
     try:
         sb = get_supabase(service_role=True)
-        start_ts = pd.to_datetime(start_dt)
-        if start_ts.tzinfo is not None:
-            start_ts = start_ts.tz_convert("Asia/Jakarta").tz_localize(None)
-            
+        res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()
+        if not res.data:
+            sb.table("pump_runtime").insert({
+                "equipment": equipment,
+                "unit": unit,
+                "status": "stopped",
+                "status_changed_at": now_wib().strftime("%Y-%m-%d %H:%M:%S"),
+                "accumulated_hours": 0.0,
+            }).execute()
+    except Exception as e:
+        st.error(f"Gagal inisialisasi data running hours: {e}")
+
+def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
+    if not _assert_editor():
+        return
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)
+        if fresh and fresh.get("status") == "running":
+            st.warning(
+                "Equipment sudah berstatus Running (mungkin diubah pengguna lain). "
+                "Muat ulang halaman untuk melihat kondisi terbaru."
+            )
+            return
+        start_ts = _to_wib_naive(start_dt)
         sb.table("pump_runtime").update({
             "status": "running",
             "status_changed_at": start_ts.strftime("%Y-%m-%d %H:%M:%S"),
@@ -465,52 +632,80 @@ def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
     except Exception as e:
         st.error(f"Gagal mencatat waktu mulai: {e}")
 
-def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str,
-                       current_accum: float, current_changed_at) -> None:
+def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str = None,
+                      current_accum: float = None, current_changed_at=None) -> None:
+    """
+    Hentikan operasi dan tambahkan durasi berjalan ke accumulated_hours.
+
+    Status/akumulasi dibaca ULANG dari database tepat sebelum update, sehingga tidak
+    memakai data cache halaman yang bisa basi (mencegah jam tertimpa kalau dua editor
+    menekan tombol hampir bersamaan). Argumen current_* hanya dipakai sebagai cadangan
+    kalau pembacaan ulang gagal; tetap ada agar pemanggil lama tidak perlu diubah.
+    """
+    if not _assert_editor():
+        return
     try:
         sb = get_supabase(service_role=True)
-        stop_ts = pd.to_datetime(stop_dt)
-        if stop_ts.tzinfo is not None:
-            stop_ts = stop_ts.tz_convert("Asia/Jakarta").tz_localize(None)
-        
-        if current_status == "running":
-            try:
-                changed = pd.to_datetime(current_changed_at)
-                if changed.tzinfo is not None:
-                    changed = changed.tz_convert("Asia/Jakarta").tz_localize(None)
-                delta_hours = max((stop_ts - changed).total_seconds() / 3600.0, 0.0)
-            except Exception:
-                delta_hours = 0.0
-            new_accum = float(current_accum or 0) + delta_hours
+        stop_ts = _to_wib_naive(stop_dt)
+
+        fresh = _fetch_pump_row(sb, equipment, unit)
+        if fresh:
+            status = fresh.get("status")
+            changed_at = fresh.get("status_changed_at")
+            accum = float(fresh.get("accumulated_hours") or 0)
         else:
-            new_accum = float(current_accum or 0)
-            
-        sb.table("pump_runtime").update({
+            status, changed_at, accum = current_status, current_changed_at, float(current_accum or 0)
+
+        if status != "running":
+            st.warning(
+                "Equipment sudah berstatus Stopped (mungkin diubah pengguna lain). "
+                "Tidak ada jam yang ditambahkan."
+            )
+            return
+
+        try:
+            started = _to_wib_naive(changed_at)
+            delta_hours = (stop_ts - started).total_seconds() / 3600.0
+            if delta_hours < 0:
+                st.warning("Waktu berhenti lebih awal dari waktu mulai — jam operasi tidak ditambahkan.")
+                delta_hours = 0.0
+        except Exception:
+            delta_hours = 0.0
+        new_accum = accum + delta_hours
+
+        q = sb.table("pump_runtime").update({
             "status": "stopped",
             "status_changed_at": stop_ts.strftime("%Y-%m-%d %H:%M:%S"),
             "accumulated_hours": new_accum,
-        }).eq("equipment", equipment).eq("unit", unit).execute()
+        }).eq("equipment", equipment).eq("unit", unit)
+        if fresh:
+            q = q.eq("status", "running")   # tidak menimpa kalau status keburu berubah
+        res = q.execute()
+        if fresh and not res.data:
+            st.warning("Status berubah saat diproses pengguna lain. Muat ulang halaman lalu coba lagi.")
     except Exception as e:
         st.error(f"Gagal mencatat waktu berhenti: {e}")
 
 def reset_pump_runtime(equipment: str, unit: str) -> None:
+    if not _assert_editor():
+        return
     try:
         sb = get_supabase(service_role=True)
-        now_wib = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
         sb.table("pump_runtime").update({
             "status": "stopped",
-            "status_changed_at": now_wib.strftime("%Y-%m-%d %H:%M:%S"),
+            "status_changed_at": now_wib().strftime("%Y-%m-%d %H:%M:%S"),
             "accumulated_hours": 0.0,
         }).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
         st.error(f"Gagal reset running hours: {e}")
 
 def reset_pump_install_date(equipment: str, unit: str) -> None:
+    if not _assert_editor():
+        return
     try:
         sb = get_supabase(service_role=True)
-        now_wib = datetime.now(timezone(timedelta(hours=7))).date()
         sb.table("pump_runtime").update(
-            {"install_date": now_wib.isoformat()}
+            {"install_date": today_wib().isoformat()}
         ).eq("equipment", equipment).eq("unit", unit).execute()
     except Exception as e:
         st.error(f"Gagal reset umur pompa: {e}")
@@ -520,14 +715,9 @@ def compute_running_hours(row: dict) -> float:
     accum = float(row.get("accumulated_hours", 0) or 0)
     if row.get("status") != "running":
         return accum
-
     try:
-        changed = pd.to_datetime(row["status_changed_at"])
-        if changed.tzinfo is not None:
-            changed = changed.tz_convert("Asia/Jakarta").tz_localize(None)
-        
-        wib_now = datetime.now(timezone(timedelta(hours=7))).replace(tzinfo=None)
-        delta_seconds = (wib_now - changed).total_seconds()
+        changed = _to_wib_naive(row["status_changed_at"])
+        delta_seconds = (now_wib() - changed).total_seconds()
         return accum + max(delta_seconds / 3600.0, 0.0)
     except Exception:
         return accum
@@ -537,7 +727,7 @@ def get_pump_age(install_date) -> str:
         return None
     try:
         d = pd.to_datetime(install_date)
-        now = datetime.now(timezone(timedelta(hours=7))).date()
+        now = today_wib()
         months = (now.year - d.year) * 12 + (now.month - d.month)
         if now.day < d.day:
             months -= 1
@@ -552,6 +742,8 @@ def get_pump_age(install_date) -> str:
         return None
 
 def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
+    if not _assert_editor():
+        return
     try:
         sb = get_supabase(service_role=True)
         sb.table("pump_runtime").update(
@@ -574,6 +766,8 @@ def get_bearing_install() -> pd.DataFrame:
         return pd.DataFrame(columns=cols)
 
 def update_bearing_install(equipment: str, unit: str, posisi: str, install_date) -> None:
+    if not _assert_editor():
+        return
     try:
         sb = get_supabase(service_role=True)
         existing = (
