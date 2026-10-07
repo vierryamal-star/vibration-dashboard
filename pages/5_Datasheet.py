@@ -1,6 +1,7 @@
 import streamlit as st
 import sys
 import os
+import io
 import re
 import html
 import datetime
@@ -46,22 +47,26 @@ PREFERRED_NAMES = [
 
 
 def find_excel_file():
-    for base in (root_dir, current_dir):
+    """Cari file datasheet: nama yang diutamakan dulu, lalu pencarian rekursif."""
+    bases = []
+    for b in (root_dir, current_dir, os.getcwd(), os.path.dirname(os.getcwd())):
+        if b and os.path.isdir(b) and b not in bases:
+            bases.append(b)
+    for base in bases:
         for name in PREFERRED_NAMES:
             p = os.path.join(base, name)
             if os.path.exists(p):
                 return p
-    for base in (root_dir, current_dir):
-        if not os.path.isdir(base):
-            continue
-        names = sorted(
-            f for f in os.listdir(base)
-            if f.lower().endswith((".xlsx", ".xlsm"))
-            and "datasheet" in f.lower()
-            and not f.startswith("~$")
-        )
-        if names:
-            return os.path.join(base, names[0])
+    skip = {".git", "node_modules", "__pycache__", ".venv", "venv"}
+    for base in bases:
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d not in skip]
+            if dirpath[len(base):].count(os.sep) > 3:
+                dirnames[:] = []
+            for f in sorted(filenames):
+                low = f.lower()
+                if low.endswith((".xlsx", ".xlsm")) and "datasheet" in low and not f.startswith("~$"):
+                    return os.path.join(dirpath, f)
     return None
 
 
@@ -281,8 +286,10 @@ def _parse_sheet(ws):
 
 
 @st.cache_data(show_spinner="Membaca datasheet Excel…")
-def load_datasheet(path, mtime):
-    wb = openpyxl.load_workbook(path, data_only=True)
+def load_datasheet(source, key):
+    if isinstance(source, (bytes, bytearray)):
+        source = io.BytesIO(source)
+    wb = openpyxl.load_workbook(source, data_only=True)
     result = {}
     for ws in wb.worksheets:
         title = ws.title.strip()
@@ -374,12 +381,20 @@ def render_images(images):
 
 # ── Muat data ───────────────────────────────────────────────────────────────
 target_file = find_excel_file()
-if not target_file:
-    st.error("⚠️ File Excel datasheet (mis. `Datasheet Pompa PLTU TBK (1).xlsx`) tidak ditemukan di repositori.")
-    st.info("Upload file Excel ke folder utama project (sejajar dengan folder `pages`).")
-    st.stop()
-
-sheets = load_datasheet(target_file, os.path.getmtime(target_file))
+if target_file:
+    sheets = load_datasheet(target_file, os.path.getmtime(target_file))
+else:
+    st.warning(
+        "File Excel datasheet tidak ditemukan di repositori. "
+        "Taruh file `Datasheet Pompa PLTU TBK (1).xlsx` di folder utama project (sejajar dengan folder `pages`), "
+        "atau upload manual di bawah ini."
+    )
+    with st.expander("Lokasi yang dicari"):
+        st.code("\n".join(dict.fromkeys([root_dir, current_dir, os.getcwd()])))
+    up = st.file_uploader("Upload file datasheet (.xlsx)", type=["xlsx", "xlsm"])
+    if up is None:
+        st.stop()
+    sheets = load_datasheet(up.getvalue(), up.name)
 sheet_names = list(sheets.keys())
 
 # ── Pencarian ───────────────────────────────────────────────────────────────
