@@ -121,21 +121,48 @@ def safe_date(value):
     except Exception:
         return None
 
-# ── Load Equipment ──────────────────────────────────────────────────────────
+# ── Load Equipment & Filtering Unit ─────────────────────────────────────────
 df_hist = load_history()
 if df_hist.empty:
     st.info("📂 Belum ada data equipment terdaftar. Silakan upload data di menu **Data & Kelola**.")
     st.stop()
 
-all_pairs = sorted(
+# Ambil pasangan equipment & unit
+all_pairs_raw = sorted(
     list({(str(e), str(u)) for e, u in df_hist[["equipment", "unit"]].dropna().drop_duplicates().to_numpy()}),
     key=lambda p: (p[1], p[0])
 )
-label_to_pair = {f"{e} ({u})": (e, u) for e, u in all_pairs}
 
-col_filter1, col_filter2 = st.columns([2.5, 1.5])
-with col_filter1:
-    sel_label = st.selectbox("🎯 **Pilih Equipment yang Ditinjau:**", list(label_to_pair), key="ds_sel_eq")
+# Filter Unit & Equipment Berjenjang
+col_u, col_eq = st.columns([1.5, 2.5])
+
+with col_u:
+    unit_list = sorted(list({u for _, u in all_pairs_raw}))
+    sel_unit_filter = st.selectbox(
+        "🏭 **Filter Bagian Unit:**",
+        ["Semua Unit"] + unit_list,
+        key="ds_unit_filter"
+    )
+
+# Filter daftar equipment berdasarkan unit terpilih
+if sel_unit_filter == "Semua Unit":
+    filtered_pairs = all_pairs_raw
+else:
+    filtered_pairs = [p for p in all_pairs_raw if p[1] == sel_unit_filter]
+
+if not filtered_pairs:
+    st.warning("Tidak ada equipment yang terdaftar pada unit ini.")
+    st.stop()
+
+label_to_pair = {f"{e} ({u})": (e, u) for e, u in filtered_pairs}
+
+with col_eq:
+    sel_label = st.selectbox(
+        "🎯 **Pilih Equipment:**",
+        list(label_to_pair),
+        key="ds_sel_eq"
+    )
+
 sel_eq, sel_unit = label_to_pair[sel_label]
 ek = f"{sel_eq}|{sel_unit}"
 
