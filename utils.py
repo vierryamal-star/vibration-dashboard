@@ -523,7 +523,7 @@ def render_app_sidebar():
         st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
         st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Jam Operasi")
         st.page_link("pages/4_Rotor_Balance.py", label="⚙️ Rotor Balancing")
-        st.page_link("pages/5_Datasheet & Maintenance.py", label="📋 Datasheet & Maintenance")
+        st.page_link("pages/5_Datasheet.py", label="📋 Datasheet")
 
         st.divider()
 
