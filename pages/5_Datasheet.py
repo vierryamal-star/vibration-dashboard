@@ -26,7 +26,7 @@ st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 render_app_sidebar()
 render_page_header("📋 Datasheet Pompa & Peralatan Utama PLTU TBK")
-st.caption("Spesifikasi teknis peralatan langsung dari file datasheet PLTU Tanjung Balai Karimun — satu tab per sheet Excel.")
+st.caption("Spesifikasi teknis peralatan langsung dari file datasheet PLTU Tanjung Balai Karimun — pilih peralatan dari dropdown.")
 
 # ── Render HTML ─────────────────────────────────────────────────────────────
 TABLE_CSS = """
@@ -119,7 +119,8 @@ def main():
     sheets = DATA
     sheet_names = list(sheets.keys())
 
-    c_search, c_info = st.columns([3, 1.4])
+    c_select, c_search = st.columns([1.6, 2])
+
     with c_search:
         keyword = st.text_input(
             "🔍 Cari spesifikasi / part number / merek:",
@@ -127,36 +128,40 @@ def main():
         )
     kw = keyword.strip()
     kw_re = re.compile(f"({re.escape(kw)})", re.IGNORECASE) if kw else None
-
     hits = {n: count_hits(sheets[n], kw_re) for n in sheet_names}
-    with c_info:
-        st.metric("Jumlah sheet", len(sheet_names))
 
-    if kw:
-        found = [f"**{n}** ({h})" for n, h in hits.items() if h]
-        if found:
-            st.success("Ditemukan di: " + " · ".join(found))
+    # Saat mencari, daftar dropdown otomatis dipersempit ke peralatan yang cocok
+    options = [n for n in sheet_names if hits[n]] if kw else sheet_names
+
+    with c_select:
+        if not options:
+            st.selectbox("📑 Pilih peralatan:", ["— tidak ada hasil —"], disabled=True)
         else:
-            st.info("Tidak ada data yang cocok dengan kata kunci pencarian.")
+            selected = st.selectbox(
+                "📑 Pilih peralatan:",
+                options,
+                format_func=lambda n: f"{n}  ({hits[n]} cocok)" if kw else n,
+            )
 
-    labels = [f"{n} 🔎{hits[n]}" if kw and hits[n] else n for n in sheet_names]
-    tabs = st.tabs(labels)
+    if not options:
+        st.info("Tidak ada data yang cocok dengan kata kunci pencarian.")
+        return
+    if kw:
+        st.caption(f"{len(options)} dari {len(sheet_names)} peralatan mengandung “{kw}”.")
 
-    for tab, s_name in zip(tabs, sheet_names):
-        sheet = sheets[s_name]
-        with tab:
-            st.subheader(sheet["name"] or s_name)
-            if sheet["info"]:
-                chips = "".join(
-                    f'<span class="ds-chip"><b>{html.escape(k)}</b>: {_cell_html(v, kw_re)}</span>'
-                    for k, v in sheet["info"].items()
-                )
-                st.markdown(f'<div class="ds-info">{chips}</div>', unsafe_allow_html=True)
-            for kind, payload in sheet["segments"]:
-                if kind == "table":
-                    st.markdown(table_html(payload, sheet["col_pct"], kw_re), unsafe_allow_html=True)
-                else:
-                    render_images(payload)
+    sheet = sheets[selected]
+    st.subheader(sheet["name"] or selected)
+    if sheet["info"]:
+        chips = "".join(
+            f'<span class="ds-chip"><b>{html.escape(k)}</b>: {_cell_html(v, kw_re)}</span>'
+            for k, v in sheet["info"].items()
+        )
+        st.markdown(f'<div class="ds-info">{chips}</div>', unsafe_allow_html=True)
+    for kind, payload in sheet["segments"]:
+        if kind == "table":
+            st.markdown(table_html(payload, sheet["col_pct"], kw_re), unsafe_allow_html=True)
+        else:
+            render_images(payload)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -215,12 +220,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                             [('5.', 1, 1, '', 'center'), ('Width', 3, 1, '', ''), ('17 mm', 9, 1, '', '')],
                             [('6.', 1, 1, '', 'center'), ('Clearance', 3, 1, '', ''), ('C3', 9, 1, '', '')],
                             [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Two Rubber Seals ( 2RS )', 9, 1, '', '')],
-                            [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 9, 1, '', '')],
-                            [('CONTACT PERSON', 13, 1, 'b', 'center')], [('Hard Office', 13, 1, '', '')],
-                            [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 13, 1, '', '')],
-                            [('Estate Jakarta 13930, Indonesia', 13, 1, '', '')], [('Phone', 3, 1, '', ''), ('062 214603963', 10, 1, '', '')],
-                            [('Fax', 3, 1, '', ''), ('062 214603937', 10, 1, '', '')],
-                            [('Email', 3, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+                            [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 9, 1, '', '')]])]},
  '2. Boster Pump': {'name': 'COOLING BOOSTER PUMP',
                     'info': {},
                     'col_pct': [4.02, 6.45, 13.47, 6.27, 8.7, 4.68, 7.76, 4.02, 13.57, 2.81, 6.27, 3.74, 18.25],
@@ -268,13 +268,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                     ('System', 2, 1, '', 'center'), ('Sea Water Cooling Suppy System', 4, 1, '', 'center')],
                                    [('Diffrensial Press.', 3, 1, '', 'left'), ('2', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
                                     ('Drawing No.', 2, 1, '', 'center'), ('1802-00-M-10-P-001-01', 4, 1, '', 'center')]]),
-                                 ('images', ['s02_1.jpg']),
-                                 ('table',
-                                  [[('CONTACT PERSON', 13, 1, 'b', 'center')], [('Hard Office', 13, 1, '', '')],
-                                   [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 13, 1, '', '')],
-                                   [('Estate Jakarta 13930, Indonesia', 13, 1, '', '')], [('Phone', 3, 1, '', ''), ('062 214603963', 10, 1, '', '')],
-                                   [('Fax', 3, 1, '', ''), ('062 214603937', 10, 1, '', '')],
-                                   [('Email', 3, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+                                 ('images', ['s02_1.jpg'])]},
  '3. BFP': {'name': 'BOILER FEED WATER PUMP ( BFP )',
             'info': {},
             'col_pct': [4.89, 7.24, 6.86, 6.3, 8.74, 4.7, 6.48, 4.89, 14.85, 2.82, 6.3, 6.3, 19.65],
@@ -325,14 +319,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                            [('5.', 1, 1, '', 'center'), ('Heat Flow', 2, 1, '', 'left'), ('3.65E + 06', 2, 1, '', 'center'),
                             ('Kcal/hour', 2, 1, '', 'center'), ('5.', 1, 1, '', 'center'), ('Heat Flow', 2, 1, '', 'left'),
                             ('3.69E + 06', 2, 1, '', 'center'), ('Kcal/hour', 1, 1, '', 'center')]]),
-                         ('images', ['s03_1.jpg']),
-                         ('table',
-                          [[('CONTACT PERSON', 13, 1, 'b', 'center')],
-                           [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
-                           [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
-                           [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
-                           [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
-                           [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+                         ('images', ['s03_1.jpg'])]},
  '4. Jet Pump': {'name': 'WATER JET PUMP',
                  'info': {},
                  'col_pct': [4.1, 11.45, 3.53, 6.39, 8.87, 4.77, 10.02, 4.1, 15.08, 2.86, 6.39, 3.81, 18.61],
@@ -371,14 +358,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                 [('1802 - 00 - M - 10 - LB - 003 - 02', 7, 2, '', 'center'), ('Discharge Press.', 2, 1, '', ''),
                                  ('3.92', 2, 1, '', 'center'), ('Kg/Cm g2', 2, 1, '', 'left')],
                                 [('Extraction Flow', 2, 1, '', ''), ('7.5', 2, 1, '', 'center'), ('Kg/Hr', 2, 1, '', 'left')]]),
-                              ('images', ['s04_1.jpg']),
-                              ('table',
-                               [[('CONTACT PERSON', 13, 1, 'b', 'center')],
-                                [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
-                                [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
-                                [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
-                                [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
-                                [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+                              ('images', ['s04_1.jpg'])]},
  '5. AC Oil Pump': {'name': 'AC AUXILIARY OIL PUMP',
                     'info': {},
                     'col_pct': [4.6, 6.46, 13.98, 2.65, 5.93, 8.23, 4.42, 6.1, 4.6, 13.98, 2.65, 5.93, 5.93, 14.51],
@@ -422,14 +402,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                    [('Diameter Shaft', 3, 1, '', 'left'), ('ø 70', 3, 1, '', 'center'), ('mm', 2, 1, '', 'center'),
                                     ('System', 2, 2, '', 'center'), ('Oil Cooling System Of Steam Turbine', 4, 2, '', 'center')],
                                    [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]]),
-                                 ('images', ['s05_1.jpg']),
-                                 ('table',
-                                  [[('CONTACT PERSON', 14, 1, 'b', 'center')],
-                                   [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 14, 1, 'b', 'left')],
-                                   [('No.1, Qutangxia Road', 14, 1, '', 'left')], [('Qingdao, Shandong', 14, 1, '', 'left')],
-                                   [('China 266002', 14, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 14, 1, '', 'left')],
-                                   [('Fax: (86 532) 8266 1679', 14, 1, '', 'left')],
-                                   [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 14, 1, '', 'left')]])]},
+                                 ('images', ['s05_1.jpg'])]},
  '6. DC Oil Pump': {'name': 'DC AUXILIARY OIL PUMP',
                     'info': {},
                     'col_pct': [4.97, 6.59, 7.54, 2.87, 6.4, 8.88, 4.77, 6.59, 4.97, 15.09, 2.87, 6.4, 6.4, 15.66],
@@ -472,14 +445,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                    [('Diameter Shaft', 3, 1, '', 'left'), ('ø 70', 3, 1, '', 'center'), ('mm', 2, 1, '', 'center'),
                                     ('System', 2, 2, '', 'center'), ('Oil Cooling System Of Steam Turbine', 4, 2, '', 'center')],
                                    [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]]),
-                                 ('images', ['s06_1.jpg']),
-                                 ('table',
-                                  [[('CONTACT PERSON', 14, 1, 'b', 'center')],
-                                   [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 14, 1, 'b', 'left')],
-                                   [('No.1, Qutangxia Road', 14, 1, '', 'left')], [('Qingdao, Shandong', 14, 1, '', 'left')],
-                                   [('China 266002', 14, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 14, 1, '', 'left')],
-                                   [('Fax: (86 532) 8266 1679', 14, 1, '', 'left')],
-                                   [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 14, 1, '', 'left')]])]},
+                                 ('images', ['s06_1.jpg'])]},
  '7. CWP ( Cooling Tower )': {'name': 'CIRCULATING WATER PUMP ( CWP )',
                               'info': {},
                               'col_pct': [4.68, 5.67, 10.89, 2.7, 6.03, 8.37, 4.5, 6.21, 4.68, 16.74, 2.7, 6.03, 6.03, 14.76],
@@ -556,13 +522,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                              [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Single Row Deep Groove', 4, 1, '', 'left'),
                                               (None, 6, 1, '', '')],
                                              [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 91,93', 4, 1, '', 'left'),
-                                              (None, 6, 1, '', '')],
-                                             [('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
-                                             [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
-                                             [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
-                                             [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
-                                             [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
-                                             [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+                                              (None, 6, 1, '', '')]])]},
  '8. Condensate Pump': {'name': 'CONDENSATE FEED WATER PUMP',
                         'info': {'Unit': '2', 'No. Formulir': '1', 'Tanggal': '19 - 01 - 2013', 'Halaman': '1'},
                         'col_pct': [4.54, 7.89, 9.17, 6.61, 9.17, 4.93, 4.63, 5.13, 15.59, 2.96, 6.61, 6.61, 16.17],
@@ -608,14 +568,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                        [('Drawing No.', 2, 2, '', 'center'), ('1802 - 00 - M - 10 - LB - 003 - 05', 5, 2, '', 'center'),
                                         ('Discharge Pressure', 2, 1, '', 'center'), ('7', 3, 1, '', 'center'), ('Bar', 1, 1, '', 'center')],
                                        [('Differensial Press.', 2, 1, '', 'center'), ('Hold', 4, 1, '', 'center')]]),
-                                     ('images', ['s08_1.jpg']),
-                                     ('table',
-                                      [[('CONTACT PERSON', 13, 1, 'b', 'center')],
-                                       [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
-                                       [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
-                                       [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
-                                       [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
-                                       [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+                                     ('images', ['s08_1.jpg'])]},
  '9. Generator cooler': {'name': 'GENEATOR COOLER',
                          'info': {},
                          'col_pct': [4.99, 7.68, 11.04, 6.43, 8.93, 4.8, 4.51, 4.99, 15.17, 2.88, 6.43, 6.43, 15.74],
@@ -654,14 +607,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                          ('MPa', 2, 1, '', 'center')],
                                         [('15.', 1, 1, '', 'center'), ('Product', 7, 1, '', 'left'),
                                          ('Shandong Machinery I&E Group Corporation', 3, 1, '', 'center'), (None, 2, 1, '', '')]]),
-                                      ('images', ['s09_1.jpg', 's09_2.jpg']),
-                                      ('table',
-                                       [[('CONTACT PERSON', 13, 1, 'b', 'center')],
-                                        [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
-                                        [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
-                                        [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
-                                        [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
-                                        [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+                                      ('images', ['s09_1.jpg', 's09_2.jpg'])]},
  '10. Demin Pump': {'name': 'DEMIN PUMP',
                     'info': {},
                     'col_pct': [4.63, 7.22, 6.86, 7.22, 5.97, 8.29, 4.45, 8.65, 3.83, 14.08, 2.67, 5.97, 3.56, 16.58],
@@ -714,13 +660,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                    [('5.', 1, 1, '', 'center'), ('Width', 3, 1, '', ''), ('17 mm', 10, 1, '', '')],
                                    [('6.', 1, 1, '', 'center'), ('Clearance', 3, 1, '', ''), ('C3', 10, 1, '', '')],
                                    [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Two Rubber Seals ( 2RS )', 10, 1, '', '')],
-                                   [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 1, 1, '', ''), ('£ 8.30', 9, 1, '', '')],
-                                   [('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
-                                   [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
-                                   [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
-                                   [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
-                                   [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
-                                   [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+                                   [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 1, 1, '', ''),
+                                    ('£ 8.30', 9, 1, '', '')]])]},
  '11. RO Pump': {'name': 'Reverse Osmosis Transfer Pump',
                  'info': {},
                  'col_pct': [2.52, 3.52, 7.14, 0.18, 3.07, 4.26, 2.29, 3.39, 1.97, 7.23, 1.37, 3.07, 1.83, 8.92, 4.24, 4.24, 13.82, 1.37, 25.58],
@@ -781,12 +722,6 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                 [('6.', 1, 1, '', 'center'), ('Clearance', 4, 1, '', ''), ('C3', 14, 1, '', '')],
                                 [('7.', 1, 1, '', 'center'), ('Model', 4, 1, '', ''), ('Two Rubber Seals ( 2RS )', 14, 1, '', '')],
                                 [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 4, 1, '', ''), ('£ 8.30', 14, 1, '', '')],
-                                [('CONTACT PERSON', 14, 1, 'b', 'center'), (None, 5, 1, '', '')], [('Hard Office', 19, 1, '', '')],
-                                [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 19, 1, '', '')],
-                                [('Estate Jakarta 13930, Indonesia', 19, 1, '', '')],
-                                [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 15, 1, '', '')],
-                                [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 15, 1, '', '')],
-                                [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 15, 1, '', '')],
                                 [(None, 16, 1, '', ''), ('INSPECTION REPORT', 3, 1, 'b', 'center')],
                                 [(None, 16, 1, '', ''), ('Equipment', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('RO Pump #1 & #2', 1, 1, '', '')],
                                 [(None, 16, 1, '', ''), ('Date', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('25-09-2013', 1, 1, '', 'left')],
@@ -848,13 +783,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                         [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
                                          ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
                                       ('images', ['s12_1.jpg', 's12_2.jpg', 's12_3.jpg']),
-                                      ('table',
-                                       [[('Mechanical Seal', 14, 1, 'b', 'center')], [('CONTACT PERSON', 14, 1, 'b', 'center')],
-                                        [('Hard Office', 14, 1, '', '')], [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
-                                        [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
-                                        [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
-                                        [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
-                                        [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+                                      ('table', [[('Mechanical Seal', 14, 1, 'b', 'center')]])]},
  '13. Vacum Pump BOP': {'name': 'VACUM PUMP',
                         'info': {},
                         'col_pct': [4.57, 6.13, 9.92, 2.92, 8.27, 9.05, 4.86, 5.74, 4.18, 12.06, 2.92, 6.52, 3.89, 18.97],
@@ -899,14 +828,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                        [('Discharge Pressure', 3, 1, '', 'left'), ('1013', 2, 1, '', 'center'), ('hpa ( A )', 3, 1, '', 'center'),
                                         ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
                                        [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                        ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
-                                     ('table',
-                                      [[('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
-                                       [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
-                                       [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
-                                       [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
-                                       [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
-                                       [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+                                        ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]])]},
  '14. Sea Water Intake Pump': {'name': 'SEA WATER INTAKE PUMP',
                                'info': {},
                                'col_pct': [4.47, 5.55, 9.04, 2.69, 6.0, 8.33, 4.47, 8.15, 3.85, 16.12, 2.69, 7.61, 3.58, 17.46],
@@ -954,14 +876,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                                ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
                                               [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
                                                ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
-                                            ('images', ['s14_1.jpg']),
-                                            ('table',
-                                             [[('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
-                                              [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
-                                              [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
-                                              [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
-                                              [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
-                                              [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+                                            ('images', ['s14_1.jpg'])]},
  'Cooling Tower': {'name': 'Colling Tower',
                    'info': {},
                    'col_pct': [3.4, 6.1, 12.51, 2.37, 5.3, 7.36, 8.79, 3.48, 17.1, 2.37, 5.3, 4.12, 21.78],
@@ -997,14 +912,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                    ('2750 M3/Hour', 1, 1, '', 'center')],
                                   [(None, 7, 1, '', ''), ('13.', 1, 1, '', 'center'), ('Tower Exposure', 4, 1, '', ''),
                                    ('Out Door', 1, 1, '', 'center')]]),
-                                ('images', ['s15_1.jpg']),
-                                ('table',
-                                 [[('CONTACT PERSON', 13, 1, 'b', 'center')], [('Hard Office', 13, 1, '', '')],
-                                  [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 13, 1, '', '')],
-                                  [('Estate Jakarta 13930, Indonesia', 13, 1, '', '')],
-                                  [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 9, 1, '', '')],
-                                  [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 9, 1, '', '')],
-                                  [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 9, 1, '', '')]])]}}
+                                ('images', ['s15_1.jpg'])]}}
 
 
 main()
