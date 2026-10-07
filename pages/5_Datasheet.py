@@ -16,25 +16,16 @@ try:
 except Exception:
     pass
 
-# Sembunyikan navigasi bawaan Streamlit agar sidebar menu tidak dobel
-st.markdown("""
-<style>
-[data-testid="stSidebarNav"] {
-    display: none !important;
-}
-section[data-testid="stSidebar"] > div:first-child {
-    padding-top: 1rem;
-}
-</style>
-""", unsafe_allow_html=True)
-
+st.markdown(
+    "<style>[data-testid='stSidebarNav'] { display: none !important; } section[data-testid='stSidebar'] > div:first-child { padding-top: 1rem; }</style>",
+    unsafe_allow_html=True
+)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 render_app_sidebar()
 render_page_header("📋 Datasheet Pompa & Peralatan Utama PLTU TBK")
 st.caption("Data spesifikasi teknis pompa, motor penggerak, nomor bearing, dan dokumen operasional PLTU TBK.")
 
-# ── Data Master Datasheet Sesuai Sheet Excel (Tanpa Duplex Filter) ─────────
 EQUIPMENT_DATASHEET = [
     {
         "sheet_name": "1. CCWP",
@@ -44,7 +35,7 @@ EQUIPMENT_DATASHEET = [
         "pump_merek": "TORISHIMA PUMP",
         "pump_type": "CPEN 25 - 200",
         "pump_head": "43.8 m",
-        "pump_capacity": "6 m³/h (2 x 100%)",
+        "pump_capacity": "6 m3/h (2 x 100%)",
         "pump_speed": "2900 RPM",
         "pump_driver": "3 kW",
         "pump_brg_front": "6305 DDU C3",
@@ -68,7 +59,7 @@ EQUIPMENT_DATASHEET = [
         "pump_merek": "TORISHIMA PUMP",
         "pump_type": "ETA - N 125 x 100 - 315",
         "pump_head": "33.9 m",
-        "pump_capacity": "154 m³/h (2 x 100%)",
+        "pump_capacity": "154 m3/h (2 x 100%)",
         "pump_speed": "1460 RPM",
         "pump_driver": "22 kW",
         "pump_brg_front": "6309 DDU C3",
@@ -92,7 +83,7 @@ EQUIPMENT_DATASHEET = [
         "pump_merek": "Shenyang Pump Manufactory",
         "pump_type": "Multi Stage DGJ 45 - 80 x 7",
         "pump_head": "560 m",
-        "pump_capacity": "45 m³/h (3 x 100%)",
+        "pump_capacity": "45 m3/h (3 x 100%)",
         "pump_speed": "2986 RPM",
         "pump_driver": "125 kW (Berat 1250 kg)",
         "pump_brg_front": "N 6319 C3",
@@ -116,7 +107,7 @@ EQUIPMENT_DATASHEET = [
         "pump_merek": "Shenyang Pump Manufactory",
         "pump_type": "IS100 - 65 - 200",
         "pump_head": "47 m",
-        "pump_capacity": "120 m³/h (Desain 105 m³/h)",
+        "pump_capacity": "120 m3/h (Desain 105 m3/h)",
         "pump_speed": "2900 RPM",
         "pump_driver": "19.7 kW (Berat 320 kg)",
         "pump_brg_front": "-",
@@ -140,9 +131,9 @@ EQUIPMENT_DATASHEET = [
         "pump_merek": "Botoushi Yunhe Estate of Pump Co.",
         "pump_type": "Gear Pump (Positive Displacement)",
         "pump_head": "5 m (NPSH) / Tekanan 0.353 MPa",
-        "pump_capacity": "350 L/min (20.5 m³/h)",
+        "pump_capacity": "350 L/min (20.5 m3/h)",
         "pump_speed": "960 RPM",
-        "pump_driver": "3.8 kW (Shaft ø70 mm)",
+        "pump_driver": "3.8 kW (Shaft 70 mm)",
         "pump_brg_front": "-",
         "pump_brg_rear": "-",
         "motor_merek": "Jiangsu Electric Motor Co., Ltd",
@@ -164,98 +155,10 @@ EQUIPMENT_DATASHEET = [
         "pump_merek": "Botoushi Yunhe Estate of Pump Co.",
         "pump_type": "Gear Pump (Positive Displacement)",
         "pump_head": "5 m (NPSH) / Tekanan 0.353 MPa",
-        "pump_capacity": "350 L/min (20.5 m³/h)",
+        "pump_capacity": "350 L/min (20.5 m3/h)",
         "pump_speed": "960 RPM",
-        "pump_driver": "3.8 kW (Shaft ø70 mm)",
+        "pump_driver": "3.8 kW (Shaft 70 mm)",
         "pump_brg_front": "-",
         "pump_brg_rear": "-",
         "motor_merek": "Xi'an Simo Motors, Inc",
-        "motor_code_frame": "Z2 - 61 (Direct Current / DC)",
-        "motor_power": "5.5 kW",
-        "motor_volt": "220 V (DC)",
-        "motor_current": "30.3 A",
-        "motor_speed": "1000 RPM",
-        "motor_brg_front": "6309 / CMZ1",
-        "motor_brg_rear": "6309 / CMZ1",
-        "system": "Emergency Oil Supply System Steam Turbine",
-        "drawing_no": "1802-00-M-10-P-002-01 / 002-02",
-    },
-    {
-        "sheet_name": "7. CWP ( Cooling Tower )",
-        "equipment": "Circulating Water Pump (CWP)",
-        "tag": "AP / 1103 A/B",
-        "unit": "Cooling Tower / Turbin",
-        "pump_merek": "Torishima Guna Indonesia",
-        "pump_type": "CDM 450 LN",
-        "pump_head": "16.2 m (Diff: 1.62 kg/cm²G)",
-        "pump_capacity": "1375 m³/h (2 Unit 2 x 50%)",
-        "pump_speed": "890 RPM",
-        "pump_driver": "90 kW",
-        "pump_brg_front": "6315 C3",
-        "pump_brg_rear": "6315 C3",
-        "motor_merek": "TECO, 3 Phase Induction Motor",
-        "motor_code_frame": "Frame 315 SC",
-        "motor_power": "90 kW (125 HP)",
-        "motor_volt": "380 - 415 V (50 Hz)",
-        "motor_current": "170 A",
-        "motor_speed": "975 RPM",
-        "motor_brg_front": "6315",
-        "motor_brg_rear": "NU 320 C3",
-        "system": "Sea Water Cooling Supply System",
-        "drawing_no": "1802-00-10-P-001-01 / 001-02",
-    },
-    {
-        "sheet_name": "8. Condensate Pump",
-        "equipment": "Condensate Feed Water Pump",
-        "tag": "AP - 1101 A/B/C/D",
-        "unit": "Turbin / Kondensat",
-        "pump_merek": "Shenyang Pump Manufactory",
-        "pump_type": "4 N6 (Horizontal Pump)",
-        "pump_head": "59.5 m (NPSH 1.75 m)",
-        "pump_capacity": "50 m³/h (13.9 L/s)",
-        "pump_speed": "2950 RPM",
-        "pump_driver": "14.1 kW (Impeller 225 mm)",
-        "pump_brg_front": "-",
-        "pump_brg_rear": "-",
-        "motor_merek": "Shandong Huali Electric Motor Group",
-        "motor_code_frame": "Frame Y2-180M - 2",
-        "motor_power": "22 kW (29.5 HP)",
-        "motor_volt": "380 V (50 Hz)",
-        "motor_current": "41.0 A (PF: 0.90, Eff: 90.5%)",
-        "motor_speed": "2940 RPM",
-        "motor_brg_front": "-",
-        "motor_brg_rear": "-",
-        "system": "Steam Supply & Condensate System",
-        "drawing_no": "1802-00-M-10-LB-003-05",
-    },
-    {
-        "sheet_name": "9. Generator cooler",
-        "equipment": "Generator Cooler (Heat Exchanger)",
-        "tag": "Generator Cooler",
-        "unit": "Generator",
-        "pump_merek": "Shandong Machinery I&E Group",
-        "pump_type": "Surface Cooler (Pendingin Air Laut)",
-        "pump_head": "Inlet Tekanan: 0.2 MPa | Test: 0.6 MPa",
-        "pump_capacity": "Transfer Panas 90 kW",
-        "pump_speed": "Kecepatan Udara: 3.35 m³/s | Air: 25 m³/s",
-        "pump_driver": "Material: Tube B10, Frame SUS 304L",
-        "pump_brg_front": "-",
-        "pump_brg_rear": "-",
-        "motor_merek": "-",
-        "motor_code_frame": "Parallel Connected 2 Water Circuits",
-        "motor_power": "Heat Transfer 90 kW",
-        "motor_volt": "-",
-        "motor_current": "-",
-        "motor_speed": "-",
-        "motor_brg_front": "-",
-        "motor_brg_rear": "-",
-        "system": "Generator Air & Stator Cooling System",
-        "drawing_no": "Water Press Drop: 5187 Pa | Air: 300 Pa",
-    },
-    {
-        "sheet_name": "10. Demin Pump",
-        "equipment": "Demin Water Transfer Pump",
-        "tag": "Demin Pump",
-        "unit": "Demin Plant",
-        "pump_merek": "TORISHIMA PUMP",
-        "pump_type": "CPEN 25 -
+        "motor_code_frame": "Z
