@@ -31,15 +31,17 @@ st.caption("Spesifikasi teknis peralatan langsung dari file datasheet PLTU Tanju
 # ── Render HTML ─────────────────────────────────────────────────────────────
 TABLE_CSS = """
 <style>
-.ds-wrap{overflow-x:auto;margin:.25rem 0 1rem 0;}
-table.ds{border-collapse:collapse;table-layout:fixed;width:100%;min-width:760px;font-size:.88rem;line-height:1.35;}
-table.ds td{padding:4px 7px;vertical-align:middle;overflow-wrap:anywhere;}
-table.ds td.c{border:1px solid rgba(128,128,128,.35);}
-table.ds td.b{font-weight:600;}
-table.ds td.f{background:rgba(128,128,128,.16);}
-table.ds mark{background:#ffd54f;color:#000;padding:0 2px;border-radius:2px;}
-.ds-info{display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0 .75rem 0;}
-.ds-chip{border:1px solid rgba(128,128,128,.35);border-radius:999px;padding:2px 12px;font-size:.82rem;}
+.ds-wrap{overflow-x:auto;margin:.25rem 0 1.4rem 0;border:1px solid rgba(128,128,128,.3);border-radius:10px;}
+table.ds{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;min-width:760px;font-size:.9rem;line-height:1.4;}
+table.ds td{padding:7px 10px;vertical-align:middle;overflow-wrap:anywhere;}
+table.ds td.c{border-right:1px solid rgba(128,128,128,.18);border-bottom:1px solid rgba(128,128,128,.18);}
+table.ds td.sec{background:#1f5f8b;color:#fff;font-weight:700;text-align:center;letter-spacing:.05em;border-color:rgba(255,255,255,.22);}
+table.ds td.lbl{background:rgba(128,128,128,.12);font-weight:600;}
+table.ds td.no{color:rgba(128,128,128,.95);text-align:center;font-variant-numeric:tabular-nums;}
+table.ds tr:hover td.c:not(.sec){background:rgba(31,95,139,.10);}
+table.ds mark{background:#ffd54f;color:#000;padding:0 3px;border-radius:3px;}
+.ds-info{display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0 .9rem 0;}
+.ds-chip{background:rgba(31,95,139,.12);border:1px solid rgba(31,95,139,.35);border-radius:999px;padding:3px 14px;font-size:.82rem;}
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -54,6 +56,18 @@ def _cell_html(text, kw_re):
         e = html.escape(p).replace("$", "&#36;")
         out.append(f"<mark>{e}</mark>" if i % 2 == 1 else e)
     return "".join(out)
+
+
+def _style_class(text, cls, cs):
+    flags = cls.split()
+    bold, fill = "b" in flags, "f" in flags
+    if re.fullmatch(r"\d{1,2}\.", text):
+        return "no"
+    if bold and (cs >= 3 or text.isupper()):
+        return "sec"
+    if bold or fill:
+        return "lbl"
+    return ""
 
 
 def table_html(rows, col_pct, kw_re):
@@ -71,7 +85,7 @@ def table_html(rows, col_pct, kw_re):
                 tds.append(f"<td{attrs}></td>")
                 continue
             style = f' style="text-align:{align}"' if align in ("center", "right") else ""
-            tds.append(f'<td class="c {cls}"{attrs}{style}>{_cell_html(text, kw_re)}</td>')
+            tds.append(f'<td class="c {_style_class(text, cls, cs)}"{attrs}{style}>{_cell_html(text, kw_re)}</td>')
         body.append("<tr>" + "".join(tds) + "</tr>")
     return f'<div class="ds-wrap"><table class="ds"><colgroup>{cols}</colgroup>{"".join(body)}</table></div>'
 
@@ -80,10 +94,10 @@ def count_hits(sheet, kw_re):
     if kw_re is None:
         return 0
     n = 0
-    for kind, rows in sheet["segments"]:
-        if kind != "table":
+    for seg in sheet["segments"]:
+        if seg[0] != "table":
             continue
-        for cells in rows:
+        for cells in seg[1]:
             for text, *_ in cells:
                 if text and kw_re.search(text):
                     n += 1
@@ -115,6 +129,11 @@ if not os.path.isdir(IMG_DIR):
     IMG_DIR = os.path.join(current_dir, "datasheet_img")
 
 
+def clean_name(n):
+    """'1. CCWP' → 'CCWP' (hilangkan nomor urut di depan nama sheet)."""
+    return re.sub(r"^\s*\d+\s*[.)-]\s*", "", n).strip()
+
+
 def main():
     sheets = DATA
     sheet_names = list(sheets.keys())
@@ -140,7 +159,7 @@ def main():
             selected = st.selectbox(
                 "📑 Pilih peralatan:",
                 options,
-                format_func=lambda n: f"{n}  ({hits[n]} cocok)" if kw else n,
+                format_func=lambda n: f"{clean_name(n)}  ({hits[n]} cocok)" if kw else clean_name(n),
             )
 
     if not options:
@@ -157,11 +176,12 @@ def main():
             for k, v in sheet["info"].items()
         )
         st.markdown(f'<div class="ds-info">{chips}</div>', unsafe_allow_html=True)
-    for kind, payload in sheet["segments"]:
-        if kind == "table":
-            st.markdown(table_html(payload, sheet["col_pct"], kw_re), unsafe_allow_html=True)
+    for seg in sheet["segments"]:
+        if seg[0] == "table":
+            col_pct = seg[2] if len(seg) > 2 else sheet["col_pct"]
+            st.markdown(table_html(seg[1], col_pct, kw_re), unsafe_allow_html=True)
         else:
-            render_images(payload)
+            render_images(seg[1])
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -209,7 +229,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                             [('Discharge Pressure', 3, 1, '', 'left'), ('4.84', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
                              ('System', 2, 1, 'b', 'center'), ('Close Cooling Water System', 4, 1, '', 'center')],
                             [('Diffrensial Press.', 3, 1, '', 'left'), ('4.38', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
-                             ('Drawing No.', 2, 1, 'b', 'center'), ('1802-00-M-10-PG-001-02', 4, 1, '', 'center')]]),
+                             ('Drawing No.', 2, 1, 'b', 'center'), ('1802-00-M-10-PG-001-02', 4, 1, '', 'center')]],
+                           [4.44, 5.26, 13.96, 6.07, 8.43, 4.53, 6.8, 6.07, 14.33, 2.72, 6.07, 3.62, 17.68]),
                           ('images', ['s01_1.jpg', 's01_2.jpg']),
                           ('table',
                            [[('BEARING SPECIFICATION', 5, 1, 'b', 'center'), ('TYPE : 6305 DDU KOYO DEEP GROOVE BEARING', 8, 1, 'b', 'center')],
@@ -220,7 +241,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                             [('5.', 1, 1, '', 'center'), ('Width', 3, 1, '', ''), ('17 mm', 9, 1, '', '')],
                             [('6.', 1, 1, '', 'center'), ('Clearance', 3, 1, '', ''), ('C3', 9, 1, '', '')],
                             [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Two Rubber Seals ( 2RS )', 9, 1, '', '')],
-                            [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 9, 1, '', '')]])]},
+                            [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 9, 1, '', '')]],
+                           [4.44, 5.26, 13.96, 6.07, 8.43, 4.53, 6.8, 6.07, 14.33, 2.72, 6.07, 3.62, 17.68])]},
  '2. Boster Pump': {'name': 'COOLING BOOSTER PUMP',
                     'info': {},
                     'col_pct': [4.02, 6.45, 13.47, 6.27, 8.7, 4.68, 7.76, 4.02, 13.57, 2.81, 6.27, 3.74, 18.25],
@@ -267,7 +289,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                    [('Discharge Pressure', 3, 1, '', 'left'), ('3', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
                                     ('System', 2, 1, '', 'center'), ('Sea Water Cooling Suppy System', 4, 1, '', 'center')],
                                    [('Diffrensial Press.', 3, 1, '', 'left'), ('2', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                    ('Drawing No.', 2, 1, '', 'center'), ('1802-00-M-10-P-001-01', 4, 1, '', 'center')]]),
+                                    ('Drawing No.', 2, 1, '', 'center'), ('1802-00-M-10-P-001-01', 4, 1, '', 'center')]],
+                                  [4.02, 6.45, 13.47, 6.27, 8.7, 4.68, 7.76, 4.02, 13.57, 2.81, 6.27, 3.74, 18.25]),
                                  ('images', ['s02_1.jpg'])]},
  '3. BFP': {'name': 'BOILER FEED WATER PUMP ( BFP )',
             'info': {},
@@ -318,7 +341,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                             ('105.24', 2, 1, '', 'center'), ('Kcal/kg', 1, 1, '', 'center')],
                            [('5.', 1, 1, '', 'center'), ('Heat Flow', 2, 1, '', 'left'), ('3.65E + 06', 2, 1, '', 'center'),
                             ('Kcal/hour', 2, 1, '', 'center'), ('5.', 1, 1, '', 'center'), ('Heat Flow', 2, 1, '', 'left'),
-                            ('3.69E + 06', 2, 1, '', 'center'), ('Kcal/hour', 1, 1, '', 'center')]]),
+                            ('3.69E + 06', 2, 1, '', 'center'), ('Kcal/hour', 1, 1, '', 'center')]],
+                          [4.89, 7.24, 6.86, 6.3, 8.74, 4.7, 6.48, 4.89, 14.85, 2.82, 6.3, 6.3, 19.65]),
                          ('images', ['s03_1.jpg'])]},
  '4. Jet Pump': {'name': 'WATER JET PUMP',
                  'info': {},
@@ -357,7 +381,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                 [('Des. Capacity', 2, 1, '', ''), ('105', 2, 1, '', 'center'), ('m3/h', 2, 1, '', 'left')],
                                 [('1802 - 00 - M - 10 - LB - 003 - 02', 7, 2, '', 'center'), ('Discharge Press.', 2, 1, '', ''),
                                  ('3.92', 2, 1, '', 'center'), ('Kg/Cm g2', 2, 1, '', 'left')],
-                                [('Extraction Flow', 2, 1, '', ''), ('7.5', 2, 1, '', 'center'), ('Kg/Hr', 2, 1, '', 'left')]]),
+                                [('Extraction Flow', 2, 1, '', ''), ('7.5', 2, 1, '', 'center'), ('Kg/Hr', 2, 1, '', 'left')]],
+                               [4.1, 11.45, 3.53, 6.39, 8.87, 4.77, 10.02, 4.1, 15.08, 2.86, 6.39, 3.81, 18.61]),
                               ('images', ['s04_1.jpg'])]},
  '5. AC Oil Pump': {'name': 'AC AUXILIARY OIL PUMP',
                     'info': {},
@@ -401,7 +426,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                     ('Unit 2', 2, 1, '', 'center'), ('1803 - 00 - M - 10 - P - 002 - 02', 4, 1, '', 'center')],
                                    [('Diameter Shaft', 3, 1, '', 'left'), ('ø 70', 3, 1, '', 'center'), ('mm', 2, 1, '', 'center'),
                                     ('System', 2, 2, '', 'center'), ('Oil Cooling System Of Steam Turbine', 4, 2, '', 'center')],
-                                   [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]]),
+                                   [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]],
+                                  [4.6, 6.46, 13.98, 2.65, 5.93, 8.23, 4.42, 6.1, 4.6, 13.98, 2.65, 5.93, 5.93, 14.51]),
                                  ('images', ['s05_1.jpg'])]},
  '6. DC Oil Pump': {'name': 'DC AUXILIARY OIL PUMP',
                     'info': {},
@@ -444,7 +470,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                     ('Unit 2', 2, 1, '', 'center'), ('1803 - 00 - M - 10 - P - 002 - 02', 4, 1, '', 'center')],
                                    [('Diameter Shaft', 3, 1, '', 'left'), ('ø 70', 3, 1, '', 'center'), ('mm', 2, 1, '', 'center'),
                                     ('System', 2, 2, '', 'center'), ('Oil Cooling System Of Steam Turbine', 4, 2, '', 'center')],
-                                   [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]]),
+                                   [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]],
+                                  [4.97, 6.59, 7.54, 2.87, 6.4, 8.88, 4.77, 6.59, 4.97, 15.09, 2.87, 6.4, 6.4, 15.66]),
                                  ('images', ['s06_1.jpg'])]},
  '7. CWP ( Cooling Tower )': {'name': 'CIRCULATING WATER PUMP ( CWP )',
                               'info': {},
@@ -504,7 +531,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                               ('160 Gr', 1, 1, '', 'center')],
                                              [('1803 - 00 - 10 - P - 001 - 02', 5, 2, '', 'center'), ('Non Drive End', 3, 1, '', 'center'),
                                               ('100 Gr', 1, 1, '', 'center')],
-                                             [('4.', 1, 1, '', ''), ('Add Grease At The Begining Of First Operation', 5, 1, '', 'center')]]),
+                                             [('4.', 1, 1, '', ''), ('Add Grease At The Begining Of First Operation', 5, 1, '', 'center')]],
+                                            [4.68, 5.67, 10.89, 2.7, 6.03, 8.37, 4.5, 6.21, 4.68, 16.74, 2.7, 6.03, 6.03, 14.76]),
                                            ('images', ['s07_1.jpg', 's07_2.jpg']),
                                            ('table',
                                             [[('BEARING SPESIFICATION', 6, 1, 'b', 'center'),
@@ -522,7 +550,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                              [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Single Row Deep Groove', 4, 1, '', 'left'),
                                               (None, 6, 1, '', '')],
                                              [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 91,93', 4, 1, '', 'left'),
-                                              (None, 6, 1, '', '')]])]},
+                                              (None, 6, 1, '', '')]],
+                                            [4.68, 5.67, 10.89, 2.7, 6.03, 8.37, 4.5, 6.21, 4.68, 16.74, 2.7, 6.03, 6.03, 14.76])]},
  '8. Condensate Pump': {'name': 'CONDENSATE FEED WATER PUMP',
                         'info': {'Unit': '2', 'No. Formulir': '1', 'Tanggal': '19 - 01 - 2013', 'Halaman': '1'},
                         'col_pct': [4.54, 7.89, 9.17, 6.61, 9.17, 4.93, 4.63, 5.13, 15.59, 2.96, 6.61, 6.61, 16.17],
@@ -567,7 +596,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                         ('Sucion Pressure', 2, 1, '', 'left'), ('0.085', 3, 1, '', 'center'), ('Bar', 1, 1, '', 'center')],
                                        [('Drawing No.', 2, 2, '', 'center'), ('1802 - 00 - M - 10 - LB - 003 - 05', 5, 2, '', 'center'),
                                         ('Discharge Pressure', 2, 1, '', 'center'), ('7', 3, 1, '', 'center'), ('Bar', 1, 1, '', 'center')],
-                                       [('Differensial Press.', 2, 1, '', 'center'), ('Hold', 4, 1, '', 'center')]]),
+                                       [('Differensial Press.', 2, 1, '', 'center'), ('Hold', 4, 1, '', 'center')]],
+                                      [4.54, 7.89, 9.17, 6.61, 9.17, 4.93, 4.63, 5.13, 15.59, 2.96, 6.61, 6.61, 16.17]),
                                      ('images', ['s08_1.jpg'])]},
  '9. Generator cooler': {'name': 'GENEATOR COOLER',
                          'info': {},
@@ -606,7 +636,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                         [('14.', 1, 1, '', 'center'), ('Test Pressure', 7, 1, '', 'left'), ('0.6', 3, 1, '', 'center'),
                                          ('MPa', 2, 1, '', 'center')],
                                         [('15.', 1, 1, '', 'center'), ('Product', 7, 1, '', 'left'),
-                                         ('Shandong Machinery I&E Group Corporation', 3, 1, '', 'center'), (None, 2, 1, '', '')]]),
+                                         ('Shandong Machinery I&E Group Corporation', 3, 1, '', 'center'), (None, 2, 1, '', '')]],
+                                       [4.99, 7.68, 11.04, 6.43, 8.93, 4.8, 4.51, 4.99, 15.17, 2.88, 6.43, 6.43, 15.74]),
                                       ('images', ['s09_1.jpg', 's09_2.jpg'])]},
  '10. Demin Pump': {'name': 'DEMIN PUMP',
                     'info': {},
@@ -648,7 +679,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                    [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
                                     ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
                                    [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                    ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
+                                    ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]],
+                                  [4.63, 7.22, 6.86, 7.22, 5.97, 8.29, 4.45, 8.65, 3.83, 14.08, 2.67, 5.97, 3.56, 16.58]),
                                  ('images', ['s10_1.jpg', 's10_2.jpg']),
                                  ('table',
                                   [[('BEARING SPECIFICATION', 6, 1, 'b', 'center'),
@@ -661,81 +693,84 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                    [('6.', 1, 1, '', 'center'), ('Clearance', 3, 1, '', ''), ('C3', 10, 1, '', '')],
                                    [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Two Rubber Seals ( 2RS )', 10, 1, '', '')],
                                    [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 1, 1, '', ''),
-                                    ('£ 8.30', 9, 1, '', '')]])]},
+                                    ('£ 8.30', 9, 1, '', '')]],
+                                  [4.63, 7.22, 6.86, 7.22, 5.97, 8.29, 4.45, 8.65, 3.83, 14.08, 2.67, 5.97, 3.56, 16.58])]},
  '11. RO Pump': {'name': 'Reverse Osmosis Transfer Pump',
                  'info': {},
-                 'col_pct': [2.52, 3.52, 7.14, 0.18, 3.07, 4.26, 2.29, 3.39, 1.97, 7.23, 1.37, 3.07, 1.83, 8.92, 4.24, 4.24, 13.82, 1.37, 25.58],
+                 'col_pct': [4.96, 6.94, 14.07, 0.36, 6.04, 8.39, 4.51, 6.67, 3.88, 14.25, 2.7, 6.04, 3.6, 17.59],
                  'segments': [('table',
-                               [[('SPECIFICATION', 14, 1, 'b', 'center'), (None, 5, 1, '', '')],
-                                [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center'),
-                                 (None, 5, 1, '', '')],
+                               [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center')],
                                 [('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('TORISHIMA PUMP', 4, 1, '', 'left'),
-                                 ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'left'),
-                                 (None, 5, 1, '', '')],
+                                 ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'left')],
                                 [('2.', 1, 1, '', 'center'), ('Type & Size', 2, 1, '', 'left'), (None, 1, 1, '', ''),
                                  ('FTA - N 65 x 50 - 200', 4, 1, '', 'left'), ('2.', 1, 1, '', 'center'), ('TECO', 2, 1, '', 'left'),
-                                 ('AEEBKBO20010FMB', 3, 1, '', 'left'), (None, 5, 1, '', '')],
+                                 ('AEEBKBO20010FMB', 3, 1, '', 'left')],
                                 [('3.', 1, 1, '', 'center'), ('Product No.', 2, 1, '', 'left'), (None, 1, 1, '', ''),
                                  ('TS 1018512', 4, 1, '', 'left'), ('3.', 1, 1, '', 'center'), ('4 POLE', 2, 1, '', 'left'), ('50', 1, 1, '', 'left'),
-                                 ('Hz', 7, 1, '', '')],
+                                 ('Hz', 2, 1, '', '')],
                                 [('4.', 1, 1, '', 'center'), ('Total Head', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('40', 1, 1, '', 'left'),
                                  ('m', 3, 1, '', 'left'), ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'), ('10', 1, 1, '', 'left'),
-                                 ('HP', 2, 1, '', 'left'), (None, 5, 1, '', '')],
+                                 ('HP', 2, 1, '', 'left')],
                                 [('5.', 1, 1, '', 'center'), ('Capacity', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('27.5', 1, 1, '', 'left'),
-                                 ('m3/h', 1, 1, '', ''), ('2 x 100%', 2, 1, '', 'center'), ('7.5', 1, 1, '', 'left'), ('KW', 2, 1, '', 'left'),
-                                 (None, 5, 1, '', '')],
+                                 ('m3/h', 1, 1, '', ''), ('2 x 100%', 2, 1, '', 'center'), ('7.5', 1, 1, '', 'left'), ('KW', 2, 1, '', 'left')],
                                 [('6.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('2900', 1, 1, '', 'left'),
                                  ('Rpm', 3, 1, '', 'left'), ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'), ('380 - 415', 2, 1, '', 'left'),
-                                 ('Volt', 6, 1, '', '')],
+                                 ('Volt', 1, 1, '', '')],
                                 [('7.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('7.5', 1, 1, '', 'left'),
                                  ('kW', 3, 1, '', 'left'), ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'), ('13.8', 1, 1, '', 'left'),
-                                 ('Ampere', 2, 1, '', 'left'), (None, 5, 1, '', '')],
+                                 ('Ampere', 2, 1, '', 'left')],
                                 [('8.', 1, 2, '', 'center'), ('Bearing No.', 2, 2, '', 'left'), (None, 1, 1, '', ''), ('Front', 1, 1, '', 'left'),
                                  ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'), ('7.', 1, 2, '', 'center'),
-                                 ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', ''), ('6308 ZZ', 2, 1, '', 'center'), (None, 5, 1, '', '')],
+                                 ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', ''), ('6308 ZZ', 2, 1, '', 'center')],
                                 [(None, 1, 1, '', ''), ('Rear', 1, 1, '', 'left'), ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'),
-                                 ('Rear', 1, 1, '', ''), ('6308 ZZ', 2, 1, '', 'center'), (None, 5, 1, '', '')],
+                                 ('Rear', 1, 1, '', ''), ('6308 ZZ', 2, 1, '', 'center')],
                                 [('9.', 2, 1, '', 'center'), ('Delivery Time', 2, 1, '', ''), ('Jul 2019', 4, 1, '', 'left'),
-                                 ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('2880', 1, 1, '', 'left'), ('Rpm', 2, 1, '', 'left'),
-                                 (None, 5, 1, '', '')],
+                                 ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('2880', 1, 1, '', 'left'), ('Rpm', 2, 1, '', 'left')],
                                 [('PUMP DESIGEN', 8, 2, 'b', 'center'), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
-                                 ('H4103025 037', 3, 1, '', 'left'), (None, 5, 1, '', '')],
-                                [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 8, 1, '', '')],
-                                [('KKS No.', 3, 1, '', 'left'), (None, 5, 1, '', ''), ('No.', 8, 1, '', '')],
+                                 ('H4103025 037', 3, 1, '', 'left')],
+                                [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 3, 1, '', '')],
+                                [('KKS No.', 3, 1, '', 'left'), (None, 5, 1, '', ''), ('No.', 3, 1, '', '')],
                                 [('No.', 3, 1, '', 'left'), ('2 Unit ( 2 x 100% )', 5, 1, '', 'left'), ('11.', 1, 1, '', 'center'),
-                                 ('Amb. Temp', 2, 1, '', 'left'), ('40', 1, 1, '', 'left'), ('oC', 2, 1, '', 'left'), (None, 5, 1, '', '')],
+                                 ('Amb. Temp', 2, 1, '', 'left'), ('40', 1, 1, '', 'left'), ('oC', 2, 1, '', 'left')],
                                 [('Suction Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                 ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('F 132 S', 3, 1, '', 'left'), (None, 5, 1, '', '')],
+                                 ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('F 132 S', 3, 1, '', 'left')],
                                 [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                 ('System', 2, 1, '', 'center'), (None, 9, 1, '', '')],
+                                 ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
                                 [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                 ('Drawing No.', 2, 1, '', 'center'), (None, 9, 1, '', '')]]),
+                                 ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]],
+                               [4.96, 6.94, 14.07, 0.36, 6.04, 8.39, 4.51, 6.67, 3.88, 14.25, 2.7, 6.04, 3.6, 17.59]),
                               ('images', ['s11_1.jpg', 's11_2.jpg', 's11_3.jpg', 's11_4.jpg', 's11_5.jpg']),
+                              ('table', [[('Type : MECH SEAL CN25 (22-MG1/25-S1) Silicar/Silicar/Viton/SS316', 14, 1, 'b', 'center')]],
+                               [4.96, 6.94, 14.07, 0.36, 6.04, 8.39, 4.51, 6.67, 3.88, 14.25, 2.7, 6.04, 3.6, 17.59]),
+                              ('table', [[('BEARING SPECIFICATION', 6, 1, 'b', 'center')]], [12.17, 17.04, 34.51, 0.88, 14.82, 20.57]),
                               ('table',
-                               [[('Type : MECH SEAL CN25 (22-MG1/25-S1) Silicar/Silicar/Viton/SS316', 14, 1, 'b', 'center'), (None, 5, 1, '', '')],
-                                [('BEARING SPECIFICATION', 6, 1, 'b', 'center'), (None, 13, 1, '', '')],
-                                [('1.', 1, 1, '', 'center'), ('Brand', 4, 1, '', ''), ('Koyo', 14, 1, '', '')],
-                                [('2.', 1, 1, '', 'center'), ('Type', 4, 1, '', ''), ('6305 DDU C3', 14, 1, '', '')],
-                                [('3.', 1, 1, '', 'center'), ('Inside Diameter', 4, 1, '', ''), ('25 mm', 14, 1, '', '')],
-                                [('4.', 1, 1, '', 'center'), ('Out Side Diameter', 4, 1, '', ''), ('62 mm', 14, 1, '', '')],
-                                [('5.', 1, 1, '', 'center'), ('Width', 4, 1, '', ''), ('17 mm', 14, 1, '', '')],
-                                [('6.', 1, 1, '', 'center'), ('Clearance', 4, 1, '', ''), ('C3', 14, 1, '', '')],
-                                [('7.', 1, 1, '', 'center'), ('Model', 4, 1, '', ''), ('Two Rubber Seals ( 2RS )', 14, 1, '', '')],
-                                [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 4, 1, '', ''), ('£ 8.30', 14, 1, '', '')],
-                                [(None, 16, 1, '', ''), ('INSPECTION REPORT', 3, 1, 'b', 'center')],
-                                [(None, 16, 1, '', ''), ('Equipment', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('RO Pump #1 & #2', 1, 1, '', '')],
-                                [(None, 16, 1, '', ''), ('Date', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('25-09-2013', 1, 1, '', 'left')],
-                                [(None, 16, 1, '', ''), ('Perihal', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('Kebocoran pompa', 1, 1, '', '')],
-                                [(None, 16, 1, '', ''), ('ANALYSIS DAN TROUBLE', 3, 1, 'b', 'center')],
-                                [(None, 16, 1, '', ''), ('Indikasi Masalah', 1, 2, '', 'left'), (None, 1, 1, '', ''),
+                               [[('1.', 1, 1, '', 'center'), ('Brand', 4, 1, '', ''), ('Koyo', 9, 1, '', '')],
+                                [('2.', 1, 1, '', 'center'), ('Type', 4, 1, '', ''), ('6305 DDU C3', 9, 1, '', '')],
+                                [('3.', 1, 1, '', 'center'), ('Inside Diameter', 4, 1, '', ''), ('25 mm', 9, 1, '', '')],
+                                [('4.', 1, 1, '', 'center'), ('Out Side Diameter', 4, 1, '', ''), ('62 mm', 9, 1, '', '')],
+                                [('5.', 1, 1, '', 'center'), ('Width', 4, 1, '', ''), ('17 mm', 9, 1, '', '')],
+                                [('6.', 1, 1, '', 'center'), ('Clearance', 4, 1, '', ''), ('C3', 9, 1, '', '')],
+                                [('7.', 1, 1, '', 'center'), ('Model', 4, 1, '', ''), ('Two Rubber Seals ( 2RS )', 9, 1, '', '')],
+                                [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 4, 1, '', ''), ('£ 8.30', 9, 1, '', '')]],
+                               [4.96, 6.94, 14.07, 0.36, 6.04, 8.39, 4.51, 6.67, 3.88, 14.25, 2.7, 6.04, 3.6, 17.59]),
+                              ('table',
+                               [[('INSPECTION REPORT', 3, 1, 'b', 'center')],
+                                [('Equipment', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('RO Pump #1 & #2', 1, 1, '', '')],
+                                [('Date', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('25-09-2013', 1, 1, '', 'left')],
+                                [('Perihal', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('Kebocoran pompa', 1, 1, '', '')],
+                                [('ANALYSIS DAN TROUBLE', 3, 1, 'b', 'center')],
+                                [('Indikasi Masalah', 1, 2, '', 'left'), (None, 1, 1, '', ''),
                                  ('Kebocoran pada Seal Pompa, sehingga air keluar dari', 1, 1, '', '')],
-                                [(None, 16, 1, '', ''), (None, 1, 1, '', ''), ('Chasing pompa', 1, 1, '', '')],
-                                [(None, 16, 1, '', ''), ('Material Yang Bermasalah', 2, 1, '', 'left'), ('Mechanical Seal Pump', 1, 1, '', '')],
-                                [(None, 16, 1, '', ''), ('Temuan Masalah', 2, 1, '', 'left'), ('Bocor Pada Mechanical Seal', 1, 1, '', '')],
-                                [(None, 16, 1, '', ''), ('Solution', 2, 1, '', 'left'), ('Penggantian Mechanical Seal', 1, 1, '', '')],
-                                [(None, 18, 1, '', ''), ('Tg.Balai Karimun, Tgl. 25 September 2013', 1, 1, '', 'center')],
-                                [(None, 18, 1, '', ''), ('Tim Har Turbin & Auxilary', 1, 1, '', 'center')],
-                                [(None, 18, 1, '', ''), ('Suganda Tobing', 1, 1, '', 'center')]])]},
+                                [(None, 1, 1, '', ''), ('Chasing pompa', 1, 1, '', '')],
+                                [('Material Yang Bermasalah', 2, 1, '', 'left'), ('Mechanical Seal Pump', 1, 1, '', '')],
+                                [('Temuan Masalah', 2, 1, '', 'left'), ('Bocor Pada Mechanical Seal', 1, 1, '', '')],
+                                [('Solution', 2, 1, '', 'left'), ('Penggantian Mechanical Seal', 1, 1, '', '')]],
+                               [33.89, 3.37, 62.74]),
+                              ('table',
+                               [[('Tg.Balai Karimun, Tgl. 25 September 2013', 1, 1, '', 'center')],
+                                [('Tim Har Turbin & Auxilary', 1, 1, '', 'center')], [('Suganda Tobing', 1, 1, '', 'center')]],
+                               [100.0])]},
  '12. Make Up Pump CT': {'name': 'MAKE UP TRANSFER PUMP',
                          'info': {},
                          'col_pct': [5.07, 6.6, 8.71, 2.87, 6.41, 8.9, 4.78, 5.65, 4.11, 15.12, 2.87, 6.41, 3.82, 18.66],
@@ -781,9 +816,11 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                         [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
                                          ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
                                         [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                         ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
+                                         ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]],
+                                       [5.07, 6.6, 8.71, 2.87, 6.41, 8.9, 4.78, 5.65, 4.11, 15.12, 2.87, 6.41, 3.82, 18.66]),
                                       ('images', ['s12_1.jpg', 's12_2.jpg', 's12_3.jpg']),
-                                      ('table', [[('Mechanical Seal', 14, 1, 'b', 'center')]])]},
+                                      ('table', [[('Mechanical Seal', 14, 1, 'b', 'center')]],
+                                       [5.07, 6.6, 8.71, 2.87, 6.41, 8.9, 4.78, 5.65, 4.11, 15.12, 2.87, 6.41, 3.82, 18.66])]},
  '13. Vacum Pump BOP': {'name': 'VACUM PUMP',
                         'info': {},
                         'col_pct': [4.57, 6.13, 9.92, 2.92, 8.27, 9.05, 4.86, 5.74, 4.18, 12.06, 2.92, 6.52, 3.89, 18.97],
@@ -828,7 +865,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                        [('Discharge Pressure', 3, 1, '', 'left'), ('1013', 2, 1, '', 'center'), ('hpa ( A )', 3, 1, '', 'center'),
                                         ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
                                        [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                        ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]])]},
+                                        ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]],
+                                      [4.57, 6.13, 9.92, 2.92, 8.27, 9.05, 4.86, 5.74, 4.18, 12.06, 2.92, 6.52, 3.89, 18.97])]},
  '14. Sea Water Intake Pump': {'name': 'SEA WATER INTAKE PUMP',
                                'info': {},
                                'col_pct': [4.47, 5.55, 9.04, 2.69, 6.0, 8.33, 4.47, 8.15, 3.85, 16.12, 2.69, 7.61, 3.58, 17.46],
@@ -875,7 +913,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                               [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
                                                ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
                                               [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
-                                               ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
+                                               ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]],
+                                             [4.47, 5.55, 9.04, 2.69, 6.0, 8.33, 4.47, 8.15, 3.85, 16.12, 2.69, 7.61, 3.58, 17.46]),
                                             ('images', ['s14_1.jpg'])]},
  'Cooling Tower': {'name': 'Colling Tower',
                    'info': {},
@@ -911,7 +950,8 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                                   [(None, 7, 1, '', ''), ('12.', 1, 1, '', 'center'), ('Circulating Water / Cell', 4, 1, '', ''),
                                    ('2750 M3/Hour', 1, 1, '', 'center')],
                                   [(None, 7, 1, '', ''), ('13.', 1, 1, '', 'center'), ('Tower Exposure', 4, 1, '', ''),
-                                   ('Out Door', 1, 1, '', 'center')]]),
+                                   ('Out Door', 1, 1, '', 'center')]],
+                                 [3.4, 6.1, 12.51, 2.37, 5.3, 7.36, 8.79, 3.48, 17.1, 2.37, 5.3, 4.12, 21.78]),
                                 ('images', ['s15_1.jpg'])]}}
 
 
