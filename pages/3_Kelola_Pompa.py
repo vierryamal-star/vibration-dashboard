@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
+import requests
 from datetime import datetime
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils import (
-    render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
-    get_synced_running_hours_df
-)
+from utils import render_page_header, render_app_sidebar, GLOBAL_UI_CSS
 
 try:
     st.set_page_config(
@@ -91,8 +89,76 @@ render_app_sidebar()
 render_page_header("⏱️ Jam Operasi & Status Mesin (Live Sync)")
 st.caption("Data terhubung langsung secara real-time dari sistem bearing-monitoring.vercel.app.")
 
-# ── Load Data dari API Vercel ───────────────────────────────────────────────
-df_sync = get_synced_running_hours_df()
+# ── Logika Internal Fetch & Mapping API Vercel ──────────────────────────────
+EXTERNAL_VERCEL_API = "https://bearing-monitoring.vercel.app/api/equipment"
+
+def map_area(area_str: str) -> str:
+    if not area_str:
+        return "TBK COM"
+    a = str(area_str).upper()
+    if "TURBIN 2" in a or "BOILER 2" in a or "UNIT 2" in a:
+        return "TBK #2"
+    elif "TURBIN" in a or "BOILER" in a or "UNIT 1" in a:
+        return "TBK #1"
+    elif "UNLOADING" in a or "LOADING" in a:
+        return "TBK CAH"
+    elif "COMMON" in a:
+        return "TBK COM"
+    return f"TBK {area_str}"
+
+@st.cache_data(ttl=60)
+def fetch_data_from_vercel():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+    }
+    try:
+        res = requests.get(EXTERNAL_VERCEL_API, headers=headers, timeout=10)
+        if res.status_code == 200:
+            payload = res.json()
+            items = payload.get("equipment", []) if isinstance(payload, dict) else payload
+            rows = []
+            for eq in items:
+                rt = eq.get("runtime", {})
+                total_h = float(rt.get("total_hours") or 0.0)
+                sess_h = float(rt.get("current_session_hours") or 0.0)
+                eff_total = total_h + sess_h if str(eq.get("status", "")).upper() == "RUNNING" else total_h
+
+                bearings = eq.get("bearings", [])
+                brg_dict = {}
+                for b in bearings:
+                    pos = b.get("position")
+                    brg_dict[pos] = {
+                        "code": b.get("bearing_code", ""),
+                        "hours": float(b.get("hours") or 0.0),
+                        "install_date": b.get("installation_date"),
+                        "limit_hours": b.get("limit_hours"),
+                        "remaining_hours": b.get("remaining_hours"),
+                        "usage_percent": b.get("usage_percent", 0),
+                        "status": b.get("status", "NORMAL")
+                    }
+
+                rows.append({
+                    "id": eq.get("id"),
+                    "code": eq.get("code", ""),
+                    "equipment": eq.get("name", ""),
+                    "area": eq.get("area", ""),
+                    "unit": map_area(eq.get("area", "")),
+                    "status": str(eq.get("status", "STOPPED")).lower(),
+                    "total_hours": eff_total,
+                    "session_hours": sess_h,
+                    "session_started_at": rt.get("session_started_at"),
+                    "equipment_type": eq.get("equipment_type", ""),
+                    "bearings": brg_dict,
+                    "bearing_status": eq.get("bearing_status", "NORMAL")
+                })
+            return pd.DataFrame(rows)
+    except Exception as e:
+        print(f"[Vercel Fetch Error]: {e}")
+    return pd.DataFrame()
+
+# ── Eksekusi Sinkronisasi ───────────────────────────────────────────────────
+df_sync = fetch_data_from_vercel()
 
 # ── Banner Atas & Tombol Akses Langsung ─────────────────────────────────────
 top_c1, top_c2 = st.columns([3, 1.2])
