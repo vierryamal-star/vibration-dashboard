@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from utils import (
     load_history, get_zone, get_threshold, add_zone_cols,
     get_temp_threshold, get_zone_temp,
-    get_pump_runtime, compute_running_hours, now_wib,
+    get_pump_runtime, compute_running_hours,
     ZC, ZB, render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
 )
 
@@ -19,36 +19,99 @@ st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none; }
 section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
+
 .eq-card-modern {
-    border-radius: 12px; padding: 14px 16px;
+    border-radius: 12px;
+    padding: 14px 16px;
     border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
     background: color-mix(in srgb, var(--secondary-background-color) 70%, var(--background-color));
-    box-shadow: 0 2px 10px rgba(0,0,0,.04); margin-bottom: 12px; color: var(--text-color);
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+    margin-bottom: 12px;
+    color: var(--text-color);
+    transition: transform .15s ease, box-shadow .15s ease;
 }
+.eq-card-modern:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0,0,0,.08);
+}
+
 .eq-subtext {
-    font-size: 11px; color: color-mix(in srgb, var(--text-color) 70%, transparent);
-    margin-bottom: 6px; font-weight: 500;
+    font-size: 11px;
+    color: color-mix(in srgb, var(--text-color) 70%, transparent);
+    margin-bottom: 6px;
+    font-weight: 500;
 }
-.pill-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
-.pill-item { border-radius: 8px; padding: 6px 3px; text-align: center; border: 1px solid transparent; }
+
+.pill-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 8px;
+}
+.pill-item {
+    border-radius: 8px;
+    padding: 6px 3px;
+    text-align: center;
+    border: 1px solid transparent;
+}
+
 details.eq-details {
-    margin-top: 8px; border-top: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent); padding-top: 8px;
+    margin-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent);
+    padding-top: 8px;
 }
 details.eq-details summary {
-    cursor: pointer; font-size: 11px; font-weight: 600;
-    color: color-mix(in srgb, var(--text-color) 75%, transparent); list-style: none;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--text-color) 75%, transparent);
+    list-style: none;
+    outline: none;
 }
-.badge-stale {
-    background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);
-    font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700;
+details.eq-details summary::-webkit-details-marker {
+    display: none;
 }
+
+.vt-wrap {
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
+    margin-bottom: 24px;
+    box-shadow: 0 2px 14px rgba(0,0,0,.06);
+}
+.vt {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    background: color-mix(in srgb, var(--background-color) 95%, transparent);
+    color: var(--text-color);
+}
+.vt thead tr {
+    background: color-mix(in srgb, var(--secondary-background-color) 100%, transparent);
+    border-bottom: 2px solid color-mix(in srgb, var(--text-color) 12%, transparent);
+}
+.vt thead th {
+    padding: 11px 14px; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: color-mix(in srgb, var(--text-color) 75%, transparent);
+    white-space: nowrap;
+}
+.vt tbody tr {
+    border-bottom: 1px solid color-mix(in srgb, var(--text-color) 8%, transparent);
+    transition: background .1s;
+}
+.vt tbody tr:hover { filter: brightness(1.05); }
+.vt td { padding: 9px 14px; vertical-align: middle; }
 </style>
 """, unsafe_allow_html=True)
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
-render_app_sidebar()
+def bar_pct(val, thr):
+    max_scale = thr.get("C", 4.5) * 1.2
+    return min(int((val / max(max_scale, 0.001)) * 100), 100)
 
 df_hist = load_history()
+
+# Render Sidebar Terpusat
+render_app_sidebar()
+
 if df_hist.empty:
     render_page_header("📊 Monitor Vibrasi & Status Operasi")
     st.info("📂 Belum ada data. Silakan upload data Excel pada menu **Data & Kelola**.")
@@ -59,78 +122,154 @@ df_hist["value"] = pd.to_numeric(df_hist["value"], errors="coerce")
 all_units = sorted(df_hist["unit"].dropna().unique())
 all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
 
-# Live clock berbasis JavaScript murni (efisien, tanpa rerun server)
+# ══════════════════════════════════════════════════════════════════════════════
+# HEADER & LIVE CLOCK (WIB / GMT+7)
+# ══════════════════════════════════════════════════════════════════════════════
 head_col, clock_col = st.columns([3, 2])
+
 with head_col:
     render_page_header("📊 Monitor Vibrasi & Status Operasi")
-with clock_col:
-    st.components.v1.html("""
-    <div id="js_clock" style="text-align:right; font-family:sans-serif;">
-        <div id="time_part" style="font-size:26px; font-weight:800; font-variant-numeric:tabular-nums; color:#2563eb; line-height:1.1;">--:--:-- WIB</div>
-        <div id="date_part" style="font-size:11px; font-weight:600; opacity:0.7; margin-top:2px;">Memuat waktu...</div>
-    </div>
-    <script>
-    function updateClock() {
-        const now = new Date();
-        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const wib = new Date(utc + (3600000 * 7));
-        const days = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
-        const months = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
-        const pad = (n) => n.toString().padStart(2, '0');
-        document.getElementById("time_part").innerHTML = `${pad(wib.getHours())}:${pad(wib.getMinutes())}:${pad(wib.getSeconds())} <span style="font-size:13px;font-weight:600;opacity:.75;">WIB</span>`;
-        document.getElementById("date_part").innerText = `${days[wib.getDay()]}, ${wib.getDate()} ${months[wib.getMonth()]} ${wib.getFullYear()} (GMT+7)`;
-    }
-    setInterval(updateClock, 1000);
-    updateClock();
-    </script>
-    """, height=65)
 
-# Filter Unit
+with clock_col:
+    @st.fragment(run_every="1s")
+    def _live_clock():
+        wib_tz = timezone(timedelta(hours=7))
+        _now = datetime.now(wib_tz)
+        
+        _hari = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"][_now.weekday()]
+        _bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
+                  "Agustus","September","Oktober","November","Desember"][_now.month]
+        
+        st.markdown(
+            f'<div style="text-align:right;padding-top:4px;">'
+            f'  <div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#2563eb;">'
+            f'    {_now.strftime("%H:%M:%S")} <span style="font-size:13px;font-weight:600;opacity:.75;">WIB</span>'
+            f'  </div>'
+            f'  <div style="font-size:11px;font-weight:600;color:color-mix(in srgb, var(--text-color) 70%, transparent);margin-top:2px;">'
+            f'    {_hari}, {_now.day} {_bulan} {_now.year} (GMT+7)'
+            f'  </div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    _live_clock()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FILTER BAGIAN UNIT PINTAR (STATUS CHIPS)
+# ══════════════════════════════════════════════════════════════════════════════
+unit_status_summary = {}
+for u in all_units:
+    sub_u = df_hist[df_hist["unit"] == u]
+    sub_latest = (
+        sub_u[sub_u["direction"] != "T"]
+        .sort_values("date")
+        .groupby(["equipment", "titik", "direction"], as_index=False)
+        .last()
+    )
+    if not sub_latest.empty:
+        zones = sub_latest.apply(
+            lambda r: get_zone(r["value"], get_threshold(r["equipment"]))[0], axis=1
+        )
+        n_danger = (zones == "ZONE D").sum()
+        n_warn = (zones == "ZONE C").sum()
+        if n_danger > 0:
+            unit_status_summary[u] = f"🔴 {u} ({n_danger})"
+        elif n_warn > 0:
+            unit_status_summary[u] = f"🟡 {u} ({n_warn})"
+        else:
+            unit_status_summary[u] = f"✅ {u}"
+    else:
+        unit_status_summary[u] = u
+
+unit_display_options = ["🏢 Semua Bagian Unit"] + [unit_status_summary[u] for u in all_units]
+unit_map_reverse = {unit_status_summary[u]: u for u in all_units}
+unit_map_reverse["🏢 Semua Bagian Unit"] = "All"
+
 st.caption("**🏭 Bagian Unit Pembangkit**")
 sel_unit_label = st.segmented_control(
-    "Bagian Unit", options=["🏢 Semua Bagian Unit"] + all_units,
-    default="🏢 Semua Bagian Unit", key="mon_unit_segmented", label_visibility="collapsed"
+    "Bagian Unit",
+    options=unit_display_options,
+    default="🏢 Semua Bagian Unit",
+    key="mon_unit_segmented",
+    label_visibility="collapsed"
 )
-sel_unit = all_units if (sel_unit_label == "🏢 Semua Bagian Unit" or not sel_unit_label) else [sel_unit_label]
+
+sel_unit_raw = unit_map_reverse.get(sel_unit_label, "All")
+sel_unit = all_units if sel_unit_raw == "All" else [sel_unit_raw]
 
 all_equip = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
+
+if st.session_state.get("_last_unit") != sel_unit_raw:
+    st.session_state["mon_equip"] = all_equip
+    st.session_state["_last_unit"] = sel_unit_raw
+
 c_eq, c_dt = st.columns([3, 2])
 with c_eq:
     with st.expander(f"⚙️ Filter Spesifik Equipment ({len(all_equip)} mesin)", expanded=False):
-        sel_equip = st.multiselect("Equipment", all_equip, default=all_equip, key="mon_equip", label_visibility="collapsed")
+        if st.button("Pilih Semua Mesin", key="eq_selall", width="stretch"):
+            st.session_state["mon_equip"] = all_equip
+        if "mon_equip" in st.session_state:
+            st.session_state["mon_equip"] = [
+                e for e in st.session_state["mon_equip"] if e in all_equip
+            ]
+        sel_equip = st.multiselect("Equipment", all_equip, key="mon_equip", label_visibility="collapsed")
+
 if not sel_equip:
     sel_equip = all_equip
 
 with c_dt:
-    date_mode = st.radio("Mode Tampilan", ["🕐 Nilai Terbaru", "📅 Tanggal Tertentu"], horizontal=True, key="mon_date_mode", label_visibility="collapsed")
+    date_mode = st.radio(
+        "Mode Tampilan",
+        ["🕐 Nilai Terbaru", "📅 Tanggal Tertentu"],
+        horizontal=True,
+        key="mon_date_mode",
+        label_visibility="collapsed"
+    )
 
+sel_tgl_str = None
 if date_mode == "📅 Tanggal Tertentu":
     sel_tgl = st.date_input("Pilih Tanggal", value=max(all_dates), min_value=min(all_dates), max_value=max(all_dates), key="mon_tgl")
-    df_base = df_hist[df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) & (df_hist["date"].dt.date == sel_tgl)].copy()
+    sel_tgl_str = pd.to_datetime(sel_tgl).strftime("%Y-%m-%d")
+    df_base = df_hist[
+        df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
+        (df_hist["date"].dt.date == sel_tgl)
+    ].copy()
+    st.caption(f"Data arsip tanggal: **{pd.to_datetime(sel_tgl_str).strftime('%d %b %Y')}**")
 else:
-    df_base = df_hist[df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip)].copy()
+    df_base = df_hist[
+        df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip)
+    ].copy()
+    _last_date = df_hist["date"].max()
+    _last_date_str = pd.to_datetime(_last_date).strftime("%d %b %Y") if pd.notna(_last_date) else "–"
+    st.caption(f"Menampilkan kondisi **paling mutakhir** (Data terakhir: **{_last_date_str}**)")
 
 if df_base.empty:
-    st.warning("⚠️ Tidak ada data pengukuran yang sesuai dengan filter.")
+    st.warning("⚠️ Tidak ada data pengukuran yang sesuai dengan filter yang dipilih.")
     st.stop()
 
 df_base = add_zone_cols(df_base)
+
 latest_all = (
-    df_base.sort_values("date")
+    df_base
+    .sort_values("date")
     .groupby(["unit", "equipment", "titik", "direction"], as_index=False)
     .last()
 )
-latest = latest_all[latest_all["direction"] != "T"].copy()
+
+latest      = latest_all[latest_all["direction"] != "T"].copy()
 latest_temp = latest_all[latest_all["direction"] == "T"].copy()
 
-# KPI Header
+total = len(latest)
 n_d = int((latest["zone"] == "ZONE D").sum())
 n_c = int((latest["zone"] == "ZONE C").sum())
 n_b = int((latest["zone"] == "ZONE B").sum())
 n_a = int((latest["zone"] == "ZONE A").sum())
 
+# ══════════════════════════════════════════════════════════════════════════════
+# KPI STATISTIK
+# ══════════════════════════════════════════════════════════════════════════════
 kpi_items = [
-    ("📊", "Total Titik", str(len(latest)), "#4f46e5"),
+    ("📊", "Total Titik", str(total), "#4f46e5"),
     ("🔵", "Accepted (A)", str(n_a), "#2563eb"),
     ("🟢", "Pre Warning (B)", str(n_b), "#16a34a"),
     ("🟡", "Warning (C)", str(n_c), "#d97706"),
@@ -146,100 +285,304 @@ for ico, lbl, val, col in kpi_items:
 kpi_html += "</div>"
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# Card Grid
-now_dt = now_wib()
+_zone_filter_map = {
+    "Semua Status": None,
+    f"🔴 Danger ({n_d})": "ZONE D",
+    f"🟡 Warning ({n_c})": "ZONE C",
+    f"🟢 Pre Warning ({n_b})": "ZONE B",
+    f"🔵 Accepted ({n_a})": "ZONE A",
+}
+zone_filter_label = st.radio(
+    "Filter Status Mesin", list(_zone_filter_map.keys()),
+    horizontal=True, key="zone_filter", label_visibility="collapsed"
+)
+zone_filter_key = _zone_filter_map[zone_filter_label]
+
+st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STATUS CARD PER EQUIPMENT
+# ══════════════════════════════════════════════════════════════════════════════
+df_card_lat = latest[
+    latest["unit"].isin(sel_unit) &
+    latest["equipment"].isin(sel_equip)
+].copy()
+
+df_temp_lat = latest_temp[
+    latest_temp["unit"].isin(sel_unit) &
+    latest_temp["equipment"].isin(sel_equip)
+].copy()
+
+def _max_dir(df_eq, d):
+    sub = df_eq[df_eq["direction"] == d][["value", "titik"]].dropna(subset=["value"])
+    if sub.empty: return None, None
+    idx = sub["value"].idxmax()
+    return float(sub.loc[idx, "value"]), str(sub.loc[idx, "titik"])
+
+def _max_temp(eq):
+    sub = df_temp_lat[df_temp_lat["equipment"] == eq][["value", "titik"]].dropna(subset=["value"])
+    if sub.empty: return None, None
+    idx = sub["value"].idxmax()
+    return float(sub.loc[idx, "value"]), str(sub.loc[idx, "titik"])
+
+def _render_pill(label, val, unit_s, zk, titik):
+    if val is None or pd.isna(val):
+        return f"""
+<div class="pill-item" style="background:rgba(128,128,128,.08);">
+  <div style="font-size:10px;font-weight:700;opacity:.5;">{label}</div>
+  <div style="font-size:13px;font-weight:600;opacity:.35;">–</div>
+  <div style="font-size:9px;opacity:.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">–</div>
+</div>"""
+    c = ZC.get(zk, "#4b5563")
+    bg = ZB.get(zk, "rgba(128,128,128,.08)")
+    val_str = f"{val:.1f}" if unit_s == "°C" else f"{val:.2f}"
+    titik_str = str(titik) if titik and not pd.isna(titik) else "–"
+    
+    return f"""
+<div class="pill-item" title="{titik_str}" style="background:{bg};border:1px solid {c}40;">
+  <div style="font-size:10px;font-weight:700;color:{c};">{label}</div>
+  <div style="font-size:13px;font-weight:800;color:{c};">{val_str}</div>
+  <div style="font-size:9px;font-weight:600;color:{c};opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;">
+    {titik_str}
+  </div>
+</div>"""
+
 eq_rows = []
-for eq in sorted(latest["equipment"].dropna().unique()):
-    df_eq = latest[latest["equipment"] == eq]
-    thr = get_threshold(eq)
-    last_measure = df_eq["date"].max()
-    days_old = (now_dt - last_measure).days if pd.notna(last_measure) else 999
-    is_stale = days_old > 30
-
-    vals = df_eq["value"].dropna().to_numpy()
-    if len(vals) > 0:
-        max_idx = df_eq["value"].idxmax()
-        mx_val = float(df_eq.loc[max_idx, "value"])
-        mx_titik = str(df_eq.loc[max_idx, "titik"])
-        mx_dir = str(df_eq.loc[max_idx, "direction"])
-        zk, zi, zl = get_zone(mx_val, thr)
+for eq in sorted(df_card_lat["equipment"].dropna().unique()):
+    if eq not in sel_equip: continue
+    df_eq = df_card_lat[df_card_lat["equipment"] == eq]
+    thr   = get_threshold(eq)
+    hv, ht = _max_dir(df_eq, "H")
+    vv, vt = _max_dir(df_eq, "V")
+    av, at = _max_dir(df_eq, "A")
+    
+    all_v = []
+    if hv is not None and not pd.isna(hv): all_v.append((hv, ht, "H"))
+    if vv is not None and not pd.isna(vv): all_v.append((vv, vt, "V"))
+    if av is not None and not pd.isna(av): all_v.append((av, at, "A"))
+    
+    if all_v:
+        mx_val, mx_titik, mx_dir = max(all_v, key=lambda x: x[0])
     else:
-        mx_val, mx_titik, mx_dir = None, "–", ""
-        zk, zi, zl = "N/A", "⬜", "Belum ada data"
+        mx_val, mx_titik, mx_dir = float("nan"), "–", ""
 
-    eq_rows.append({
-        "eq": eq, "unit": df_eq["unit"].iloc[0], "mx": mx_val,
-        "mx_titik": mx_titik, "mx_dir": mx_dir, "zk": zk, "zi": zi, "zl": zl,
-        "thr": thr, "tgl": last_measure.strftime("%d %b %Y") if pd.notna(last_measure) else "–",
-        "is_stale": is_stale, "days_old": days_old
-    })
+    zk, zi, zl = get_zone(mx_val, thr)
+    tv, tt = _max_temp(eq)
+    tgl = pd.to_datetime(df_eq["date"].max()).strftime("%d %b %Y") if pd.notna(df_eq["date"].max()) else "–"
+    
+    eq_rows.append(dict(
+        eq=eq, unit=df_eq["unit"].iloc[0],
+        H=hv, Ht=ht, V=vv, Vt=vt, A=av, At=at, T=tv, Tt=tt,
+        zk=zk, zi=zi, zl=zl, thr=thr, tgl=tgl,
+        mx=mx_val, mx_titik=mx_titik, mx_dir=mx_dir
+    ))
 
-# Fragment disesuaikan dengan TTL cache 15 detik
-@st.fragment(run_every="15s")
+if zone_filter_key:
+    eq_rows = [r for r in eq_rows if r["zk"] == zone_filter_key]
+
+@st.fragment(run_every="5s")
 def _render_cards():
     df_runtime_now = get_pump_runtime()
+
+    def _runtime_box(eq, unit):
+        match = df_runtime_now[
+            (df_runtime_now["equipment"] == eq) & (df_runtime_now["unit"] == unit)
+        ] if not df_runtime_now.empty else pd.DataFrame()
+        
+        if match.empty:
+            return '<div style="font-size:11px;opacity:.6;margin-bottom:6px;">⏱️ Jam operasi belum diatur</div>'
+        
+        row_data = match.iloc[0].to_dict()
+        hours  = compute_running_hours(row_data)
+        status = row_data.get("status", "stopped")
+        rc = "#16a34a" if status == "running" else "#6b7280"
+        dot = "🟢 Running" if status == "running" else "⚪ Stopped"
+        
+        return f"""
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;">
+  <span style="color:{rc};font-weight:700;">{dot}</span>
+  <span style="font-weight:700;color:var(--text-color);opacity:.9;">⏱️ {hours:,.1f} jam</span>
+</div>"""
+
     for i in range(0, len(eq_rows), 3):
         cols = st.columns(3)
         for col, r in zip(cols, eq_rows[i:i+3]):
             bc = ZC.get(r["zk"], "#6b7280")
-            val_txt = f"{r['mx']:.3f} mm/s" if r['mx'] is not None else "Tidak ada getaran"
-            stale_badge = f'<span class="badge-stale">⚠️ {r["days_old"]} hari lalu</span>' if r["is_stale"] else ""
+            bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
+            is_danger = r["zk"] == "ZONE D"
+            border_left = f"6px solid {bc}" if is_danger else f"4px solid {bc}"
+            danger_class = "card-danger-glow-static" if is_danger else ""
+            
+            zk_h = get_zone(r["H"], r["thr"])[0] if r["H"] is not None else "N/A"
+            zk_v = get_zone(r["V"], r["thr"])[0] if r["V"] is not None else "N/A"
+            zk_a = get_zone(r["A"], r["thr"])[0] if r["A"] is not None else "N/A"
+            zk_t = get_zone_temp(r["T"], get_temp_threshold(r["eq"], r["Tt"]))[0] if r["T"] is not None else "N/A"
 
-            match_rt = df_runtime_now[
-                (df_runtime_now["equipment"] == r["eq"]) & (df_runtime_now["unit"] == r["unit"])
-            ] if not df_runtime_now.empty else pd.DataFrame()
-            if not match_rt.empty:
-                r_dict = match_rt.iloc[0].to_dict()
-                h_run = compute_running_hours(r_dict)
-                st_run = "🟢 Running" if r_dict.get("status") == "running" else "⚪ Stopped"
-                rt_html = f'<div style="font-size:11px;font-weight:700;margin-bottom:6px;">{st_run} · ⏱️ {h_run:,.1f} jam</div>'
-            else:
-                rt_html = '<div style="font-size:11px;opacity:.6;margin-bottom:6px;">⏱️ Jam operasi belum diatur</div>'
+            pills_html = f"""
+<div class="pill-grid">
+  {_render_pill("H (mm/s)", r['H'], "mm/s", zk_h, r['Ht'])}
+  {_render_pill("V (mm/s)", r['V'], "mm/s", zk_v, r['Vt'])}
+  {_render_pill("A (mm/s)", r['A'], "mm/s", zk_a, r['At'])}
+  {_render_pill("T (°C)", r['T'], "°C", zk_t, r['Tt'])}
+</div>"""
+
+            titik_info = f"Max ({r['mx_titik']} · {r['mx_dir']})" if r['mx_dir'] else "Max Vibrasi"
 
             with col:
                 st.markdown(f"""
-<div class="eq-card-modern" style="border-left: 5px solid {bc};">
+<div class="eq-card-modern {danger_class}" style="border-left:{border_left};">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;">
     <div>
-      <div style="font-size:15px;font-weight:800;">{r['eq']} {stale_badge}</div>
-      <div class="eq-subtext">{r['unit']} · 📅 {r['tgl']}</div>
+      <div style="font-size:15px;font-weight:800;line-height:1.2;">{r['eq']}</div>
+      <div class="eq-subtext">
+        {r['unit']} &nbsp;·&nbsp; 📅 {r['tgl']}
+      </div>
     </div>
-    <span style="font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:2px 8px;border-radius:99px;border:1px solid {bc}50;">
+    <span style="font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:3px 8px;border-radius:99px;border:1px solid {bc}50;">
       {r['zi']} {r['zl']}
     </span>
   </div>
-  {rt_html}
+  {_runtime_box(r['eq'], r['unit'])}
   <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;">
-    <span style="opacity:0.75;font-weight:600;">Max ({r['mx_titik']} · {r['mx_dir']}):</span>
-    <span style="font-weight:800;color:{bc};font-size:13px;">{val_txt}</span>
+    <span style="color:color-mix(in srgb, var(--text-color) 75%, transparent);font-weight:600;">{titik_info}:</span>
+    <span style="font-weight:800;color:{bc};font-size:13px;">{r['mx']:.3f} mm/s</span>
   </div>
+  <div style="height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-top:4px;">
+    <div style="height:4px;width:{bar}%;background:{bc};"></div>
+  </div>
+  <details class="eq-details">
+    <summary>▸ Detail Arah &amp; Suhu</summary>
+    {pills_html}
+  </details>
 </div>""", unsafe_allow_html=True)
 
 _render_cards()
 
 st.divider()
-st.markdown("### 🔍 Matriks Pengukuran Cepat (Pivot Table)")
 
-# Optimasi Pivot Table
-if not latest.empty:
-    pivot_df = latest.pivot_table(
-        index=["unit", "equipment", "titik"],
-        columns="direction",
-        values="value",
-        aggfunc="first"
-    ).reset_index()
-    for col_dir in ["H", "V", "A"]:
-        if col_dir not in pivot_df.columns:
-            pivot_df[col_dir] = None
-    pivot_df["Max RMS"] = pivot_df[["H", "V", "A"]].max(axis=1)
-    
-    st.dataframe(
-        pivot_df, width="stretch", hide_index=True,
-        column_config={
-            "unit": "Bagian Unit", "equipment": "Equipment", "titik": "Titik Ukur",
-            "H": st.column_config.NumberColumn("H (mm/s)", format="%.3f"),
-            "V": st.column_config.NumberColumn("V (mm/s)", format="%.3f"),
-            "A": st.column_config.NumberColumn("A (mm/s)", format="%.3f"),
-            "Max RMS": st.column_config.NumberColumn("Max (mm/s)", format="%.3f"),
-        }
+# ══════════════════════════════════════════════════════════════════════════════
+# DETAIL LENGKAP SEMUA PENGUKURAN (TABLE VIEW)
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("### 🔍 Matriks Pengukuran Seluruh Titik")
+
+da, db = st.columns([5, 3])
+with da:
+    st.caption("**Bagian Unit**")
+    det_unit_opts = ["All"] + sorted(latest["unit"].dropna().unique())
+    det_unit_sel  = st.radio("det_unit", det_unit_opts, horizontal=True, key="det_unit", label_visibility="collapsed")
+with db:
+    st.caption("**Arah Vibrasi Terpilih**")
+    det_dir_sel = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="det_dir_multi", label_visibility="collapsed")
+    if not det_dir_sel: det_dir_sel = ["H","V","A"]
+
+show_temp_col = st.checkbox("🌡️ Tampilkan Kolom Temperatur (°C)", value=True, key="det_show_temp") if not latest_temp.empty else False
+
+df_det = latest.copy()
+df_det_temp = latest_temp.copy()
+if det_unit_sel != "All":
+    df_det = df_det[df_det["unit"] == det_unit_sel]
+    df_det_temp = df_det_temp[df_det_temp["unit"] == det_unit_sel]
+
+def _val_td(val, thr, show=True):
+    if not show or val is None or pd.isna(val):
+        return '<td style="text-align:center;padding:8px 10px;opacity:.3;">–</td>'
+    zk = get_zone(val, thr)[0]
+    tc = ZC.get(zk, "#4b5563")
+    bg = ZB.get(zk, "transparent")
+    return f'<td style="text-align:center;padding:8px 10px;background:{bg};"><span style="font-weight:700;color:{tc};">{val:.3f}</span></td>'
+
+def _val_td_temp(val, thr, show=True):
+    if not show or val is None or pd.isna(val):
+        return '<td style="text-align:center;padding:8px 10px;opacity:.3;">–</td>'
+    zk = get_zone_temp(val, thr)[0]
+    tc = ZC.get(zk, "#4b5563")
+    bg = ZB.get(zk, "transparent")
+    return f'<td style="text-align:center;padding:8px 10px;background:{bg};"><span style="font-weight:700;color:{tc};">{val:.1f}°C</span></td>'
+
+def _badge_td(zk, zi, zl):
+    tc = ZC.get(zk, "#4b5563")
+    bg = ZB.get(zk, "transparent")
+    return f'<td style="padding:8px 12px;text-align:center;"><span style="background:{bg};color:{tc};border:1px solid {tc}50;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700;">{zi} {zl}</span></td>'
+
+def _render_tbl(df_unit, unit_label, df_unit_temp=None):
+    equips = sorted(df_unit["equipment"].dropna().unique())
+    if not equips: return ""
+
+    dir_th = "".join(f'<th style="text-align:center;min-width:75px">{d}</th>' for d in ["H","V","A"] if d in det_dir_sel)
+    temp_th = '<th style="text-align:center;min-width:75px">Suhu</th>' if show_temp_col else ""
+
+    rows = ""
+    for eq in equips:
+        df_eq = df_unit[df_unit["equipment"] == eq].sort_values("titik")
+        thr   = get_threshold(eq)
+        titiks = sorted(df_eq["titik"].dropna().unique())
+
+        _all_vals_eq = df_eq["value"].dropna().tolist()
+        _worst_zone = "ZONE A"
+        _zone_order = {"ZONE D": 4, "ZONE C": 3, "ZONE B": 2, "ZONE A": 1, "N/A": 0}
+        for _v in _all_vals_eq:
+            _zk = get_zone(_v, thr)[0]
+            if _zone_order.get(_zk, 0) > _zone_order.get(_worst_zone, 0):
+                _worst_zone = _zk
+        eq_border = ZC.get(_worst_zone, "#6b7280")
+
+        for i, titik in enumerate(titiks):
+            df_t = df_eq[df_eq["titik"] == titik]
+
+            gv = lambda d, _df=df_t: (
+                float(_df[_df["direction"] == d]["value"].dropna().iloc[0])
+                if not _df[_df["direction"] == d]["value"].dropna().empty else None
+            )
+
+            h, v, a = gv("H"), gv("V"), gv("A")
+            all_v = [x for x in [h, v, a] if x is not None]
+            max_v = max(all_v) if all_v else float("nan")
+            zk, zi, zl = get_zone(max_v, thr)
+
+            temp_td = ""
+            if show_temp_col:
+                t_val = None
+                if df_unit_temp is not None and not df_unit_temp.empty:
+                    sub_t = df_unit_temp[(df_unit_temp["equipment"] == eq) & (df_unit_temp["titik"] == titik)]["value"].dropna()
+                    if not sub_t.empty: t_val = float(sub_t.iloc[0])
+                temp_td = _val_td_temp(t_val, get_temp_threshold(eq, titik))
+
+            tgl = pd.to_datetime(df_t["date"].max()).strftime("%d %b %Y") if pd.notna(df_t["date"].max()) else "–"
+
+            eq_td = f'<td rowspan="{len(titiks)}" style="padding:10px 14px;font-size:13px;font-weight:700;vertical-align:middle;border-left:4px solid {eq_border};background:rgba(128,128,128,.04);">{eq}</td>' if i == 0 else ""
+
+            rows += (
+                f'<tr>'
+                + eq_td
+                + f'<td style="padding:8px 14px;opacity:.9;">{titik}</td>'
+                + _val_td(h, thr, "H" in det_dir_sel)
+                + _val_td(v, thr, "V" in det_dir_sel)
+                + _val_td(a, thr, "A" in det_dir_sel)
+                + _val_td(max_v, thr)
+                + temp_td
+                + _badge_td(zk, zi, zl)
+                + f'<td style="padding:8px 14px;font-size:11px;opacity:.6;text-align:right;">{tgl}</td>'
+                + '</tr>'
+            )
+
+    return (
+        f'<div style="margin-bottom:24px;">'
+        f'<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:color-mix(in srgb, var(--text-color) 70%, transparent);margin-bottom:8px;">🏭 {unit_label}</div>'
+        f'<div class="vt-wrap"><table class="vt"><thead><tr>'
+        f'<th style="text-align:left;min-width:140px;">Equipment</th>'
+        f'<th style="text-align:left;min-width:120px;">Titik Ukur</th>'
+        f'{dir_th}'
+        f'<th style="text-align:center;min-width:80px;">Max</th>'
+        f'{temp_th}'
+        f'<th style="text-align:center;min-width:100px;">Status ISO</th>'
+        f'<th style="text-align:right;min-width:90px;">Tanggal</th>'
+        f'</tr></thead><tbody>{rows}</tbody></table></div></div>'
     )
+
+if det_unit_sel == "All":
+    for u in sorted(df_det["unit"].dropna().unique()):
+        blk = _render_tbl(df_det[df_det["unit"] == u], f"Bagian Unit · {u}", df_det_temp[df_det_temp["unit"] == u])
+        if blk: st.markdown(blk, unsafe_allow_html=True)
+else:
+    blk = _render_tbl(df_det, f"Bagian Unit · {det_unit_sel}", df_det_temp)
+    if blk: st.markdown(blk, unsafe_allow_html=True)
