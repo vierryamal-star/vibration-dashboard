@@ -15,6 +15,18 @@ try:
 except Exception:
     pass
 
+# Sembunyikan menu navigasi bawaan Streamlit agar tidak dobel
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"] {
+    display: none !important;
+}
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 render_app_sidebar()
