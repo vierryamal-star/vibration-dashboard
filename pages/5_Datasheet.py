@@ -1,13 +1,9 @@
 import streamlit as st
 import sys
 import os
-import io
 import re
 import html
 import datetime
-from bisect import bisect_left, bisect_right
-
-import openpyxl
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from utils import render_page_header, render_app_sidebar, GLOBAL_UI_CSS
@@ -31,275 +27,6 @@ st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 render_app_sidebar()
 render_page_header("📋 Datasheet Pompa & Peralatan Utama PLTU TBK")
 st.caption("Spesifikasi teknis peralatan langsung dari file datasheet PLTU Tanjung Balai Karimun — satu tab per sheet Excel.")
-
-# Sheet yang tidak ingin ditampilkan (cocokkan sebagian nama, huruf kecil).
-# Sheet yang di-hidden di Excel (mis. Sheet2) otomatis dilewati.
-EXCLUDED_SHEETS = ["duplex"]
-
-# ── Cari lokasi file Excel ──────────────────────────────────────────────────
-current_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.dirname(current_dir)
-
-PREFERRED_NAMES = [
-    "Datasheet Pompa PLTU TBK (1).xlsx",
-    "Datasheet Pompa PLTU TBK.xlsx",
-]
-
-
-def find_excel_file():
-    """Cari file datasheet: nama yang diutamakan dulu, lalu pencarian rekursif."""
-    bases = []
-    for b in (root_dir, current_dir, os.getcwd(), os.path.dirname(os.getcwd())):
-        if b and os.path.isdir(b) and b not in bases:
-            bases.append(b)
-    for base in bases:
-        for name in PREFERRED_NAMES:
-            p = os.path.join(base, name)
-            if os.path.exists(p):
-                return p
-    skip = {".git", "node_modules", "__pycache__", ".venv", "venv"}
-    for base in bases:
-        for dirpath, dirnames, filenames in os.walk(base):
-            dirnames[:] = [d for d in dirnames if d not in skip]
-            if dirpath[len(base):].count(os.sep) > 3:
-                dirnames[:] = []
-            for f in sorted(filenames):
-                low = f.lower()
-                if low.endswith((".xlsx", ".xlsm")) and "datasheet" in low and not f.startswith("~$"):
-                    return os.path.join(dirpath, f)
-    return None
-
-
-# ── Parser sheet Excel → struktur tabel ─────────────────────────────────────
-def _fmt(v, number_format=""):
-    if v is None:
-        return ""
-    if isinstance(v, (datetime.datetime, datetime.date)):
-        nf = (number_format or "").lower()
-        if "m" in nf and "d" not in nf:
-            return v.strftime("%b %Y")
-        return v.strftime("%d-%m-%Y")
-    if isinstance(v, bool):
-        return str(v)
-    if isinstance(v, int):
-        return str(v)
-    if isinstance(v, float):
-        if v == int(v) and abs(v) < 1e15:
-            return str(int(v))
-        return repr(round(v, 6))
-    return re.sub(r"\s+", " ", str(v).replace("\xa0", " ")).strip()
-
-
-def _has_fill(cell):
-    try:
-        f = cell.fill
-        if f is None or f.fill_type != "solid":
-            return False
-        c = f.fgColor
-        if c is not None and c.type == "rgb" and c.rgb in ("00000000", "FFFFFFFF"):
-            return False
-        return True
-    except Exception:
-        return False
-
-
-def _layout(raw_rows, rows, ncols, cidx):
-    """Ubah item mentah menjadi baris HTML (dengan colspan/rowspan + sel kosong pengisi)."""
-    out = []
-    carry = {}
-    for r in rows:
-        occ = {c for c, n in carry.items() if n > 0}
-        items = sorted(raw_rows[r], key=lambda i: i["c0"])
-        cells = []
-        col = 0
-
-        def add_gap(a, b):
-            run = 0
-            for c in range(a, b):
-                if c in occ:
-                    if run:
-                        cells.append((None, run, 1, "", ""))
-                        run = 0
-                else:
-                    run += 1
-            if run:
-                cells.append((None, run, 1, "", ""))
-
-        new_carry = []
-        for n_i, it in enumerate(items):
-            s, e = cidx[it["c0"]], cidx[it["c1"]]
-            # Teks panjang pada sel tidak di-merge "tumpah" ke kolom kosong di kanannya (seperti di Excel)
-            if it["c0"] == it["c1"] and it["r2"] == r and not it["numeric"]:
-                limit = cidx[items[n_i + 1]["c0"]] if n_i + 1 < len(items) else ncols
-                while e + 1 < limit and (e + 1) not in occ:
-                    e += 1
-            if s > col:
-                add_gap(col, s)
-            rs = bisect_right(rows, it["r2"]) - bisect_left(rows, r)
-            rs = max(rs, 1)
-            cls = ("b " if it["bold"] else "") + ("f" if it["fill"] else "")
-            align = it["align"] or ""
-            cells.append((it["text"], e - s + 1, rs, cls.strip(), align))
-            if rs > 1:
-                new_carry.append((s, e, rs - 1))
-            col = e + 1
-        if col < ncols:
-            add_gap(col, ncols)
-        for c in list(carry):
-            carry[c] -= 1
-        for s, e, n in new_carry:
-            for c in range(s, e + 1):
-                carry[c] = n
-        out.append(cells)
-    return out
-
-
-def _parse_sheet(ws):
-    hidden = set()
-    widths = {}
-    for dim in ws.column_dimensions.values():
-        if dim.min is None or dim.max is None:
-            continue
-        for c in range(dim.min, dim.max + 1):
-            if dim.hidden:
-                hidden.add(c)
-            if dim.width:
-                widths[c] = dim.width
-
-    master, covered = {}, set()
-    for m in ws.merged_cells.ranges:
-        master[(m.min_row, m.min_col)] = (m.max_row, m.max_col)
-        for r in range(m.min_row, m.max_row + 1):
-            for c in range(m.min_col, m.max_col + 1):
-                if (r, c) != (m.min_row, m.min_col):
-                    covered.add((r, c))
-
-    raw_rows = {}
-    for r in range(1, ws.max_row + 1):
-        items = []
-        for c in range(ws.min_column, ws.max_column + 1):
-            if (r, c) in covered:
-                continue
-            cell = ws.cell(r, c)
-            text = _fmt(cell.value, cell.number_format)
-            if not text:
-                continue
-            r2, c2 = master.get((r, c), (r, c))
-            vis = [x for x in range(c, c2 + 1) if x not in hidden]
-            if not vis:
-                continue
-            items.append(dict(
-                r2=r2, c0=vis[0], c1=vis[-1], text=text,
-                bold=bool(cell.font and cell.font.b),
-                fill=_has_fill(cell),
-                align=(cell.alignment.horizontal if cell.alignment else None),
-                numeric=isinstance(cell.value, (int, float, datetime.date)),
-            ))
-        if items:
-            raw_rows[r] = items
-
-    # Baris "EQUIPMENT NAME" → judul; baris di atasnya → info formulir
-    eq_row = 0
-    for r in sorted(raw_rows):
-        if any(i["text"].lower().startswith("equipment name") for i in raw_rows[r]):
-            eq_row = r
-            break
-
-    def value_after(label):
-        for r in sorted(raw_rows):
-            if r > eq_row:
-                break
-            its = sorted(raw_rows[r], key=lambda i: i["c0"])
-            for k, it in enumerate(its):
-                if it["text"].lower().rstrip(" :") == label and k + 1 < len(its):
-                    return its[k + 1]["text"].lstrip(": ").strip()
-        return ""
-
-    name = ""
-    for it in sorted(raw_rows.get(eq_row, []), key=lambda i: i["c0"]):
-        if it["text"].startswith(":"):
-            name = it["text"].lstrip(": ").strip()
-            break
-    info = {
-        "Unit": value_after("unit"),
-        "No. Formulir": value_after("no. formulir"),
-        "No. Revisi": value_after("no. revisi"),
-        "Tanggal": value_after("tanggal"),
-        "Halaman": value_after("halaman"),
-    }
-    info = {k: v for k, v in info.items() if v}
-
-    body_rows = [r for r in sorted(raw_rows) if r > eq_row]
-    pic_rows = [r for r in body_rows
-                if all(i["text"].strip().lower() == "picture" for i in raw_rows[r])]
-    body_rows = [r for r in body_rows if r not in pic_rows]
-
-    used = [(i["c0"], i["c1"]) for r in body_rows for i in raw_rows[r]]
-    if not used:
-        return dict(name=name, info=info, segments=[], images=[], hits_text=[])
-    cmin = min(u[0] for u in used)
-    cmax = max(u[1] for u in used)
-    vis_cols = [c for c in range(cmin, cmax + 1) if c not in hidden]
-    cidx = {c: i for i, c in enumerate(vis_cols)}
-    ws_w = [widths.get(c, 8.43) for c in vis_cols]
-    total = sum(ws_w) or 1
-    col_pct = [round(w / total * 100, 2) for w in ws_w]
-
-    # Pisahkan tabel di baris "PICTURE" supaya foto muncul di posisi yang sama
-    if pic_rows:
-        split = pic_rows[0]
-        before = [r for r in body_rows if r < split]
-        after = [r for r in body_rows if r > split]
-    else:
-        before, after = body_rows, []
-
-    segments = []
-    for part in (before, "IMAGES", after):
-        if part == "IMAGES":
-            segments.append(("images", None))
-        elif part:
-            segments.append(("table", _layout(raw_rows, part, len(vis_cols), cidx)))
-    if not pic_rows:  # tidak ada baris PICTURE → foto di bagian bawah
-        segments = [s for s in segments if s[0] != "images"] + [("images", None)]
-
-    # Gambar (lewati logo di bagian kepala sheet)
-    imgs = []
-    seen = set()
-    for im in getattr(ws, "_images", []):
-        try:
-            row0, col0 = im.anchor._from.row, im.anchor._from.col
-            if row0 <= 3:
-                continue
-            data = im._data()
-            if hash(data) in seen:
-                continue
-            seen.add(hash(data))
-            imgs.append((row0, col0, data))
-        except Exception:
-            continue
-    imgs.sort(key=lambda x: (x[0], x[1]))
-
-    return dict(
-        name=name, info=info, segments=segments, col_pct=col_pct,
-        images=[d for _, _, d in imgs],
-    )
-
-
-@st.cache_data(show_spinner="Membaca datasheet Excel…")
-def load_datasheet(source, key):
-    if isinstance(source, (bytes, bytearray)):
-        source = io.BytesIO(source)
-    wb = openpyxl.load_workbook(source, data_only=True)
-    result = {}
-    for ws in wb.worksheets:
-        title = ws.title.strip()
-        if ws.sheet_state != "visible":
-            continue
-        if any(x in title.lower() for x in EXCLUDED_SHEETS):
-            continue
-        result[title] = _parse_sheet(ws)
-    return result
-
 
 # ── Render HTML ─────────────────────────────────────────────────────────────
 TABLE_CSS = """
@@ -364,81 +91,920 @@ def count_hits(sheet, kw_re):
     return n
 
 
-def render_images(images):
-    if not images:
+def render_images(files):
+    paths = [p for p in (os.path.join(IMG_DIR, f) for f in files) if os.path.exists(p)]
+    if not paths:
         return
     st.markdown("**📷 Foto / Gambar**")
-    ncol = 2
-    for start in range(0, len(images), ncol):
-        cols = st.columns(ncol)
-        for col, data in zip(cols, images[start:start + ncol]):
+    for start in range(0, len(paths), 2):
+        cols = st.columns(2)
+        for col, p in zip(cols, paths[start:start + 2]):
             with col:
                 try:
-                    st.image(data, use_container_width=True)
+                    st.image(p, use_container_width=True)
                 except TypeError:
-                    st.image(data, use_column_width=True)
+                    st.image(p, use_column_width=True)
 
 
-# ── Muat data ───────────────────────────────────────────────────────────────
-target_file = find_excel_file()
-if target_file:
-    sheets = load_datasheet(target_file, os.path.getmtime(target_file))
-else:
-    st.warning(
-        "File Excel datasheet tidak ditemukan di repositori. "
-        "Taruh file `Datasheet Pompa PLTU TBK (1).xlsx` di folder utama project (sejajar dengan folder `pages`), "
-        "atau upload manual di bawah ini."
-    )
-    with st.expander("Lokasi yang dicari"):
-        st.code("\n".join(dict.fromkeys([root_dir, current_dir, os.getcwd()])))
-    up = st.file_uploader("Upload file datasheet (.xlsx)", type=["xlsx", "xlsm"])
-    if up is None:
-        st.stop()
-    sheets = load_datasheet(up.getvalue(), up.name)
-sheet_names = list(sheets.keys())
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(current_dir)
 
-# ── Pencarian ───────────────────────────────────────────────────────────────
-c_search, c_info = st.columns([3, 1.4])
-with c_search:
-    keyword = st.text_input(
-        "🔍 Cari spesifikasi / part number / merek:",
-        placeholder="Contoh: 6305, Head, Torishima, Teco...",
-    )
-kw = keyword.strip()
-kw_re = re.compile(f"({re.escape(kw)})", re.IGNORECASE) if kw else None
+# Foto peralatan: folder `datasheet_img` di folder utama project (opsional)
+IMG_DIR = os.path.join(root_dir, "datasheet_img")
+if not os.path.isdir(IMG_DIR):
+    IMG_DIR = os.path.join(current_dir, "datasheet_img")
 
-hits = {n: count_hits(sheets[n], kw_re) for n in sheet_names}
-with c_info:
-    st.metric("Jumlah sheet", len(sheet_names))
 
-if kw:
-    found = [f"**{n}** ({h})" for n, h in hits.items() if h]
-    if found:
-        st.success("Ditemukan di: " + " · ".join(found))
-    else:
-        st.info("Tidak ada data yang cocok dengan kata kunci pencarian.")
+def main():
+    sheets = DATA
+    sheet_names = list(sheets.keys())
 
-# ── Satu tab per nama sheet ─────────────────────────────────────────────────
-labels = [f"{n} 🔎{hits[n]}" if kw and hits[n] else n for n in sheet_names]
-tabs = st.tabs(labels)
+    c_search, c_info = st.columns([3, 1.4])
+    with c_search:
+        keyword = st.text_input(
+            "🔍 Cari spesifikasi / part number / merek:",
+            placeholder="Contoh: 6305, Head, Torishima, Teco...",
+        )
+    kw = keyword.strip()
+    kw_re = re.compile(f"({re.escape(kw)})", re.IGNORECASE) if kw else None
 
-for tab, s_name in zip(tabs, sheet_names):
-    sheet = sheets[s_name]
-    with tab:
-        st.subheader(sheet["name"] or s_name)
-        if sheet["info"]:
-            chips = "".join(
-                f'<span class="ds-chip"><b>{html.escape(k)}</b>: {_cell_html(v, kw_re)}</span>'
-                for k, v in sheet["info"].items()
-            )
-            st.markdown(f'<div class="ds-info">{chips}</div>', unsafe_allow_html=True)
+    hits = {n: count_hits(sheets[n], kw_re) for n in sheet_names}
+    with c_info:
+        st.metric("Jumlah sheet", len(sheet_names))
 
-        if not sheet["segments"]:
-            st.info("Sheet ini tidak berisi data.")
-            continue
+    if kw:
+        found = [f"**{n}** ({h})" for n, h in hits.items() if h]
+        if found:
+            st.success("Ditemukan di: " + " · ".join(found))
+        else:
+            st.info("Tidak ada data yang cocok dengan kata kunci pencarian.")
 
-        for kind, rows in sheet["segments"]:
-            if kind == "table":
-                st.markdown(table_html(rows, sheet["col_pct"], kw_re), unsafe_allow_html=True)
-            else:
-                render_images(sheet["images"])
+    labels = [f"{n} 🔎{hits[n]}" if kw and hits[n] else n for n in sheet_names]
+    tabs = st.tabs(labels)
+
+    for tab, s_name in zip(tabs, sheet_names):
+        sheet = sheets[s_name]
+        with tab:
+            st.subheader(sheet["name"] or s_name)
+            if sheet["info"]:
+                chips = "".join(
+                    f'<span class="ds-chip"><b>{html.escape(k)}</b>: {_cell_html(v, kw_re)}</span>'
+                    for k, v in sheet["info"].items()
+                )
+                st.markdown(f'<div class="ds-info">{chips}</div>', unsafe_allow_html=True)
+            for kind, payload in sheet["segments"]:
+                if kind == "table":
+                    st.markdown(table_html(payload, sheet["col_pct"], kw_re), unsafe_allow_html=True)
+                else:
+                    render_images(payload)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# DATA DATASHEET (tertanam langsung dari file Excel — tidak perlu file Excel/upload)
+# Format sel: (teks, colspan, rowspan, kelas, align). teks None = sel kosong pengisi.
+# ════════════════════════════════════════════════════════════════════════════
+DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
+             'info': {},
+             'col_pct': [4.44, 5.26, 13.96, 6.07, 8.43, 4.53, 6.8, 6.07, 14.33, 2.72, 6.07, 3.62, 17.68],
+             'segments': [('table',
+                           [[('SPECIFICATION', 13, 1, 'b', 'center')],
+                            [('No.', 1, 1, 'b', ''), ('PUMP', 6, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center')],
+                            [('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('TORISHIMA PUMP', 4, 1, '', 'center'),
+                             ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'center')],
+                            [('2.', 1, 1, '', 'center'), ('Type & Size', 2, 1, '', 'left'), ('CPEN 25 - 200', 4, 1, '', 'center'),
+                             ('2.', 1, 1, '', 'center'), ('Code', 2, 1, '', 'left'), ('AEEBKB 020004 YU', 3, 1, '', 'center')],
+                            [('3.', 1, 1, '', 'center'), ('Product No.', 2, 1, '', 'left'), ('T. 1080444', 4, 1, '', 'center'),
+                             ('3.', 1, 1, '', 'center'), ('2 POLE', 2, 1, '', 'left'), ('50', 1, 1, '', 'center'), ('Hz', 2, 1, '', 'center')],
+                            [('4.', 1, 1, '', 'center'), ('Total Head', 2, 1, '', 'left'), ('43.8', 1, 1, '', 'center'), ('m', 3, 1, '', 'center'),
+                             ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'), ('4', 1, 1, '', 'center'), ('HP', 2, 1, '', 'center')],
+                            [('5.', 1, 1, '', 'center'), ('Capacity', 2, 1, '', 'left'), ('6', 1, 1, '', 'center'), ('m3/h', 1, 1, '', 'center'),
+                             ('2 x 100%', 2, 1, '', 'center'), ('3', 1, 1, '', 'center'), ('KW', 2, 1, '', 'center')],
+                            [('6.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('2900', 1, 1, '', 'center'), ('Rpm', 3, 1, '', 'center'),
+                             ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'), ('380', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'center')],
+                            [('7.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), ('3', 1, 1, '', 'center'), ('kW', 3, 1, '', 'center'),
+                             ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'), ('6.06', 1, 1, '', 'center'),
+                             ('Ampere', 2, 1, '', 'center')],
+                            [('8.', 1, 2, '', 'center'), ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', 'center'),
+                             ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'center'), ('7.', 1, 2, '', 'center'),
+                             ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', 'center'), ('6206 ZZ', 2, 1, '', 'center')],
+                            [('Rear', 1, 1, '', 'center'), ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'center'),
+                             ('Rear', 1, 1, '', 'center'), ('6305 ZZ', 2, 1, '', 'center')],
+                            [('9.', 1, 1, '', 'center'), ('Delivery Time', 2, 1, '', 'left'), ('Oct 2010', 4, 1, '', 'center'),
+                             ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('2854', 1, 1, '', 'center'), ('Rpm', 2, 1, '', 'center')],
+                            [('PUMP DESIGEN', 7, 2, 'b', 'center'), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
+                             ('1579000394 . 35', 3, 1, '', 'center')],
+                            [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 1, 1, '', 'center'),
+                             ('100 L', 2, 1, '', 'center')],
+                            [('KKS No.', 3, 1, '', 'left'), ('AP - 1105 C/D', 4, 1, '', 'center'), ('No.', 1, 1, '', 'center'),
+                             ('314000039', 2, 1, '', 'center')],
+                            [('No.', 3, 1, '', 'left'), ('2 Unit ( 2 x 100% )', 4, 1, '', 'center'), ('11.', 1, 1, '', 'center'),
+                             ('Amb. Temp', 2, 1, '', 'left'), ('40', 1, 1, '', 'center'), ('oC', 2, 1, '', 'center')],
+                            [('Suction Pressure', 3, 1, '', 'left'), ('0.45', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
+                             ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('100 L', 3, 1, '', 'center')],
+                            [('Discharge Pressure', 3, 1, '', 'left'), ('4.84', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
+                             ('System', 2, 1, 'b', 'center'), ('Close Cooling Water System', 4, 1, '', 'center')],
+                            [('Diffrensial Press.', 3, 1, '', 'left'), ('4.38', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
+                             ('Drawing No.', 2, 1, 'b', 'center'), ('1802-00-M-10-PG-001-02', 4, 1, '', 'center')]]),
+                          ('images', ['s01_1.jpg', 's01_2.jpg']),
+                          ('table',
+                           [[('BEARING SPECIFICATION', 5, 1, 'b', 'center'), ('TYPE : 6305 DDU KOYO DEEP GROOVE BEARING', 8, 1, 'b', 'center')],
+                            [('1.', 1, 1, '', 'center'), ('Brand', 3, 1, '', ''), ('Koyo', 9, 1, '', '')],
+                            [('2.', 1, 1, '', 'center'), ('Type', 3, 1, '', ''), ('6305 DDU C3', 9, 1, '', '')],
+                            [('3.', 1, 1, '', 'center'), ('Inside Diameter', 3, 1, '', ''), ('25 mm', 9, 1, '', '')],
+                            [('4.', 1, 1, '', 'center'), ('Out Side Diameter', 3, 1, '', ''), ('62 mm', 9, 1, '', '')],
+                            [('5.', 1, 1, '', 'center'), ('Width', 3, 1, '', ''), ('17 mm', 9, 1, '', '')],
+                            [('6.', 1, 1, '', 'center'), ('Clearance', 3, 1, '', ''), ('C3', 9, 1, '', '')],
+                            [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Two Rubber Seals ( 2RS )', 9, 1, '', '')],
+                            [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 9, 1, '', '')],
+                            [('CONTACT PERSON', 13, 1, 'b', 'center')], [('Hard Office', 13, 1, '', '')],
+                            [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 13, 1, '', '')],
+                            [('Estate Jakarta 13930, Indonesia', 13, 1, '', '')], [('Phone', 3, 1, '', ''), ('062 214603963', 10, 1, '', '')],
+                            [('Fax', 3, 1, '', ''), ('062 214603937', 10, 1, '', '')],
+                            [('Email', 3, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+ '2. Boster Pump': {'name': 'COOLING BOOSTER PUMP',
+                    'info': {},
+                    'col_pct': [4.02, 6.45, 13.47, 6.27, 8.7, 4.68, 7.76, 4.02, 13.57, 2.81, 6.27, 3.74, 18.25],
+                    'segments': [('table',
+                                  [[('SPECIFICATION', 13, 1, 'b', 'center')],
+                                   [('No.', 1, 1, 'b', ''), ('PUMP', 6, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center')],
+                                   [('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('TORISHIMA PUMP', 4, 1, '', 'center'),
+                                    ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'center')],
+                                   [('2.', 1, 1, '', 'center'), ('Type & Size', 2, 1, '', 'left'), ('ETA - N 125 x 100 - 315', 4, 1, '', 'center'),
+                                    ('2.', 1, 1, '', 'center'), ('Code', 2, 1, '', 'left'), ('AEEBKB.040030 FBB', 3, 1, '', 'center')],
+                                   [('3.', 1, 1, '', 'center'), ('Product No.', 2, 1, '', 'left'), ('TS. 1018269', 4, 1, '', 'center'),
+                                    ('3.', 1, 1, '', 'center'), ('4 POLE', 2, 1, '', 'left'), ('50', 1, 1, '', 'center'),
+                                    ('Hz', 2, 1, '', 'center')],
+                                   [('4.', 1, 1, '', 'center'), ('Total Head', 2, 1, '', 'left'), ('33.9', 1, 1, '', 'center'),
+                                    ('m', 3, 1, '', 'center'), ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'), ('30', 1, 1, '', 'center'),
+                                    ('HP', 2, 1, '', 'center')],
+                                   [('5.', 1, 1, '', 'center'), ('Capacity', 2, 1, '', 'left'), ('154', 1, 1, '', 'center'),
+                                    ('m3/h', 1, 1, '', 'center'), ('2 x 100%', 2, 1, '', 'center'), ('22', 1, 1, '', 'center'),
+                                    ('KW', 2, 1, '', 'center')],
+                                   [('6.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('1460', 1, 1, '', 'center'),
+                                    ('Rpm', 3, 1, '', 'center'), ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'),
+                                    ('380 - 415', 2, 1, '', 'center'), ('Volt', 1, 1, '', 'center')],
+                                   [('7.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), ('22', 1, 1, '', 'center'), ('kW', 3, 1, '', 'center'),
+                                    ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'), ('40.8', 1, 1, '', 'center'),
+                                    ('Ampere', 2, 1, '', 'center')],
+                                   [('8.', 1, 2, '', 'center'), ('Bearing No.', 2, 1, '', 'left'), ('Front', 1, 1, '', 'center'),
+                                    ('6309 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'center'), ('7.', 1, 2, '', 'center'),
+                                    ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', 'center'), ('6611 ZZ', 2, 1, '', 'center')],
+                                   [(None, 2, 1, '', ''), ('Rear', 1, 1, '', 'center'), ('6309 DDU C3', 2, 1, '', 'center'),
+                                    ('1 Pcs', 1, 1, '', 'center'), ('Rear', 1, 1, '', 'center'), ('6310 ZZ', 2, 1, '', 'center')],
+                                   [('9.', 1, 1, '', 'center'), ('Delivery Time', 2, 1, '', 'left'), ('Oct 2010', 4, 1, '', 'center'),
+                                    ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('1460', 1, 1, '', 'center'),
+                                    ('Rpm', 2, 1, '', 'center')],
+                                   [('PUMP DESIGEN', 7, 1, 'b', ''), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
+                                    ('H6106703. 088', 3, 1, '', 'center')],
+                                   [(None, 7, 1, '', ''), ('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 1, 1, '', 'center'),
+                                    ('180 L.C', 2, 1, '', 'center')],
+                                   [('KKS No.', 3, 1, '', 'left'), ('AP - 1110 C/D', 4, 1, '', 'center'), ('No.', 1, 1, '', 'center'),
+                                    ('31402 C103', 2, 1, '', 'center')],
+                                   [('No.', 3, 1, '', 'left'), ('2 Unit ( 2 x 100% )', 4, 1, '', 'center'), ('11.', 1, 1, '', 'center'),
+                                    ('Amb. Temp', 2, 1, '', 'left'), ('40', 1, 1, '', 'center'), ('oC', 2, 1, '', 'center')],
+                                   [('Suction Pressure', 3, 1, '', 'left'), ('1', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                    ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('180 L.C', 3, 1, '', 'center')],
+                                   [('Discharge Pressure', 3, 1, '', 'left'), ('3', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                    ('System', 2, 1, '', 'center'), ('Sea Water Cooling Suppy System', 4, 1, '', 'center')],
+                                   [('Diffrensial Press.', 3, 1, '', 'left'), ('2', 1, 1, '', 'center'), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                    ('Drawing No.', 2, 1, '', 'center'), ('1802-00-M-10-P-001-01', 4, 1, '', 'center')]]),
+                                 ('images', ['s02_1.jpg']),
+                                 ('table',
+                                  [[('CONTACT PERSON', 13, 1, 'b', 'center')], [('Hard Office', 13, 1, '', '')],
+                                   [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 13, 1, '', '')],
+                                   [('Estate Jakarta 13930, Indonesia', 13, 1, '', '')], [('Phone', 3, 1, '', ''), ('062 214603963', 10, 1, '', '')],
+                                   [('Fax', 3, 1, '', ''), ('062 214603937', 10, 1, '', '')],
+                                   [('Email', 3, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+ '3. BFP': {'name': 'BOILER FEED WATER PUMP ( BFP )',
+            'info': {},
+            'col_pct': [4.89, 7.24, 6.86, 6.3, 8.74, 4.7, 6.48, 4.89, 14.85, 2.82, 6.3, 6.3, 19.65],
+            'segments': [('table',
+                          [[('SPECIFICATION', 13, 1, 'b', 'center')],
+                           [('No.', 1, 1, 'b', ''), ('PUMP', 6, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center')],
+                           [('1.', 1, 2, '', 'center'), ('Type & Size', 2, 2, '', 'center'), ('Multi Stage Pump', 4, 1, '', 'center'),
+                            ('1.', 1, 1, '', 'center'), ('Frame', 1, 1, '', 'center'), ('Y3-315 L1 - B3', 4, 1, '', 'center')],
+                           [('DGJ 45 - 80 x 7', 4, 1, '', 'center'), ('2.', 1, 1, '', 'center'), ('Merek', 1, 1, '', 'center'),
+                            ('3-Phase Induction Motor', 4, 1, '', 'center')],
+                           [('2.', 1, 1, '', 'center'), ('Head', 2, 1, '', 'center'), ('560', 2, 1, '', 'center'), ('M', 2, 1, '', 'center'),
+                            ('3.', 1, 2, '', 'center'), ('Out Put', 1, 2, '', 'center'), ('160', 3, 1, '', 'center'), ('KW', 1, 1, '', 'center')],
+                           [('3.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'center'), ('125', 2, 1, '', 'center'), ('KW', 2, 1, '', 'center'),
+                            ('214.5', 3, 1, '', 'center'), ('HP', 1, 1, '', 'center')],
+                           [('4.', 1, 2, '', 'center'), ('Capacity', 2, 2, '', 'center'), ('3 x 100 %', 4, 1, '', 'center'),
+                            ('4.', 1, 1, '', 'center'), ('Eff', 1, 1, '', 'center'), ('94', 3, 1, '', 'center'), ('%', 1, 1, '', 'center')],
+                           [('45', 2, 1, '', 'center'), ('m3/h', 2, 1, '', 'center'), ('5.', 1, 1, '', 'center'),
+                            ('Power Factor', 1, 1, '', 'center'), ('0.91', 3, 1, '', 'center'), (None, 1, 1, '', '')],
+                           [('5.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'center'), ('2986', 2, 1, '', 'center'), ('Rpm', 2, 1, '', 'center'),
+                            ('6.', 1, 1, '', 'center'), ('Frequency', 1, 1, '', 'center'), ('50', 3, 1, '', 'center'), ('Hz', 1, 1, '', 'center')],
+                           [('6.', 1, 1, '', 'center'), ('Weight', 2, 1, '', 'center'), ('1250', 2, 1, '', 'center'), ('Kg', 2, 1, '', 'center'),
+                            ('7.', 1, 1, '', 'center'), ('Volt', 1, 1, '', 'center'), ('380', 3, 1, '', 'center'), ('Volt', 1, 1, '', 'center')],
+                           [('7.', 1, 2, '', 'center'), ('Product', 2, 2, '', 'center'), ('Shenyang Pump Manufactory', 4, 2, '', 'center'),
+                            ('8.', 1, 1, '', 'center'), ('Current', 1, 1, '', 'center'), ('282.1', 3, 1, '', 'center'),
+                            ('Ampere', 1, 1, '', 'center')],
+                           [('9.', 1, 2, '', 'center'), ('Baring', 1, 1, '', 'center'), ('Front', 3, 1, '', 'center'),
+                            ('N 6319 C3', 1, 1, '', 'center')],
+                           [('Drawing No.', 7, 2, 'b', 'center'), (None, 1, 1, '', ''), ('Rear', 3, 1, '', 'center'),
+                            ('N 6319 C3', 1, 1, '', 'center')],
+                           [('10.', 1, 1, '', 'center'), ('Serial No.', 1, 1, '', 'center'), ('85442', 4, 1, '', 'center')],
+                           [('1802 - 00 - M - 09 - LB - 002 - 01', 7, 1, '', 'center'), ('11.', 1, 2, '', 'center'), ('Product', 1, 2, '', 'center'),
+                            ('Shandong Huali Electric Motor Group.Co.Ltd', 4, 2, '', 'center')],
+                           [('1802 - 00 - M - 09 - LB - 003 - 01', 7, 1, '', 'center')], [('WATER HEAT FLOW VALUE', 13, 1, 'b', 'center')],
+                           [('No.', 1, 1, 'b', 'center'), ('Sucion', 2, 1, 'b', 'center'), ('Value', 2, 1, 'b', 'center'),
+                            ('Unit', 2, 1, 'b', 'center'), ('No.', 1, 1, 'b', 'center'), ('Discharge', 2, 1, 'b', 'center'),
+                            ('Value', 2, 1, 'b', 'center'), ('Unit', 1, 1, 'b', 'center')],
+                           [('1.', 1, 1, '', 'center'), ('Pressure', 2, 1, '', 'left'), ('1.5', 2, 1, '', 'center'), ('Bar. Abs', 2, 1, '', 'center'),
+                            ('1.', 1, 1, '', 'center'), ('Pressure', 2, 1, '', 'left'), ('55', 2, 1, '', 'center'),
+                            ('Bar. Abs', 1, 1, '', 'center')],
+                           [('2.', 1, 1, '', 'center'), ('Mass Flow', 2, 1, '', 'left'), ('35036', 2, 1, '', 'center'),
+                            ('Kg/hour', 2, 1, '', 'center'), ('2.', 1, 1, '', 'center'), ('Mass Flow', 2, 1, '', 'left'),
+                            ('35036', 2, 1, '', 'center'), ('Kg/hour', 1, 1, '', 'center')],
+                           [('3.', 1, 1, '', 'center'), ('Water Temp.', 2, 1, '', 'left'), ('104', 2, 1, '', 'center'), ('oC', 2, 1, '', 'center'),
+                            ('3.', 1, 1, '', 'center'), ('Water Temp.', 2, 1, '', 'left'), ('104', 2, 1, '', 'center'), ('oC', 1, 1, '', 'center')],
+                           [('4.', 1, 1, '', 'center'), ('Enthalpy', 2, 1, '', 'left'), ('109.29', 2, 1, '', 'center'),
+                            ('Kcal/kg', 2, 1, '', 'center'), ('4.', 1, 1, '', 'center'), ('Enthalpy', 2, 1, '', 'left'),
+                            ('105.24', 2, 1, '', 'center'), ('Kcal/kg', 1, 1, '', 'center')],
+                           [('5.', 1, 1, '', 'center'), ('Heat Flow', 2, 1, '', 'left'), ('3.65E + 06', 2, 1, '', 'center'),
+                            ('Kcal/hour', 2, 1, '', 'center'), ('5.', 1, 1, '', 'center'), ('Heat Flow', 2, 1, '', 'left'),
+                            ('3.69E + 06', 2, 1, '', 'center'), ('Kcal/hour', 1, 1, '', 'center')]]),
+                         ('images', ['s03_1.jpg']),
+                         ('table',
+                          [[('CONTACT PERSON', 13, 1, 'b', 'center')],
+                           [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
+                           [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
+                           [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
+                           [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
+                           [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+ '4. Jet Pump': {'name': 'WATER JET PUMP',
+                 'info': {},
+                 'col_pct': [4.1, 11.45, 3.53, 6.39, 8.87, 4.77, 10.02, 4.1, 15.08, 2.86, 6.39, 3.81, 18.61],
+                 'segments': [('table',
+                               [[('SPECIFICATION', 13, 1, 'b', 'center')],
+                                [('No.', 1, 1, 'b', ''), ('PUMP', 6, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center')],
+                                [('1.', 1, 1, '', 'center'), ('Model', 2, 1, '', 'center'), ('IS100 - 65 - 200', 4, 1, '', 'center'),
+                                 ('1.', 1, 1, '', 'center'), ('Frame', 1, 1, '', 'center'), ('Y2 - 180M - 2', 4, 1, '', 'center')],
+                                [('2.', 1, 1, '', 'center'), ('Order No.', 2, 1, '', 'center'), ('2008 - M6 - 356', 4, 1, '', 'center'),
+                                 ('2.', 1, 2, '', 'center'), ('Out Put', 1, 2, '', 'center'), ('22', 2, 1, '', 'center'), ('KW', 2, 1, '', 'left')],
+                                [('3.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'center'), ('19.7', 2, 1, '', 'center'), ('KW', 2, 1, '', 'center'),
+                                 ('29.5', 2, 1, '', 'center'), ('HP', 2, 1, '', 'left')],
+                                [('4.', 1, 2, '', 'center'), ('Capacity', 2, 2, '', 'center'), ('2 x 100 %', 4, 1, '', 'center'),
+                                 ('3.', 1, 1, '', 'center'), ('Volt', 1, 1, '', 'center'), ('380', 2, 1, '', 'center'), ('Volt', 2, 1, '', 'left')],
+                                [('120', 2, 1, '', 'center'), ('m3/h', 2, 1, '', 'center'), ('4.', 1, 1, '', 'center'),
+                                 ('Current', 1, 1, '', 'center'), ('41.0', 2, 1, '', 'center'), ('Ampere', 2, 1, '', 'left')],
+                                [('5.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'center'), ('2900', 2, 1, '', 'center'), ('Rpm', 2, 1, '', 'center'),
+                                 ('5.', 1, 1, '', 'center'), ('PF', 1, 1, '', 'center'), ('0.9', 4, 1, '', 'center')],
+                                [('6.', 1, 1, '', 'center'), ('Head', 2, 1, '', 'center'), ('47', 2, 1, '', 'center'), ('M', 2, 1, '', 'center'),
+                                 ('6.', 1, 1, '', 'center'), ('Frequency', 1, 1, '', 'center'), ('50', 2, 1, '', 'center'),
+                                 ('Hz', 2, 1, '', 'left')],
+                                [('7.', 1, 1, '', 'center'), ('Series No.', 2, 1, '', 'center'), ('90214/5', 4, 1, '', 'center'),
+                                 ('7.', 1, 1, '', 'center'), ('Speed', 1, 1, '', 'center'), ('2940', 2, 1, '', 'center'), ('Rpm', 2, 1, '', 'left')],
+                                [('8.', 1, 1, '', 'center'), ('Weight', 2, 1, '', 'center'), ('320', 2, 1, '', 'center'), ('Kg', 2, 1, '', 'center'),
+                                 ('8.', 1, 1, '', 'center'), ('Weight', 1, 1, '', 'center'), ('170', 2, 1, '', 'center'), ('Kg', 2, 1, '', 'left')],
+                                [('9.', 1, 1, '', 'center'), ('Eff', 2, 1, '', 'center'), ('77', 2, 1, '', 'center'), ('%', 2, 1, '', 'center'),
+                                 ('9.', 1, 2, '', 'center'), ('Product', 1, 2, '', 'center'),
+                                 ('Shandong Huali Electric Motor Group.Co.Ltd', 4, 2, '', 'center')],
+                                [('10.', 1, 2, '', 'center'), ('Customer', 2, 2, '', 'center'),
+                                 ('Shandong Machinery I&E Group Corporation', 4, 2, '', 'center')],
+                                [('PUMP DESIGEN', 6, 2, 'b', 'center')],
+                                [('11.', 1, 2, '', 'center'), ('Manufactory', 2, 2, '', 'center'), ('Shenyang Pump Manufactory', 4, 2, '', 'center')],
+                                [('KKS No.', 2, 1, '', 'left'), ('AP / 1114 A/B', 4, 1, '', 'left')],
+                                [('DRAWING NO.', 7, 2, 'b', 'center'), ('Fluid', 2, 1, '', ''), ('Condensate', 4, 1, '', 'left')],
+                                [('Des. Capacity', 2, 1, '', ''), ('105', 2, 1, '', 'center'), ('m3/h', 2, 1, '', 'left')],
+                                [('1802 - 00 - M - 10 - LB - 003 - 02', 7, 2, '', 'center'), ('Discharge Press.', 2, 1, '', ''),
+                                 ('3.92', 2, 1, '', 'center'), ('Kg/Cm g2', 2, 1, '', 'left')],
+                                [('Extraction Flow', 2, 1, '', ''), ('7.5', 2, 1, '', 'center'), ('Kg/Hr', 2, 1, '', 'left')]]),
+                              ('images', ['s04_1.jpg']),
+                              ('table',
+                               [[('CONTACT PERSON', 13, 1, 'b', 'center')],
+                                [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
+                                [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
+                                [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
+                                [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
+                                [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+ '5. AC Oil Pump': {'name': 'AC AUXILIARY OIL PUMP',
+                    'info': {},
+                    'col_pct': [4.6, 6.46, 13.98, 2.65, 5.93, 8.23, 4.42, 6.1, 4.6, 13.98, 2.65, 5.93, 5.93, 14.51],
+                    'segments': [('table',
+                                  [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                   [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                    ('MOTOR ( AC )', 5, 1, 'b', 'center')],
+                                   [('1.', 1, 2, '', 'center'), ('Model', 2, 2, '', 'left'), ('Gear Oil Pump', 5, 1, '', 'center'),
+                                    ('1.', 1, 1, '', 'center'), ('Merek', 1, 1, '', 'center'), ('3 - Phase Induction Motor', 4, 1, '', 'center')],
+                                   [('CHY 18 - 1', 5, 1, '', 'center'), ('2.', 1, 1, '', 'center'), ('Type', 1, 1, '', 'center'),
+                                    ('Y2 - 132 M2 - 6T', 4, 1, '', 'center')],
+                                   [('2.', 1, 1, '', 'center'), ('Type', 2, 1, '', 'left'), ('Positif Displacement', 5, 1, '', 'center'),
+                                    ('3.', 1, 1, '', 'center'), ('Standard No.', 1, 1, '', 'center'), ('JB/T8680.1 - 1998', 4, 1, '', 'center')],
+                                   [('3.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), ('3.8', 3, 1, '', 'center'), ('KW', 2, 1, '', 'center'),
+                                    ('4.', 1, 1, '', 'center'), ('Out Put', 1, 1, '', 'center'), ('5.5', 3, 1, '', 'center'),
+                                    ('KW', 1, 1, '', 'center')],
+                                   [('4.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('960', 3, 1, '', 'center'), ('Rpm', 2, 1, '', 'center'),
+                                    ('5.', 1, 1, '', 'center'), ('Voltage', 1, 1, '', 'center'), ('400', 3, 1, '', 'center'),
+                                    ('Volt', 1, 1, '', 'center')],
+                                   [('5.', 1, 1, '', 'center'), ('Eff', 2, 1, '', 'left'), ('55', 3, 1, '', 'center'), ('%', 2, 1, '', 'center'),
+                                    ('6.', 1, 1, '', 'center'), ('Speed', 1, 1, '', 'center'), ('960', 3, 1, '', 'center'),
+                                    ('Rpm', 1, 1, '', 'center')],
+                                   [('6.', 1, 1, '', 'center'), ('Head ( NPSH )', 2, 1, '', 'left'), ('5', 3, 1, '', 'center'),
+                                    ('M', 2, 1, '', 'center'), ('7.', 1, 1, '', 'center'), ('Frequency', 1, 1, '', 'center'),
+                                    ('50', 3, 1, '', 'center'), ('Hz', 1, 1, '', 'center')],
+                                   [('7.', 1, 2, '', 'center'), ('Capacity Flow', 2, 2, '', 'left'), ('350', 3, 1, '', 'center'),
+                                    ('L/min', 2, 1, '', 'center'), ('8.', 1, 1, '', 'center'), ('Current', 1, 1, '', 'center'),
+                                    ('11.6', 3, 1, '', 'center'), ('Ampere', 1, 1, '', 'center')],
+                                   [('20.5', 3, 1, '', 'center'), ('m3/h', 2, 1, '', 'center'), ('9.', 1, 1, '', 'center'),
+                                    ('Weight', 1, 1, '', 'center'), ('71', 3, 1, '', 'center'), ('Kg', 1, 1, '', 'center')],
+                                   [('8.', 1, 2, '', 'center'), ('Product', 2, 2, '', 'left'),
+                                    ('BOTOUSHI YUNHE ESTATE OF PUMP CO, LTD', 5, 2, '', 'center'), ('10.', 1, 1, '', 'center'),
+                                    ('Sound', 1, 1, '', 'center'), ('69', 3, 1, '', 'center'), ('dB', 1, 1, '', 'center')],
+                                   [('11.', 1, 1, '', 'center'), ('Product', 1, 1, '', 'center'),
+                                    ('Jiangsu Electric Motor .Co, Ltd', 4, 1, '', 'center')],
+                                   [('PUMP DESIGEN', 8, 1, 'b', 'center'), ('DRAWING NO.', 6, 1, 'b', 'center')],
+                                   [('Fluid', 3, 1, '', 'center'), ('Oil', 5, 1, '', 'center'), ('Unit 1', 2, 1, '', 'center'),
+                                    ('1802 - 00 - M - 10 - P - 002 - 01', 4, 1, '', 'center')],
+                                   [('Desigen Pressure', 3, 1, '', 'left'), ('0.353', 3, 1, '', 'center'), ('MPa', 2, 1, '', 'center'),
+                                    ('Unit 2', 2, 1, '', 'center'), ('1803 - 00 - M - 10 - P - 002 - 02', 4, 1, '', 'center')],
+                                   [('Diameter Shaft', 3, 1, '', 'left'), ('ø 70', 3, 1, '', 'center'), ('mm', 2, 1, '', 'center'),
+                                    ('System', 2, 2, '', 'center'), ('Oil Cooling System Of Steam Turbine', 4, 2, '', 'center')],
+                                   [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]]),
+                                 ('images', ['s05_1.jpg']),
+                                 ('table',
+                                  [[('CONTACT PERSON', 14, 1, 'b', 'center')],
+                                   [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 14, 1, 'b', 'left')],
+                                   [('No.1, Qutangxia Road', 14, 1, '', 'left')], [('Qingdao, Shandong', 14, 1, '', 'left')],
+                                   [('China 266002', 14, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 14, 1, '', 'left')],
+                                   [('Fax: (86 532) 8266 1679', 14, 1, '', 'left')],
+                                   [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 14, 1, '', 'left')]])]},
+ '6. DC Oil Pump': {'name': 'DC AUXILIARY OIL PUMP',
+                    'info': {},
+                    'col_pct': [4.97, 6.59, 7.54, 2.87, 6.4, 8.88, 4.77, 6.59, 4.97, 15.09, 2.87, 6.4, 6.4, 15.66],
+                    'segments': [('table',
+                                  [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                   [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                    ('MOTOR ( DC )', 5, 1, 'b', 'center')],
+                                   [('1.', 1, 2, '', 'center'), ('Model', 2, 2, '', 'left'), ('Gear Oil Pump', 5, 1, '', 'center'),
+                                    ('1.', 1, 1, '', 'center'), ('Merek', 1, 1, '', 'center'), ("XI'AN SIMO MOTORS, INC", 4, 1, '', 'center')],
+                                   [('CHY 18 - 1', 5, 1, '', 'center'), ('2.', 1, 1, '', 'center'), ('Type', 1, 1, '', 'center'),
+                                    ('Z2 - 61 ( Direct Current )', 4, 1, '', 'center')],
+                                   [('2.', 1, 1, '', 'center'), ('Type', 2, 1, '', 'left'), ('Positif Displacement', 5, 1, '', 'center'),
+                                    ('3.', 1, 1, '', 'center'), ('Standard No.', 1, 1, '', 'center'), ('Q/XD. 514. 017 - 2006', 4, 1, '', 'center')],
+                                   [('3.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), ('3.8', 3, 1, '', 'center'), ('KW', 2, 1, '', 'center'),
+                                    ('4.', 1, 1, '', 'center'), ('Out Put', 1, 1, '', 'center'), ('5.5', 3, 1, '', 'center'),
+                                    ('KW', 1, 1, '', 'center')],
+                                   [('4.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('960', 3, 1, '', 'center'), ('Rpm', 2, 1, '', 'center'),
+                                    ('5.', 1, 1, '', 'center'), ('Voltage', 1, 1, '', 'center'), ('220', 3, 1, '', 'center'),
+                                    ('Volt', 1, 1, '', 'center')],
+                                   [('5.', 1, 1, '', 'center'), ('Eff', 2, 1, '', 'left'), ('55', 3, 1, '', 'center'), ('%', 2, 1, '', 'center'),
+                                    ('6.', 1, 1, '', 'center'), ('Speed', 1, 1, '', 'center'), ('1000', 3, 1, '', 'center'),
+                                    ('Rpm', 1, 1, '', 'center')],
+                                   [('6.', 1, 1, '', 'center'), ('Head ( NPSH )', 2, 1, '', 'left'), ('5', 3, 1, '', 'center'),
+                                    ('M', 2, 1, '', 'center'), ('7.', 1, 1, '', 'center'), ('Current', 1, 1, '', 'center'),
+                                    ('30.3', 3, 1, '', 'center'), ('Ampere', 1, 1, '', 'center')],
+                                   [('7.', 1, 2, '', 'center'), ('Capacity Flow', 2, 2, '', 'left'), ('350', 3, 1, '', 'center'),
+                                    ('L/min', 2, 1, '', 'center'), ('8.', 1, 1, '', 'center'), ('Bearing', 1, 2, '', 'center'),
+                                    ('Front', 3, 1, '', 'center'), ('6309/CMZ1', 1, 1, '', 'center')],
+                                   [('20.5', 3, 1, '', 'center'), ('m3/h', 2, 1, '', 'center'), ('9.', 1, 1, '', 'center'),
+                                    ('Rear', 3, 1, '', 'center'), ('6309/CMZ1', 1, 1, '', 'center')],
+                                   [('8.', 1, 2, '', 'center'), ('Product', 2, 2, '', 'left'),
+                                    ('BOTOUSHI YUNHE ESTATE OF PUMP CO, LTD', 5, 2, '', 'center'), ('10.', 1, 1, '', 'center'),
+                                    ('Weight', 1, 1, '', 'center'), ('180', 3, 1, '', 'center'), ('Kg', 1, 1, '', 'center')],
+                                   [('11.', 1, 1, '', 'center'), ('Product', 1, 1, '', 'center'), ("XI'AN SIMO MOTORS, INC", 4, 1, '', 'center')],
+                                   [('PUMP DESIGEN', 8, 1, 'b', 'center'), ('DRAWING NO.', 6, 1, 'b', 'center')],
+                                   [('Fluid', 3, 1, '', 'left'), ('Oil', 5, 1, '', 'center'), ('Unit 1', 2, 1, '', 'center'),
+                                    ('1802 - 00 - M - 10 - P - 002 - 01', 4, 1, '', 'center')],
+                                   [('Desigen Pressure', 3, 1, '', 'left'), ('0.353', 3, 1, '', 'center'), ('MPa', 2, 1, '', 'center'),
+                                    ('Unit 2', 2, 1, '', 'center'), ('1803 - 00 - M - 10 - P - 002 - 02', 4, 1, '', 'center')],
+                                   [('Diameter Shaft', 3, 1, '', 'left'), ('ø 70', 3, 1, '', 'center'), ('mm', 2, 1, '', 'center'),
+                                    ('System', 2, 2, '', 'center'), ('Oil Cooling System Of Steam Turbine', 4, 2, '', 'center')],
+                                   [('Weight', 3, 1, '', 'left'), ('198', 3, 1, '', 'center'), ('Kg', 2, 1, '', 'center')]]),
+                                 ('images', ['s06_1.jpg']),
+                                 ('table',
+                                  [[('CONTACT PERSON', 14, 1, 'b', 'center')],
+                                   [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 14, 1, 'b', 'left')],
+                                   [('No.1, Qutangxia Road', 14, 1, '', 'left')], [('Qingdao, Shandong', 14, 1, '', 'left')],
+                                   [('China 266002', 14, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 14, 1, '', 'left')],
+                                   [('Fax: (86 532) 8266 1679', 14, 1, '', 'left')],
+                                   [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 14, 1, '', 'left')]])]},
+ '7. CWP ( Cooling Tower )': {'name': 'CIRCULATING WATER PUMP ( CWP )',
+                              'info': {},
+                              'col_pct': [4.68, 5.67, 10.89, 2.7, 6.03, 8.37, 4.5, 6.21, 4.68, 16.74, 2.7, 6.03, 6.03, 14.76],
+                              'segments': [('table',
+                                            [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                             [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                              ('MOTOR', 5, 1, 'b', 'center')],
+                                             [('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Torishima Pump', 5, 1, '', 'center'),
+                                              ('1.', 1, 2, '', 'center'), ('Merek', 1, 2, '', 'center'),
+                                              ('TECO , 3 Phase Induction Motor', 4, 2, '', 'center')],
+                                             [('2.', 1, 1, '', 'center'), ('Type & Size', 2, 1, '', 'left'), ('CDM 450 LN', 5, 1, '', 'center')],
+                                             [('3.', 1, 1, '', 'center'), ('Product.No', 2, 1, '', 'left'), ('T 1070101', 5, 1, '', 'center'),
+                                              ('2.', 1, 1, '', 'center'), ('Frame', 1, 1, '', 'center'), ('315 SC', 4, 1, '', 'center')],
+                                             [('4.', 1, 1, '', 'center'), ('Total Head', 2, 1, '', 'left'), ('16.2', 3, 1, '', 'center'),
+                                              ('M', 2, 1, '', 'center'), ('3.', 1, 1, '', 'center'), ('Frequency', 1, 1, '', 'center'),
+                                              ('50', 3, 1, '', 'center'), ('Hz', 1, 1, '', 'center')],
+                                             [('5.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('890', 3, 1, '', 'center'),
+                                              ('Rpm', 2, 1, '', 'center'), ('4.', 1, 1, '', 'center'), ('Speed', 1, 1, '', 'center'),
+                                              ('975', 3, 1, '', 'center'), ('Rpm', 1, 1, '', 'center')],
+                                             [('6.', 1, 2, '', 'center'), ('Capacity', 2, 2, '', 'left'), ('( 2 Unit ) 2 x 50%', 5, 1, '', 'center'),
+                                              ('5.', 1, 2, '', 'center'), ('Out Put', 1, 2, '', 'center'), ('125', 3, 1, '', 'center'),
+                                              ('HP', 1, 1, '', 'center')],
+                                             [('1375', 3, 1, '', 'center'), ('M3/H', 2, 1, '', 'center'), ('90', 3, 1, '', 'center'),
+                                              ('KW', 1, 1, '', 'center')],
+                                             [('7.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), ('90', 3, 1, '', 'center'),
+                                              ('KW', 2, 1, '', 'center'), ('6.', 1, 1, '', 'center'), ('Voltage', 1, 1, '', 'center'),
+                                              ('380 - 415', 3, 1, '', 'center'), ('Volt', 1, 1, '', 'center')],
+                                             [('8.', 1, 2, '', 'center'), ('Bearing No.', 2, 2, '', 'left'), ('Front', 2, 1, '', 'center'),
+                                              ('6315 C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'center'), ('7.', 1, 1, '', 'center'),
+                                              ('Current', 1, 1, '', 'center'), ('170', 3, 1, '', 'center'), ('Ampere', 1, 1, '', 'center')],
+                                             [('Rear', 2, 1, '', 'center'), ('6315 C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'center'),
+                                              ('8.', 1, 1, '', 'center'), ('Bearings', 1, 1, '', 'center'), ('6315 / NU 320C3', 4, 1, '', 'center')],
+                                             [('9.', 1, 1, '', 'center'), ('Date', 2, 1, '', 'left'), ('Oct 2019', 5, 1, '', 'center'),
+                                              ('9.', 1, 1, '', 'center'), ('Ser. No', 1, 1, '', 'center'), ('9106304003', 4, 1, '', 'center')],
+                                             [('10.', 1, 1, '', 'center'), ('Product', 2, 1, '', 'left'),
+                                              ('Torishima Guna Indonesia', 5, 1, '', 'center'), ('10.', 1, 1, '', 'center'),
+                                              ('Weight', 1, 1, '', 'center'), ('839', 3, 1, '', 'center'), ('Kg', 1, 1, '', 'center')],
+                                             [('DESIGEN PUMP', 8, 2, 'b', 'center'), ('11.', 1, 1, '', 'center'), ('Date', 1, 1, '', 'center'),
+                                              ('2019', 4, 1, '', 'center')],
+                                             [('12.', 1, 1, '', 'center'), ('Product', 1, 1, '', 'center'),
+                                              ('Teco Elec & Mach. Pte. Ltd', 4, 1, '', 'center')],
+                                             [('KKS', 3, 1, '', 'left'), ('AP / 1103 A/B', 5, 1, '', 'center'), ('LUBRICATION', 6, 2, 'b', 'center')],
+                                             [('Fluid', 3, 1, '', 'left'), ('Sea Water', 5, 1, '', 'center')],
+                                             [('Sucion Pressure', 3, 1, '', 'left'), ('0.1', 3, 1, '', 'center'), ('Kg/Cm2 G', 2, 1, '', 'center'),
+                                              ('1.', 1, 3, '', 'center'), ('Kind Of Greas', 1, 3, '', 'center'),
+                                              ('MULTEMP. SRL Or Equivalent Grease', 4, 2, '', 'center')],
+                                             [('Discharge Pressure', 3, 1, '', 'left'), ('1.72', 3, 1, '', 'center'),
+                                              ('Kg/Cm2 G', 2, 1, '', 'center')],
+                                             [('Differensial Pressure', 3, 1, '', 'left'), ('1.62', 3, 1, '', 'center'),
+                                              ('Kg/Cm2 G', 2, 1, '', 'center'), ('( Do not Mix With Order Grease )', 4, 1, '', 'center')],
+                                             [('System', 3, 1, '', 'center'), ('Sea Water Cooling Supply System', 5, 1, '', 'center'),
+                                              ('2.', 1, 1, '', 'center'), ('Re - Lubricated Period', 1, 1, '', 'center'),
+                                              ('Every 3000 Hours', 4, 1, '', 'center')],
+                                             [('Drawing No.', 3, 3, '', 'center'), ('1802 - 00 - 10 - P - 001 - 01', 5, 1, '', 'center'),
+                                              ('3.', 1, 2, '', 'center'), ('Quantity', 1, 2, '', 'center'), ('Drive End', 3, 1, '', 'center'),
+                                              ('160 Gr', 1, 1, '', 'center')],
+                                             [('1803 - 00 - 10 - P - 001 - 02', 5, 2, '', 'center'), ('Non Drive End', 3, 1, '', 'center'),
+                                              ('100 Gr', 1, 1, '', 'center')],
+                                             [('4.', 1, 1, '', ''), ('Add Grease At The Begining Of First Operation', 5, 1, '', 'center')]]),
+                                           ('images', ['s07_1.jpg', 's07_2.jpg']),
+                                           ('table',
+                                            [[('BEARING SPESIFICATION', 6, 1, 'b', 'center'),
+                                              ('TYPE : 6315 CE SINGLE ROW GROOVE', 8, 1, 'b', 'center')],
+                                             [('1.', 1, 1, '', 'center'), ('Brand', 3, 1, '', ''), ('SKF', 4, 1, '', 'left'), (None, 6, 1, '', '')],
+                                             [('2.', 1, 1, '', 'center'), ('Type', 3, 1, '', ''), ('6315 C3', 4, 1, '', 'left'),
+                                              (None, 6, 1, '', '')],
+                                             [('3.', 1, 1, '', 'center'), ('Inside Diameter', 3, 1, '', ''), ('75 mm', 4, 1, '', 'left'),
+                                              (None, 6, 1, '', '')],
+                                             [('4.', 1, 1, '', 'center'), ('Out Side Diameter', 3, 1, '', ''), ('160 mm', 4, 1, '', 'left'),
+                                              (None, 6, 1, '', '')],
+                                             [('5.', 1, 1, '', 'center'), ('Width', 3, 1, '', ''), ('37 mm', 4, 1, '', 'left'), (None, 6, 1, '', '')],
+                                             [('6.', 1, 1, '', 'center'), ('Clearance', 3, 1, '', ''), ('C3', 4, 1, '', 'left'),
+                                              (None, 6, 1, '', '')],
+                                             [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Single Row Deep Groove', 4, 1, '', 'left'),
+                                              (None, 6, 1, '', '')],
+                                             [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 91,93', 4, 1, '', 'left'),
+                                              (None, 6, 1, '', '')],
+                                             [('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
+                                             [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
+                                             [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
+                                             [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
+                                             [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
+                                             [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+ '8. Condensate Pump': {'name': 'CONDENSATE FEED WATER PUMP',
+                        'info': {'Unit': '2', 'No. Formulir': '1', 'Tanggal': '19 - 01 - 2013', 'Halaman': '1'},
+                        'col_pct': [4.54, 7.89, 9.17, 6.61, 9.17, 4.93, 4.63, 5.13, 15.59, 2.96, 6.61, 6.61, 16.17],
+                        'segments': [('table',
+                                      [[('SPECIFICATION', 13, 1, 'b', 'center')],
+                                       [('No.', 1, 1, 'b', ''), ('PUMP', 6, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                        ('MOTOR', 5, 1, 'b', 'center')],
+                                       [('1.', 1, 1, '', 'center'), ('Type', 2, 1, '', 'center'), ('4 N6 ( Horizontal Pump )', 4, 1, '', ''),
+                                        ('1.', 1, 1, '', 'center'), ('Frame', 1, 1, '', 'center'), ('Y2-180M - 2', 4, 1, '', 'center')],
+                                       [('2.', 1, 3, '', 'center'), ('Capacity', 2, 3, '', 'center'), ('50', 1, 1, '', ''), (None, 1, 1, '', ''),
+                                        ('M3/H', 2, 1, '', 'center'), ('2.', 1, 1, '', 'center'), ('Speed', 1, 1, '', 'center'),
+                                        ('2940', 3, 1, '', 'center'), ('Rpm', 1, 1, '', 'center')],
+                                       [('13.9', 2, 1, '', ''), ('L/s', 2, 1, '', 'center'), ('3.', 1, 2, '', 'center'),
+                                        ('Out Put', 1, 2, '', 'center'), ('22', 3, 1, '', 'center'), ('KW', 1, 1, '', 'center')],
+                                       [('2 Unit ( 2 x 100 )', 4, 1, '', ''), ('29.5', 3, 1, '', 'center'), ('HP', 1, 1, '', 'center')],
+                                       [('3.', 1, 1, '', 'center'), ('Total Head', 2, 1, '', 'center'), ('59.5', 2, 1, '', ''),
+                                        ('M', 2, 1, '', 'center'), ('4.', 1, 1, '', 'center'), ('Voltage', 1, 1, '', 'center'),
+                                        ('380', 3, 1, '', 'center'), ('Volt', 1, 1, '', 'center')],
+                                       [('4.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'center'), ('2950', 1, 1, '', ''), (None, 1, 1, '', ''),
+                                        ('Rpm', 2, 1, '', 'center'), ('5.', 1, 1, '', 'center'), ('Current', 1, 1, '', 'center'),
+                                        ('41.0', 3, 1, '', 'center'), ('Ampere', 1, 1, '', 'center')],
+                                       [('5.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'center'), ('14.1', 2, 1, '', ''),
+                                        ('KW', 2, 1, '', 'center'), ('6.', 1, 1, '', 'center'), ('PF', 1, 1, '', 'center'),
+                                        ('0.90', 4, 1, '', 'center')],
+                                       [('6.', 1, 1, '', 'center'), ('Pump Eff.', 2, 1, '', 'center'), ('57.5', 2, 1, '', ''),
+                                        ('%', 2, 1, '', 'center'), ('7.', 1, 1, '', 'center'), ('Eff.', 1, 1, '', 'center'),
+                                        ('90.5', 3, 1, '', 'center'), ('%', 1, 1, '', 'center')],
+                                       [('7.', 1, 1, '', 'center'), ('NPSH', 2, 1, '', 'center'), ('1.75', 2, 1, '', ''), ('m', 2, 1, '', 'center'),
+                                        ('8.', 1, 1, '', 'center'), ('Ser.No.', 1, 1, '', 'center'), ('JB/T 8680.1 - 1998', 4, 1, '', 'center')],
+                                       [('8.', 1, 1, '', 'center'), ('Impeller Dim.', 2, 1, '', 'center'), ('225', 1, 1, '', ''),
+                                        (None, 1, 1, '', ''), ('mm', 2, 1, '', 'center'), ('9.', 1, 2, '', 'center'), ('Product', 1, 2, '', 'center'),
+                                        ('Shandong Huali Electric Motor Group.Co.Ltd', 4, 2, '', 'center')],
+                                       [('9.', 1, 1, '', 'center'), ('Weight', 2, 1, '', 'center'), ('94', 1, 1, '', ''), (None, 1, 1, '', ''),
+                                        ('Kg', 2, 1, '', 'center')],
+                                       [('10.', 1, 1, '', 'center'), ('Costomer', 1, 1, '', 'center'),
+                                        ('Shandong Machinery I&E Group Corporation', 5, 1, '', 'center'), ('DESIGEN PUMP', 6, 1, 'b', 'center')],
+                                       [('11.', 1, 2, '', 'center'), ('Manufactory', 1, 2, '', 'center'),
+                                        ('Shenyang Pump Manufactory', 5, 2, '', 'center'), ('KKS.', 2, 1, '', 'left'),
+                                        ('AP - 1101 A/B/C/D', 4, 1, '', 'center')],
+                                       [('Fluid', 2, 1, '', 'left'), ('Condensate', 4, 1, '', 'center')],
+                                       [('System', 2, 1, '', 'center'), ('Steam Supply & System', 5, 1, '', 'center'),
+                                        ('Sucion Pressure', 2, 1, '', 'left'), ('0.085', 3, 1, '', 'center'), ('Bar', 1, 1, '', 'center')],
+                                       [('Drawing No.', 2, 2, '', 'center'), ('1802 - 00 - M - 10 - LB - 003 - 05', 5, 2, '', 'center'),
+                                        ('Discharge Pressure', 2, 1, '', 'center'), ('7', 3, 1, '', 'center'), ('Bar', 1, 1, '', 'center')],
+                                       [('Differensial Press.', 2, 1, '', 'center'), ('Hold', 4, 1, '', 'center')]]),
+                                     ('images', ['s08_1.jpg']),
+                                     ('table',
+                                      [[('CONTACT PERSON', 13, 1, 'b', 'center')],
+                                       [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
+                                       [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
+                                       [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
+                                       [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
+                                       [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+ '9. Generator cooler': {'name': 'GENEATOR COOLER',
+                         'info': {},
+                         'col_pct': [4.99, 7.68, 11.04, 6.43, 8.93, 4.8, 4.51, 4.99, 15.17, 2.88, 6.43, 6.43, 15.74],
+                         'segments': [('table',
+                                       [[('MAIN DATA OF THE COOLER', 13, 1, 'b', 'center')],
+                                        [('No.', 1, 1, 'b', 'center'), ('DESCRIPTIONS', 7, 1, 'b', 'center'), ('VALUE', 3, 1, 'b', 'center'),
+                                         ('UNITS', 2, 1, 'b', 'center')],
+                                        [('1.', 1, 1, '', 'center'), ('Capacity Of Heat Transfer', 7, 1, '', 'left'), ('90', 3, 1, '', 'center'),
+                                         ('kW', 2, 1, '', 'center')],
+                                        [('2.', 1, 1, '', 'center'), ('Speed Of The Cooling Air', 7, 1, '', 'left'), ('3.35', 3, 1, '', 'center'),
+                                         ('m3/s', 2, 1, '', 'center')],
+                                        [('3.', 1, 1, '', 'center'), ('Speed Of The Cooling Water', 7, 1, '', 'left'), ('25', 3, 1, '', 'center'),
+                                         ('m3/s', 2, 1, '', 'center')],
+                                        [('4.', 1, 1, '', 'center'), ('Inlet Water Pressure', 7, 1, '', 'left'), ('0.2', 3, 1, '', 'center'),
+                                         ('MPa', 2, 1, '', 'center')],
+                                        [('5.', 1, 1, '', 'center'), ('Pressure Drop Of The Water', 7, 1, '', 'left'), ('5187', 3, 1, '', 'center'),
+                                         ('Pa', 2, 1, '', 'center')],
+                                        [('6.', 1, 1, '', 'center'), ('Number Of The Water Circuits', 7, 1, '', 'left'), ('2', 3, 1, '', 'center'),
+                                         ('Pa', 2, 1, '', 'center')],
+                                        [('7.', 1, 1, '', 'center'), ('Pressure Drop Of The Air', 7, 1, '', 'left'), ('300', 3, 1, '', 'center'),
+                                         ('Pa', 2, 1, '', 'center')],
+                                        [('8.', 1, 1, '', 'center'), ('Temperature Of The Inlet Water', 7, 1, '', 'left'), ('33', 3, 1, '', 'center'),
+                                         ('oC', 2, 1, '', 'center')],
+                                        [('9.', 1, 1, '', 'center'), ('Temperature Of The Cooling Air', 7, 1, '', 'left'), ('40', 3, 1, '', 'center'),
+                                         ('oC', 2, 1, '', 'center')],
+                                        [('10.', 1, 1, '', 'center'), ('Connettion Style Of The Water Circuits', 7, 1, '', 'left'),
+                                         ('Parallel Conneted', 3, 1, '', 'center'), (None, 2, 1, '', '')],
+                                        [('11.', 1, 1, '', 'center'), ('Kind Of The Cooling Water', 7, 1, '', 'left'),
+                                         ('Sea Water', 3, 1, '', 'center'), (None, 2, 1, '', '')],
+                                        [('12.', 1, 1, '', 'center'), ('Material Of The Cooling Pipe', 7, 1, '', 'left'), ('B10', 3, 1, '', 'center'),
+                                         (None, 2, 1, '', '')],
+                                        [('13.', 1, 1, '', 'center'), ('Material Of Frame/Casing', 7, 1, '', 'left'),
+                                         ('All Material witch direct contact with the sea water is SUS 304L', 3, 1, '', 'center'),
+                                         (None, 2, 1, '', '')],
+                                        [('14.', 1, 1, '', 'center'), ('Test Pressure', 7, 1, '', 'left'), ('0.6', 3, 1, '', 'center'),
+                                         ('MPa', 2, 1, '', 'center')],
+                                        [('15.', 1, 1, '', 'center'), ('Product', 7, 1, '', 'left'),
+                                         ('Shandong Machinery I&E Group Corporation', 3, 1, '', 'center'), (None, 2, 1, '', '')]]),
+                                      ('images', ['s09_1.jpg', 's09_2.jpg']),
+                                      ('table',
+                                       [[('CONTACT PERSON', 13, 1, 'b', 'center')],
+                                        [('Shandong Machinery I&E Group.Shandong Huading Machinery Co.', 13, 1, 'b', 'left')],
+                                        [('No.1, Qutangxia Road', 13, 1, '', 'left')], [('Qingdao, Shandong', 13, 1, '', 'left')],
+                                        [('China 266002', 13, 1, '', 'left')], [('Tel: (86 532) 8266 1678 (86 532) 8266 1513', 13, 1, '', 'left')],
+                                        [('Fax: (86 532) 8266 1679', 13, 1, '', 'left')],
+                                        [('Email : http://www.globalsources.com/sdhd.co OR smjs@sdmiec.com', 13, 1, '', 'left')]])]},
+ '10. Demin Pump': {'name': 'DEMIN PUMP',
+                    'info': {},
+                    'col_pct': [4.63, 7.22, 6.86, 7.22, 5.97, 8.29, 4.45, 8.65, 3.83, 14.08, 2.67, 5.97, 3.56, 16.58],
+                    'segments': [('table',
+                                  [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                   [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center')],
+                                   [('1.', 1, 1, '', 'center'), ('Merek', 3, 1, '', 'left'), ('TORISHIMA PUMP', 4, 1, '', 'left'),
+                                    ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'left')],
+                                   [('2.', 1, 1, '', 'center'), ('Type & Size', 3, 1, '', 'left'), ('CPEN 25 - 160', 4, 1, '', 'left'),
+                                    ('2.', 1, 1, '', 'center'), ('TECO', 2, 1, '', 'left'), ('3 Phase - Induction', 3, 1, '', 'left')],
+                                   [('3.', 1, 1, '', 'center'), ('Product No.', 3, 1, '', 'left'), ('T 1080446', 4, 1, '', 'left'),
+                                    ('3.', 1, 1, '', 'center'), ('2 POLE', 2, 1, '', 'left'), ('50', 1, 1, '', 'left'), ('Hz', 2, 1, '', '')],
+                                   [('4.', 1, 1, '', 'center'), ('Total Head', 3, 1, '', 'left'), ('35', 1, 1, '', 'left'), ('m', 3, 1, '', 'left'),
+                                    ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'), ('3', 1, 1, '', 'left'), ('HP', 2, 1, '', 'left')],
+                                   [('5.', 1, 1, '', 'center'), ('Capacity', 3, 1, '', 'left'), ('4', 1, 1, '', 'left'), ('m3/h', 1, 1, '', ''),
+                                    ('2 x 100%', 2, 1, '', 'center'), ('2.2', 1, 1, '', 'left'), ('KW', 2, 1, '', 'left')],
+                                   [('6.', 1, 1, '', 'center'), ('Speed', 3, 1, '', 'left'), ('2900', 1, 1, '', 'left'), ('Rpm', 3, 1, '', 'left'),
+                                    ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'), ('380', 2, 1, '', 'left'), ('Volt', 1, 1, '', '')],
+                                   [('7.', 1, 1, '', 'center'), ('Driver', 3, 1, '', 'left'), ('2.2', 1, 1, '', 'left'), ('kW', 3, 1, '', 'left'),
+                                    ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'), ('4.5', 1, 1, '', 'left'),
+                                    ('Ampere', 2, 1, '', 'left')],
+                                   [('8.', 1, 2, '', 'center'), ('Bearing No.', 3, 2, '', 'left'), ('Front', 1, 1, '', 'left'),
+                                    ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'), ('7.', 1, 2, '', 'center'),
+                                    ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', ''), ('6205 ZZ', 2, 1, '', 'center')],
+                                   [('Rear', 1, 1, '', 'left'), ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'),
+                                    ('Rear', 1, 1, '', ''), ('6205 ZZ', 2, 1, '', 'center')],
+                                   [('9.', 1, 1, '', 'center'), ('Delivery Time', 3, 1, '', 'left'), ('Oct 2010', 4, 1, '', 'left'),
+                                    ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('2870', 1, 1, '', 'left'), ('Rpm', 2, 1, '', 'left')],
+                                   [('PUMP DESIGEN', 8, 2, 'b', 'center'), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
+                                    ('P2104334085', 3, 1, '', 'left')],
+                                   [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 1, 1, '', ''),
+                                    ('180 L.C', 2, 1, '', 'left')],
+                                   [('KKS No.', 3, 1, '', 'left'), (None, 5, 1, '', ''), ('No.', 1, 1, '', ''), ('31402 C103', 2, 1, '', 'left')],
+                                   [('No.', 3, 1, '', 'left'), ('2 Unit ( 2 x 100% )', 5, 1, '', 'left'), ('11.', 1, 1, '', 'center'),
+                                    ('Amb. Temp', 2, 1, '', 'left'), ('40', 1, 1, '', 'left'), ('oC', 2, 1, '', 'left')],
+                                   [('Suction Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                    ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('90 L', 3, 1, '', 'left')],
+                                   [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                    ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
+                                   [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                    ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
+                                 ('images', ['s10_1.jpg', 's10_2.jpg']),
+                                 ('table',
+                                  [[('BEARING SPECIFICATION', 6, 1, 'b', 'center'),
+                                    ('TYPE : 6305 DDU KOYO DEEP GROOVE BEARING', 8, 1, 'b', 'center')],
+                                   [('1.', 1, 1, '', 'center'), ('Brand', 3, 1, '', ''), ('Koyo', 10, 1, '', '')],
+                                   [('2.', 1, 1, '', 'center'), ('Type', 3, 1, '', ''), ('6305 DDU C3', 10, 1, '', '')],
+                                   [('3.', 1, 1, '', 'center'), ('Inside Diameter', 3, 1, '', ''), ('25 mm', 10, 1, '', '')],
+                                   [('4.', 1, 1, '', 'center'), ('Out Side Diameter', 3, 1, '', ''), ('62 mm', 10, 1, '', '')],
+                                   [('5.', 1, 1, '', 'center'), ('Width', 3, 1, '', ''), ('17 mm', 10, 1, '', '')],
+                                   [('6.', 1, 1, '', 'center'), ('Clearance', 3, 1, '', ''), ('C3', 10, 1, '', '')],
+                                   [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Two Rubber Seals ( 2RS )', 10, 1, '', '')],
+                                   [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 1, 1, '', ''), ('£ 8.30', 9, 1, '', '')],
+                                   [('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
+                                   [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
+                                   [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
+                                   [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
+                                   [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
+                                   [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+ '11. RO Pump': {'name': 'Reverse Osmosis Transfer Pump',
+                 'info': {},
+                 'col_pct': [2.52, 3.52, 7.14, 0.18, 3.07, 4.26, 2.29, 3.39, 1.97, 7.23, 1.37, 3.07, 1.83, 8.92, 4.24, 4.24, 13.82, 1.37, 25.58],
+                 'segments': [('table',
+                               [[('SPECIFICATION', 14, 1, 'b', 'center'), (None, 5, 1, '', '')],
+                                [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center'),
+                                 (None, 5, 1, '', '')],
+                                [('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('TORISHIMA PUMP', 4, 1, '', 'left'),
+                                 ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'left'),
+                                 (None, 5, 1, '', '')],
+                                [('2.', 1, 1, '', 'center'), ('Type & Size', 2, 1, '', 'left'), (None, 1, 1, '', ''),
+                                 ('FTA - N 65 x 50 - 200', 4, 1, '', 'left'), ('2.', 1, 1, '', 'center'), ('TECO', 2, 1, '', 'left'),
+                                 ('AEEBKBO20010FMB', 3, 1, '', 'left'), (None, 5, 1, '', '')],
+                                [('3.', 1, 1, '', 'center'), ('Product No.', 2, 1, '', 'left'), (None, 1, 1, '', ''),
+                                 ('TS 1018512', 4, 1, '', 'left'), ('3.', 1, 1, '', 'center'), ('4 POLE', 2, 1, '', 'left'), ('50', 1, 1, '', 'left'),
+                                 ('Hz', 7, 1, '', '')],
+                                [('4.', 1, 1, '', 'center'), ('Total Head', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('40', 1, 1, '', 'left'),
+                                 ('m', 3, 1, '', 'left'), ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'), ('10', 1, 1, '', 'left'),
+                                 ('HP', 2, 1, '', 'left'), (None, 5, 1, '', '')],
+                                [('5.', 1, 1, '', 'center'), ('Capacity', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('27.5', 1, 1, '', 'left'),
+                                 ('m3/h', 1, 1, '', ''), ('2 x 100%', 2, 1, '', 'center'), ('7.5', 1, 1, '', 'left'), ('KW', 2, 1, '', 'left'),
+                                 (None, 5, 1, '', '')],
+                                [('6.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('2900', 1, 1, '', 'left'),
+                                 ('Rpm', 3, 1, '', 'left'), ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'), ('380 - 415', 2, 1, '', 'left'),
+                                 ('Volt', 6, 1, '', '')],
+                                [('7.', 1, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), (None, 1, 1, '', ''), ('7.5', 1, 1, '', 'left'),
+                                 ('kW', 3, 1, '', 'left'), ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'), ('13.8', 1, 1, '', 'left'),
+                                 ('Ampere', 2, 1, '', 'left'), (None, 5, 1, '', '')],
+                                [('8.', 1, 2, '', 'center'), ('Bearing No.', 2, 2, '', 'left'), (None, 1, 1, '', ''), ('Front', 1, 1, '', 'left'),
+                                 ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'), ('7.', 1, 2, '', 'center'),
+                                 ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', ''), ('6308 ZZ', 2, 1, '', 'center'), (None, 5, 1, '', '')],
+                                [(None, 1, 1, '', ''), ('Rear', 1, 1, '', 'left'), ('6305 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'),
+                                 ('Rear', 1, 1, '', ''), ('6308 ZZ', 2, 1, '', 'center'), (None, 5, 1, '', '')],
+                                [('9.', 2, 1, '', 'center'), ('Delivery Time', 2, 1, '', ''), ('Jul 2019', 4, 1, '', 'left'),
+                                 ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('2880', 1, 1, '', 'left'), ('Rpm', 2, 1, '', 'left'),
+                                 (None, 5, 1, '', '')],
+                                [('PUMP DESIGEN', 8, 2, 'b', 'center'), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
+                                 ('H4103025 037', 3, 1, '', 'left'), (None, 5, 1, '', '')],
+                                [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 8, 1, '', '')],
+                                [('KKS No.', 3, 1, '', 'left'), (None, 5, 1, '', ''), ('No.', 8, 1, '', '')],
+                                [('No.', 3, 1, '', 'left'), ('2 Unit ( 2 x 100% )', 5, 1, '', 'left'), ('11.', 1, 1, '', 'center'),
+                                 ('Amb. Temp', 2, 1, '', 'left'), ('40', 1, 1, '', 'left'), ('oC', 2, 1, '', 'left'), (None, 5, 1, '', '')],
+                                [('Suction Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                 ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('F 132 S', 3, 1, '', 'left'), (None, 5, 1, '', '')],
+                                [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                 ('System', 2, 1, '', 'center'), (None, 9, 1, '', '')],
+                                [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                 ('Drawing No.', 2, 1, '', 'center'), (None, 9, 1, '', '')]]),
+                              ('images', ['s11_1.jpg', 's11_2.jpg', 's11_3.jpg', 's11_4.jpg', 's11_5.jpg']),
+                              ('table',
+                               [[('Type : MECH SEAL CN25 (22-MG1/25-S1) Silicar/Silicar/Viton/SS316', 14, 1, 'b', 'center'), (None, 5, 1, '', '')],
+                                [('BEARING SPECIFICATION', 6, 1, 'b', 'center'), (None, 13, 1, '', '')],
+                                [('1.', 1, 1, '', 'center'), ('Brand', 4, 1, '', ''), ('Koyo', 14, 1, '', '')],
+                                [('2.', 1, 1, '', 'center'), ('Type', 4, 1, '', ''), ('6305 DDU C3', 14, 1, '', '')],
+                                [('3.', 1, 1, '', 'center'), ('Inside Diameter', 4, 1, '', ''), ('25 mm', 14, 1, '', '')],
+                                [('4.', 1, 1, '', 'center'), ('Out Side Diameter', 4, 1, '', ''), ('62 mm', 14, 1, '', '')],
+                                [('5.', 1, 1, '', 'center'), ('Width', 4, 1, '', ''), ('17 mm', 14, 1, '', '')],
+                                [('6.', 1, 1, '', 'center'), ('Clearance', 4, 1, '', ''), ('C3', 14, 1, '', '')],
+                                [('7.', 1, 1, '', 'center'), ('Model', 4, 1, '', ''), ('Two Rubber Seals ( 2RS )', 14, 1, '', '')],
+                                [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 4, 1, '', ''), ('£ 8.30', 14, 1, '', '')],
+                                [('CONTACT PERSON', 14, 1, 'b', 'center'), (None, 5, 1, '', '')], [('Hard Office', 19, 1, '', '')],
+                                [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 19, 1, '', '')],
+                                [('Estate Jakarta 13930, Indonesia', 19, 1, '', '')],
+                                [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 15, 1, '', '')],
+                                [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 15, 1, '', '')],
+                                [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 15, 1, '', '')],
+                                [(None, 16, 1, '', ''), ('INSPECTION REPORT', 3, 1, 'b', 'center')],
+                                [(None, 16, 1, '', ''), ('Equipment', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('RO Pump #1 & #2', 1, 1, '', '')],
+                                [(None, 16, 1, '', ''), ('Date', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('25-09-2013', 1, 1, '', 'left')],
+                                [(None, 16, 1, '', ''), ('Perihal', 1, 1, '', ''), (':', 1, 1, '', 'center'), ('Kebocoran pompa', 1, 1, '', '')],
+                                [(None, 16, 1, '', ''), ('ANALYSIS DAN TROUBLE', 3, 1, 'b', 'center')],
+                                [(None, 16, 1, '', ''), ('Indikasi Masalah', 1, 2, '', 'left'), (None, 1, 1, '', ''),
+                                 ('Kebocoran pada Seal Pompa, sehingga air keluar dari', 1, 1, '', '')],
+                                [(None, 16, 1, '', ''), (None, 1, 1, '', ''), ('Chasing pompa', 1, 1, '', '')],
+                                [(None, 16, 1, '', ''), ('Material Yang Bermasalah', 2, 1, '', 'left'), ('Mechanical Seal Pump', 1, 1, '', '')],
+                                [(None, 16, 1, '', ''), ('Temuan Masalah', 2, 1, '', 'left'), ('Bocor Pada Mechanical Seal', 1, 1, '', '')],
+                                [(None, 16, 1, '', ''), ('Solution', 2, 1, '', 'left'), ('Penggantian Mechanical Seal', 1, 1, '', '')],
+                                [(None, 18, 1, '', ''), ('Tg.Balai Karimun, Tgl. 25 September 2013', 1, 1, '', 'center')],
+                                [(None, 18, 1, '', ''), ('Tim Har Turbin & Auxilary', 1, 1, '', 'center')],
+                                [(None, 18, 1, '', ''), ('Suganda Tobing', 1, 1, '', 'center')]])]},
+ '12. Make Up Pump CT': {'name': 'MAKE UP TRANSFER PUMP',
+                         'info': {},
+                         'col_pct': [5.07, 6.6, 8.71, 2.87, 6.41, 8.9, 4.78, 5.65, 4.11, 15.12, 2.87, 6.41, 3.82, 18.66],
+                         'segments': [('table',
+                                       [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                        [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                         ('MOTOR', 5, 1, 'b', 'center')],
+                                        [('1.', 1, 1, '', 'center'), ('Merek', 3, 1, '', 'left'), ('TORISHIMA PUMP', 4, 1, '', 'left'),
+                                         ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'),
+                                         ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'left')],
+                                        [('2.', 1, 1, '', 'center'), ('Type & Size', 3, 1, '', 'left'), ('FTA - N 150 x 125 - 315', 4, 1, '', 'left'),
+                                         ('2.', 1, 1, '', 'center'), ('TECO', 2, 1, '', 'left'), ('AEEBKBD40040 FMB', 3, 1, '', 'left')],
+                                        [('3.', 1, 1, '', 'center'), ('Product No.', 3, 1, '', 'left'), ('TS 1018510', 4, 1, '', 'left'),
+                                         ('3.', 1, 1, '', 'center'), ('2 POLE', 2, 1, '', 'left'), ('50', 1, 1, '', 'left'), ('Hz', 2, 1, '', '')],
+                                        [('4.', 1, 1, '', 'center'), ('Total Head', 3, 1, '', 'left'), ('30', 1, 1, '', 'left'),
+                                         ('m', 3, 1, '', 'left'), ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'), ('40', 1, 1, '', 'left'),
+                                         ('HP', 2, 1, '', 'left')],
+                                        [('5.', 1, 1, '', 'center'), ('Capacity', 3, 1, '', 'left'), ('220', 1, 1, '', 'left'),
+                                         ('m3/h', 1, 1, '', ''), ('2 x 100%', 2, 1, '', 'center'), ('30', 1, 1, '', 'left'),
+                                         ('KW', 2, 1, '', 'left')],
+                                        [('6.', 1, 1, '', 'center'), ('Speed', 3, 1, '', 'left'), ('1450', 1, 1, '', 'left'),
+                                         ('Rpm', 3, 1, '', 'left'), ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'),
+                                         ('380 - 415', 2, 1, '', 'left'), ('Volt', 1, 1, '', '')],
+                                        [('7.', 1, 1, '', 'center'), ('Driver', 3, 1, '', 'left'), ('30', 1, 1, '', 'left'), ('kW', 3, 1, '', 'left'),
+                                         ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'), ('53.8', 1, 1, '', 'left'),
+                                         ('Ampere', 2, 1, '', 'left')],
+                                        [('8.', 1, 2, '', 'center'), ('Bearing No.', 3, 2, '', 'left'), ('Front', 1, 1, '', 'left'),
+                                         ('6311 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'), ('7.', 1, 2, '', 'center'),
+                                         ('Bearing No.', 2, 2, '', 'left'), ('Front', 1, 1, '', ''), ('6312 ZZ', 2, 1, '', 'center')],
+                                        [('Rear', 1, 1, '', 'left'), ('6311 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'left'),
+                                         ('Rear', 1, 1, '', ''), ('6312 ZZ', 2, 1, '', 'center')],
+                                        [('9.', 1, 1, '', 'center'), ('Delivery Time', 3, 1, '', 'left'), ('Nov 2010', 4, 1, '', 'left'),
+                                         ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('1470', 1, 1, '', 'left'),
+                                         ('Rpm', 2, 1, '', 'left')],
+                                        [('PUMP DESIGEN', 8, 2, 'b', 'center'), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
+                                         ('H7107137 053', 3, 1, '', 'left')],
+                                        [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 3, 1, '', '')],
+                                        [('KKS No.', 3, 1, '', 'left'), (None, 5, 1, '', ''), ('No.', 3, 1, '', '')],
+                                        [('No.', 3, 1, '', 'left'), ('2 Unit ( 2 x 100% )', 5, 1, '', 'left'), ('11.', 1, 1, '', 'center'),
+                                         ('Wight', 2, 1, '', 'left'), ('278', 1, 1, '', 'left'), ('Kg', 2, 1, '', 'left')],
+                                        [('Suction Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                         ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('200 LC', 3, 1, '', 'left')],
+                                        [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                         ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
+                                        [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                         ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
+                                      ('images', ['s12_1.jpg', 's12_2.jpg', 's12_3.jpg']),
+                                      ('table',
+                                       [[('Mechanical Seal', 14, 1, 'b', 'center')], [('CONTACT PERSON', 14, 1, 'b', 'center')],
+                                        [('Hard Office', 14, 1, '', '')], [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
+                                        [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
+                                        [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
+                                        [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
+                                        [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+ '13. Vacum Pump BOP': {'name': 'VACUM PUMP',
+                        'info': {},
+                        'col_pct': [4.57, 6.13, 9.92, 2.92, 8.27, 9.05, 4.86, 5.74, 4.18, 12.06, 2.92, 6.52, 3.89, 18.97],
+                        'segments': [('table',
+                                      [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                       [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                        ('MOTOR', 5, 1, 'b', 'center')],
+                                       [('1.', 1, 1, '', 'center'), ('Merek', 3, 1, '', 'left'), ('KENFLO', 4, 1, '', 'left'),
+                                        ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('Teco. Elec. & Matc. PTE. LTD', 3, 1, '', 'left')],
+                                       [('2.', 1, 1, '', 'center'), ('Type & Size', 3, 1, '', 'left'), ('2BF1 101 - 0HD2', 4, 1, '', 'left'),
+                                        ('2.', 1, 1, '', 'center'), ('TECO', 2, 1, '', 'left'), ('AEEBKBO47R50FMB', 3, 1, '', 'left')],
+                                       [('3.', 1, 1, '', 'center'), ('Product No.', 3, 1, '', 'left'), ('1074', 4, 1, '', 'left'),
+                                        ('3.', 1, 1, '', 'center'), ('4 POLE', 2, 1, '', 'left'), ('50', 1, 1, '', 'left'), ('Hz', 2, 1, '', '')],
+                                       [('4.', 1, 1, '', 'center'), ('Total Head', 3, 1, '', 'left'), ('30', 1, 1, '', 'left'),
+                                        ('m', 3, 1, '', 'left'), ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'), ('7.5', 1, 1, '', 'left'),
+                                        ('HP', 2, 1, '', 'left')],
+                                       [('5.', 1, 1, '', 'center'), ('Capacity', 3, 1, '', 'left'), ('0.7 - 2.8', 1, 1, '', 'left'),
+                                        ('m3/h', 1, 1, '', ''), ('1 x 100%', 2, 1, '', 'center'), ('5.5', 1, 1, '', 'left'),
+                                        ('KW', 2, 1, '', 'left')],
+                                       [('6.', 1, 1, '', 'center'), ('Speed', 3, 1, '', 'left'), ('1450', 1, 1, '', 'left'),
+                                        ('Rpm', 3, 1, '', 'left'), ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'),
+                                        ('380 - 415', 2, 1, '', 'left'), ('Volt', 1, 1, '', '')],
+                                       [('7.', 1, 1, '', 'center'), ('Driver', 3, 1, '', 'left'), ('5.5', 1, 1, '', 'left'), ('kW', 3, 1, '', 'left'),
+                                        ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'), ('11.4', 1, 1, '', 'left'),
+                                        ('Ampere', 2, 1, '', 'left')],
+                                       [('8.', 1, 2, '', 'center'), ('Bearing No.', 3, 2, '', 'left'), ('Front', 3, 1, '', 'left'),
+                                        ('1 Pcs', 1, 1, '', 'left'), ('7.', 1, 2, '', 'center'), ('Bearing No.', 2, 2, '', 'left'),
+                                        ('Front', 1, 1, '', ''), ('6306 ZZ', 2, 1, '', 'center')],
+                                       [('Rear', 3, 1, '', 'left'), ('1 Pcs', 1, 1, '', 'left'), ('Rear', 1, 1, '', ''),
+                                        ('6308 ZZ', 2, 1, '', 'center')],
+                                       [('9.', 1, 1, '', 'center'), ('Delivery Time', 3, 1, '', 'left'), ('Dec 2010', 4, 1, '', 'left'),
+                                        ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('1445', 1, 1, '', 'left'),
+                                        ('Rpm', 2, 1, '', 'left')],
+                                       [('PUMP DESIGN', 8, 2, 'b', 'center'), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
+                                        ('H4107014 132', 3, 1, '', 'left')],
+                                       [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 3, 1, '', '')],
+                                       [('KKS No.', 3, 1, '', 'left'), (None, 5, 1, '', ''), ('No.', 3, 1, '', '')],
+                                       [('No.', 3, 1, '', 'left'), ('1 Unit ( 1 x 100% )', 5, 1, '', 'left'), ('11.', 1, 1, '', 'center'),
+                                        ('Wight', 2, 1, '', 'left'), ('64', 1, 1, '', 'left'), ('Kg', 2, 1, '', 'left')],
+                                       [('Suction Pressure', 3, 1, '', 'left'), ('33 - 1013', 2, 1, '', 'center'), ('hpa ( A )', 3, 1, '', 'center'),
+                                        ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), ('F 132 S', 3, 1, '', 'left')],
+                                       [('Discharge Pressure', 3, 1, '', 'left'), ('1013', 2, 1, '', 'center'), ('hpa ( A )', 3, 1, '', 'center'),
+                                        ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
+                                       [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                        ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
+                                     ('table',
+                                      [[('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
+                                       [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
+                                       [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
+                                       [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
+                                       [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
+                                       [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+ '14. Sea Water Intake Pump': {'name': 'SEA WATER INTAKE PUMP',
+                               'info': {},
+                               'col_pct': [4.47, 5.55, 9.04, 2.69, 6.0, 8.33, 4.47, 8.15, 3.85, 16.12, 2.69, 7.61, 3.58, 17.46],
+                               'segments': [('table',
+                                             [[('SPECIFICATION', 14, 1, 'b', 'center')],
+                                              [('No.', 1, 1, 'b', ''), ('PUMP', 7, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                               ('MOTOR', 5, 1, 'b', 'center')],
+                                              [('1.', 1, 1, '', 'center'), ('Merek', 3, 1, '', 'left'), ('TORISHIMA PUMP', 4, 1, '', 'center'),
+                                               ('1.', 1, 1, '', 'center'), ('Merek', 2, 1, '', 'left'), ('MOTOR SWIP', 3, 1, '', 'center')],
+                                              [('2.', 1, 1, '', 'center'), ('Type & Size', 3, 1, '', 'left'),
+                                               ('ETA - N 200 x 150 - 400', 4, 1, '', 'center'), ('2.', 1, 1, '', 'center'),
+                                               ('Type', 2, 1, '', 'left'), ('3 - W21 - 200L - 06', 3, 1, '', 'center')],
+                                              [('3.', 1, 1, '', 'center'), ('Product No.', 3, 1, '', 'left'), ('TS1110124', 4, 1, '', 'center'),
+                                               ('3.', 1, 1, '', 'center'), ('Freq.', 2, 1, '', 'left'), ('50', 1, 1, '', 'center'),
+                                               ('Hz', 2, 1, '', 'center')],
+                                              [('4.', 1, 1, '', 'center'), ('Total Head', 3, 1, '', 'left'), ('19.52', 1, 1, '', 'center'),
+                                               ('m', 3, 1, '', 'center'), ('4.', 1, 2, '', 'center'), ('Out Put', 2, 2, '', 'left'),
+                                               ('30', 1, 1, '', 'center'), ('HP', 2, 1, '', 'center')],
+                                              [('5.', 1, 1, '', 'center'), ('Capacity', 3, 1, '', 'left'), ('247.5', 1, 1, '', 'center'),
+                                               ('m3/h', 1, 1, '', 'center'), ('2 x 100%', 2, 1, '', 'center'), ('22', 1, 1, '', 'center'),
+                                               ('KW', 2, 1, '', 'center')],
+                                              [('6.', 1, 1, '', 'center'), ('Speed', 3, 1, '', 'left'), ('970', 1, 1, '', 'center'),
+                                               ('Rpm', 3, 1, '', 'center'), ('5.', 1, 1, '', 'center'), ('Volt', 2, 1, '', 'left'),
+                                               ('380', 2, 1, '', 'center'), ('Volt', 1, 1, '', 'center')],
+                                              [('7.', 1, 1, '', 'center'), ('Driver', 3, 1, '', 'left'), ('22', 1, 1, '', 'center'),
+                                               ('kW', 3, 1, '', 'center'), ('6.', 1, 1, '', 'center'), ('Current', 2, 1, '', 'left'),
+                                               ('43.1', 1, 1, '', 'center'), ('Ampere', 2, 1, '', 'center')],
+                                              [('8.', 1, 2, '', 'center'), ('Bearing No.', 3, 2, '', 'left'), ('Front', 1, 1, '', 'center'),
+                                               ('6313 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'center'), ('7.', 1, 2, '', 'center'),
+                                               ('Bearing No.', 2, 2, '', 'left'), ('Front', 3, 1, '', 'center')],
+                                              [('Rear', 1, 1, '', 'center'), ('6313 DDU C3', 2, 1, '', 'center'), ('1 Pcs', 1, 1, '', 'center'),
+                                               ('Rear', 3, 1, '', 'center')],
+                                              [('9.', 1, 1, '', 'center'), ('Delivery Time', 3, 1, '', 'left'), ('Jun 2011', 4, 1, '', 'center'),
+                                               ('8.', 1, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), (None, 1, 1, '', ''),
+                                               ('Rpm', 2, 1, '', 'center')],
+                                              [('PUMP DESIGEN', 8, 2, 'b', 'center'), ('9.', 1, 1, '', 'center'), ('Ser. No', 2, 1, '', 'left'),
+                                               ('10/08 1008670658', 3, 1, '', 'center')],
+                                              [('10.', 1, 2, '', 'center'), ('Fan Blade', 2, 2, '', 'left'), ('Type', 3, 1, '', 'center')],
+                                              [('KKS No.', 3, 1, '', 'left'), (None, 5, 1, '', ''), ('No.', 3, 1, '', 'center')],
+                                              [('No.', 3, 1, '', 'left'), ('2 Unit ( 2 x 100% )', 5, 1, '', 'left'), ('11.', 1, 1, '', 'center'),
+                                               ('Amb. Themp.', 2, 1, '', 'left'), ('40', 1, 1, '', 'center'), ('oC', 2, 1, '', 'center')],
+                                              [('Suction Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                               ('12.', 1, 1, '', 'center'), ('Frame Size', 2, 1, '', 'left'), (None, 3, 1, '', '')],
+                                              [('Discharge Pressure', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                               ('System', 2, 1, '', 'center'), (None, 4, 1, '', '')],
+                                              [('Diffrensial Press.', 3, 1, '', 'left'), (None, 2, 1, '', ''), ('Kg/cm2 G', 3, 1, '', 'center'),
+                                               ('Drawing No.', 2, 1, '', 'center'), (None, 4, 1, '', '')]]),
+                                            ('images', ['s14_1.jpg']),
+                                            ('table',
+                                             [[('CONTACT PERSON', 14, 1, 'b', 'center')], [('Hard Office', 14, 1, '', '')],
+                                              [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 14, 1, '', '')],
+                                              [('Estate Jakarta 13930, Indonesia', 14, 1, '', '')],
+                                              [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 10, 1, '', '')],
+                                              [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 10, 1, '', '')],
+                                              [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 10, 1, '', '')]])]},
+ 'Cooling Tower': {'name': 'Colling Tower',
+                   'info': {},
+                   'col_pct': [3.4, 6.1, 12.51, 2.37, 5.3, 7.36, 8.79, 3.48, 17.1, 2.37, 5.3, 4.12, 21.78],
+                   'segments': [('table',
+                                 [[('SPECIFICATION', 13, 1, 'b', 'center')],
+                                  [('No.', 2, 1, 'b', ''), ('MOTOR', 5, 1, 'b', 'center'), ('No.', 1, 1, 'b', ''),
+                                   ('COOLING TOWER', 5, 1, 'b', 'center')],
+                                  [('1.', 2, 1, '', 'center'), ('Type Of Motor', 2, 1, '', 'left'), ('3 - Phase Induction Motor', 3, 1, '', 'left'),
+                                   ('1.', 1, 1, '', 'center'), ('Type', 1, 1, '', ''), ('Mechanical Induce Draft. Conter Flow', 4, 1, '', 'center')],
+                                  [('2.', 2, 1, '', 'center'), ('Frame', 2, 1, '', 'left'), ('3155 / M', 3, 1, '', 'left'),
+                                   ('2.', 1, 1, '', 'center'), ('Total Circulating Water', 4, 1, '', ''), ('5500 M3/Hour', 1, 1, '', 'center')],
+                                  [('3.', 2, 1, '', 'center'), ('Enclosure', 2, 1, '', 'left'), ('IP 55 ( TEFC )', 3, 1, '', 'left'),
+                                   ('3.', 1, 1, '', 'center'), ('Hot ( Inlet )Water Temp.', 4, 1, '', ''), ('39 0C', 1, 1, '', 'center')],
+                                  [('4.', 2, 1, '', 'center'), ('Voltage', 2, 1, '', 'left'), ('380', 1, 1, '', 'left'), ('Volt', 2, 1, '', 'left'),
+                                   ('4.', 1, 1, '', 'center'), ('Cold ( Outlet ) Water Temp.', 4, 1, '', ''), ('31 0C', 1, 1, '', 'center')],
+                                  [('5.', 2, 1, '', 'center'), ('Freq.', 2, 1, '', 'left'), ('50', 1, 1, '', 'left'), ('Hz', 2, 1, '', 'left'),
+                                   ('5.', 1, 1, '', 'center'), ('Water Bulb Temp. Ambient', 4, 1, '', ''), ('28 0C', 1, 1, '', 'center')],
+                                  [('6.', 2, 1, '', 'center'), ('Speed', 2, 1, '', 'left'), ('1485', 1, 1, '', 'left'), ('Rpm', 2, 1, '', 'left'),
+                                   ('6.', 1, 1, '', 'center'), ('Total Fan Power Kw ( Driver Output )', 4, 1, '', ''),
+                                   ('249.9 kW @ 2 cell Running', 1, 1, '', 'center')],
+                                  [('7.', 2, 1, '', 'center'), ('Driver', 2, 1, '', 'left'), ('145', 1, 1, '', 'left'), ('kW', 2, 1, '', 'left'),
+                                   ('7.', 1, 1, '', 'center'), ('Drift Loss ( At Design Cond. )', 4, 1, '', ''), ('1.13 %', 1, 1, '', 'center')],
+                                  [('8.', 2, 1, '', 'center'), ('Current', 2, 1, '', ''), ('271', 1, 1, '', 'left'), ('Ampere', 2, 1, '', ''),
+                                   ('8.', 1, 1, '', 'center'), ('Evaporation Loss', 4, 1, '', ''),
+                                   ('0.001% of Circulating Flow', 1, 1, '', 'center')],
+                                  [('9.', 2, 1, '', 'center'), ('Insulation Class', 2, 1, '', ''), ('F', 2, 1, '', 'center'), (None, 1, 1, '', ''),
+                                   ('9.', 1, 1, '', 'center'), ('Design Seismic Load', 4, 1, '', ''), ('0.10 G', 1, 1, '', 'center')],
+                                  [(None, 7, 1, '', ''), ('10.', 1, 1, '', 'center'), ('Tower Site', 4, 1, '', ''),
+                                   ('Ground Level', 1, 1, '', 'center')],
+                                  [(None, 7, 1, '', ''), ('11.', 1, 1, '', 'center'), ('Elevation Above Sea Level', 4, 1, '', ''),
+                                   ('1 M', 1, 1, '', 'center')],
+                                  [(None, 7, 1, '', ''), ('12.', 1, 1, '', 'center'), ('Circulating Water / Cell', 4, 1, '', ''),
+                                   ('2750 M3/Hour', 1, 1, '', 'center')],
+                                  [(None, 7, 1, '', ''), ('13.', 1, 1, '', 'center'), ('Tower Exposure', 4, 1, '', ''),
+                                   ('Out Door', 1, 1, '', 'center')]]),
+                                ('images', ['s15_1.jpg']),
+                                ('table',
+                                 [[('CONTACT PERSON', 13, 1, 'b', 'center')], [('Hard Office', 13, 1, '', '')],
+                                  [('Jl. Rawa Sumur Timur. No. 1 Pulo Gadung Industrial', 13, 1, '', '')],
+                                  [('Estate Jakarta 13930, Indonesia', 13, 1, '', '')],
+                                  [('Phone', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603963', 9, 1, '', '')],
+                                  [('Fax', 3, 1, '', ''), (':', 1, 1, '', ''), ('062 214603937', 9, 1, '', '')],
+                                  [('Email', 3, 1, '', ''), (':', 1, 1, '', ''), ('tge_info@torishima_guna.co.id', 9, 1, '', '')]])]}}
+
+
+main()
