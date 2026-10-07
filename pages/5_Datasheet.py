@@ -8,7 +8,7 @@ from utils import render_page_header, render_app_sidebar, GLOBAL_UI_CSS
 
 try:
     st.set_page_config(
-        page_title="Datasheet Pompa & Peralatan — PLTU TBK",
+        page_title="Datasheet Pompa — PLTU TBK",
         page_icon="📋",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -18,147 +18,94 @@ except Exception:
 
 st.markdown(
     "<style>[data-testid='stSidebarNav'] { display: none !important; } section[data-testid='stSidebar'] > div:first-child { padding-top: 1rem; }</style>",
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
 render_app_sidebar()
 render_page_header("📋 Datasheet Pompa & Peralatan Utama PLTU TBK")
-st.caption("Data spesifikasi teknis pompa, motor penggerak, nomor bearing, dan dokumen operasional PLTU TBK.")
+st.caption("Data spesifikasi teknis peralatan langsung dari file datasheet PLTU Tanjung Balai Karimun.")
 
-EQUIPMENT_DATASHEET = [
-    {
-        "sheet_name": "1. CCWP",
-        "equipment": "Close Cooling Water Pump (CCWP)",
-        "tag": "AP-1105 C/D",
-        "unit": "Turbin / Common",
-        "pump_merek": "TORISHIMA PUMP",
-        "pump_type": "CPEN 25 - 200",
-        "pump_head": "43.8 m",
-        "pump_capacity": "6 m3/h (2 x 100%)",
-        "pump_speed": "2900 RPM",
-        "pump_driver": "3 kW",
-        "pump_brg_front": "6305 DDU C3",
-        "pump_brg_rear": "6305 DDU C3",
-        "motor_merek": "Teco Elec. & Mach. PTE. LTD",
-        "motor_code_frame": "AEEBKB 020004 YU (Frame 100 L)",
-        "motor_power": "3 kW (4 HP)",
-        "motor_volt": "380 V (50 Hz)",
-        "motor_current": "6.06 A",
-        "motor_speed": "2854 RPM",
-        "motor_brg_front": "6206 ZZ",
-        "motor_brg_rear": "6305 ZZ",
-        "system": "Close Cooling Water System",
-        "drawing_no": "1802-00-M-10-PG-001-02",
-    },
-    {
-        "sheet_name": "2. Boster Pump",
-        "equipment": "Cooling Booster Pump",
-        "tag": "AP-1110 C/D",
-        "unit": "Turbin / Common",
-        "pump_merek": "TORISHIMA PUMP",
-        "pump_type": "ETA - N 125 x 100 - 315",
-        "pump_head": "33.9 m",
-        "pump_capacity": "154 m3/h (2 x 100%)",
-        "pump_speed": "1460 RPM",
-        "pump_driver": "22 kW",
-        "pump_brg_front": "6309 DDU C3",
-        "pump_brg_rear": "6309 DDU C3",
-        "motor_merek": "Teco Elec. & Mach. PTE. LTD",
-        "motor_code_frame": "AEEBKB.040030 FBB (Frame 180 L.C)",
-        "motor_power": "22 kW (30 HP)",
-        "motor_volt": "380 - 415 V (50 Hz)",
-        "motor_current": "40.8 A",
-        "motor_speed": "1460 RPM",
-        "motor_brg_front": "6611 ZZ",
-        "motor_brg_rear": "6310 ZZ",
-        "system": "Sea Water Cooling Supply System",
-        "drawing_no": "1802-00-M-10-P-001-01",
-    },
-    {
-        "sheet_name": "3. BFP",
-        "equipment": "Boiler Feed Water Pump (BFP)",
-        "tag": "BFP Multi Stage",
-        "unit": "Boiler",
-        "pump_merek": "Shenyang Pump Manufactory",
-        "pump_type": "Multi Stage DGJ 45 - 80 x 7",
-        "pump_head": "560 m",
-        "pump_capacity": "45 m3/h (3 x 100%)",
-        "pump_speed": "2986 RPM",
-        "pump_driver": "125 kW (Berat 1250 kg)",
-        "pump_brg_front": "N 6319 C3",
-        "pump_brg_rear": "N 6319 C3",
-        "motor_merek": "Shandong Huali Electric Motor Group",
-        "motor_code_frame": "Y3-315 L1 - B3",
-        "motor_power": "160 kW (214.5 HP)",
-        "motor_volt": "380 V (50 Hz)",
-        "motor_current": "282.1 A (PF: 0.91, Eff: 94%)",
-        "motor_speed": "2986 RPM",
-        "motor_brg_front": "N 6319 C3",
-        "motor_brg_rear": "N 6319 C3",
-        "system": "Boiler Feed Water System",
-        "drawing_no": "1802-00-M-09-LB-002-01 / 003-01",
-    },
-    {
-        "sheet_name": "4. Jet Pump",
-        "equipment": "Water Jet Pump",
-        "tag": "AP / 1114 A/B",
-        "unit": "Turbin / Kondensat",
-        "pump_merek": "Shenyang Pump Manufactory",
-        "pump_type": "IS100 - 65 - 200",
-        "pump_head": "47 m",
-        "pump_capacity": "120 m3/h (Desain 105 m3/h)",
-        "pump_speed": "2900 RPM",
-        "pump_driver": "19.7 kW (Berat 320 kg)",
-        "pump_brg_front": "-",
-        "pump_brg_rear": "-",
-        "motor_merek": "Shandong Huali Electric Motor Group",
-        "motor_code_frame": "Frame Y2 - 180M - 2",
-        "motor_power": "22 kW (29.5 HP)",
-        "motor_volt": "380 V (50 Hz)",
-        "motor_current": "41.0 A (PF: 0.9)",
-        "motor_speed": "2940 RPM",
-        "motor_brg_front": "-",
-        "motor_brg_rear": "-",
-        "system": "Vacuum Jet / Condensate Extraction System",
-        "drawing_no": "1802-00-M-10-LB-003-02",
-    },
-    {
-        "sheet_name": "5. AC Oil Pump",
-        "equipment": "AC Auxiliary Oil Pump",
-        "tag": "CHY 18 - 1 (AC)",
-        "unit": "Turbin Lube Oil",
-        "pump_merek": "Botoushi Yunhe Estate of Pump Co.",
-        "pump_type": "Gear Pump (Positive Displacement)",
-        "pump_head": "5 m (NPSH) / Tekanan 0.353 MPa",
-        "pump_capacity": "350 L/min (20.5 m3/h)",
-        "pump_speed": "960 RPM",
-        "pump_driver": "3.8 kW (Shaft 70 mm)",
-        "pump_brg_front": "-",
-        "pump_brg_rear": "-",
-        "motor_merek": "Jiangsu Electric Motor Co., Ltd",
-        "motor_code_frame": "Y2 - 132 M2 - 6T",
-        "motor_power": "5.5 kW",
-        "motor_volt": "400 V (50 Hz)",
-        "motor_current": "11.6 A",
-        "motor_speed": "960 RPM",
-        "motor_brg_front": "-",
-        "motor_brg_rear": "-",
-        "system": "Oil Cooling System of Steam Turbine",
-        "drawing_no": "1802-00-M-10-P-002-01 / 002-02",
-    },
-    {
-        "sheet_name": "6. DC Oil Pump",
-        "equipment": "DC Auxiliary Oil Pump",
-        "tag": "CHY 18 - 1 (DC)",
-        "unit": "Turbin Lube Oil",
-        "pump_merek": "Botoushi Yunhe Estate of Pump Co.",
-        "pump_type": "Gear Pump (Positive Displacement)",
-        "pump_head": "5 m (NPSH) / Tekanan 0.353 MPa",
-        "pump_capacity": "350 L/min (20.5 m3/h)",
-        "pump_speed": "960 RPM",
-        "pump_driver": "3.8 kW (Shaft 70 mm)",
-        "pump_brg_front": "-",
-        "pump_brg_rear": "-",
-        "motor_merek": "Xi'an Simo Motors, Inc",
-        "motor_code_frame": "Z
+# ── Cari Lokasi File Excel ──────────────────────────────────────────────────
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(current_dir)
+
+excel_candidates = [
+    os.path.join(root_dir, "Datasheet Pompa PLTU TBK (1).xlsx"),
+    os.path.join(current_dir, "Datasheet Pompa PLTU TBK (1).xlsx"),
+    os.path.join(root_dir, "Datasheet Pompa PLTU TBK.xlsx"),
+]
+
+target_file = None
+for path in excel_candidates:
+    if os.path.exists(path):
+        target_file = path
+        break
+
+if not target_file:
+    # Cari file .xlsx apa saja di root
+    for f in os.listdir(root_dir):
+        if f.endswith(".xlsx") and "Datasheet" in f:
+            target_file = os.path.join(root_dir, f)
+            break
+
+# ── Ekstraksi Sheet Excel Secara Dinamis ─────────────────────────────────────
+@st.cache_data(ttl=300)
+def load_excel_datasheet(file_path):
+    if not file_path or not os.path.exists(file_path):
+        return {}
+    xls = pd.ExcelFile(file_path)
+    all_sheets = {}
+    for sheet in xls.sheet_names:
+        # Kecualikan sheet Duplex Filter dan Sheet2
+        s_clean = sheet.strip()
+        if s_clean in ["Duplex Filter", "Sheet2"] or "duplex" in s_clean.lower():
+            continue
+        df = pd.read_excel(xls, sheet_name=sheet)
+        all_sheets[s_clean] = df
+    return all_sheets
+
+if not target_file:
+    st.error("⚠️ File Excel `Datasheet Pompa PLTU TBK (1).xlsx` tidak ditemukan di repositori GitHub.")
+    st.info("Pastikan file Excel telah di-upload ke folder utama project Anda.")
+    st.stop()
+
+sheets_dict = load_excel_datasheet(target_file)
+sheet_names = list(sheets_dict.keys())
+
+# ── Kontrol Dropdown & Pencarian ─────────────────────────────────────────────
+c_select, c_search = st.columns([1.5, 2])
+
+with c_select:
+    list_pilihan = ["Semua Sheet"] + sheet_names
+    selected_sheet = st.selectbox("📑 Pilih Sheet Peralatan:", list_pilihan)
+
+with c_search:
+    keyword = st.text_input("🔍 Cari Teks / Spesifikasi / Part Number:", placeholder="Contoh: 6305, Head, Torishima, Teco...")
+
+# ── Tampilan Data ───────────────────────────────────────────────────────────
+sheets_to_display = sheet_names if selected_sheet == "Semua Sheet" else [selected_sheet]
+
+found_any = False
+for s_name in sheets_to_display:
+    df_raw = sheets_dict[s_name].copy()
+    
+    # Bersihkan baris dan kolom kosong
+    df_clean = df_raw.dropna(how="all").dropna(axis=1, how="all").fillna("")
+    
+    # Filter kata kunci
+    if keyword.strip():
+        kw = keyword.strip().lower()
+        match_mask = df_clean.astype(str).apply(lambda col: col.str.lower().str.contains(kw)).any(axis=1)
+        df_show = df_clean[match_mask]
+        if df_show.empty:
+            continue
+    else:
+        df_show = df_clean
+
+    found_any = True
+    with st.expander(f"📄 Sheet: **{s_name}**", expanded=(selected_sheet != "Semua Sheet")):
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+if not found_any:
+    st.info("Tidak ada data atau sheet yang cocok dengan kata kunci pencarian.")
