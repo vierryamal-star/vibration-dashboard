@@ -519,11 +519,11 @@ def render_app_sidebar():
 
         st.caption("**NAVIGASI UTAMA**")
         st.page_link("app.py",                  label="📊 Monitor Vibrasi")
-        st.page_link("pages/1_Analisis.py",     label="📈 Analisis Tren")
+        st.page_link("pages/1_Analisis.py",     label="📈 Analisis Vibrasi")
         st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
-        st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Kelola Jam Operasi")
-        st.page_link("pages/4_Rotor_Balance.py", label="⚙️ Rotor Balance")
-        st.page_link("pages/5_Datasheet.py", label="📋 Datasheet & Maintenance")
+        st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Jam Operasi")
+        st.page_link("pages/4_Rotor_Balance.py", label="⚙️ Rotor Balancing")
+        st.page_link("pages/5_Datasheet & Maintenance.py", label="📋 Datasheet & Maintenance")
 
         st.divider()
 
