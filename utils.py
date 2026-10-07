@@ -572,6 +572,58 @@ def render_app_sidebar():
         """, unsafe_allow_html=True)
 
 # ── Running Hours Pompa (Zona Waktu WIB Terpadu) ──────────────────────────────
+# Aturan akumulasi:
+#   * accumulated_hours = jam dari sesi-sesi Running yang SUDAH selesai (di-stop).
+#   * Selama status Running, total = accumulated_hours + (sekarang - status_changed_at).
+#   * Saat Stop, durasi sesi (stop - start) ditambahkan ke accumulated_hours.
+#   * Semua waktu dibulatkan ke menit (sesuai input di UI) dan dicatat dalam WIB.
+# Karena itu: stop TIDAK boleh sebelum start, dan start tidak boleh sebelum stop terakhir
+# (kalau tidak, periode yang sama terhitung dua kali).
+PUMP_LOG_TABLE = "pump_runtime_log"
+
+PUMP_LOG_SQL = """\
+create table if not exists pump_runtime_log (
+  id            bigint generated always as identity primary key,
+  created_at    timestamptz not null default now(),
+  equipment     text not null,
+  unit          text not null,
+  action        text not null,      -- start | stop | edit_hours | reset_hours
+  event_time    timestamp,          -- waktu kejadian (WIB)
+  hours_before  numeric,
+  hours_after   numeric,
+  note          text,
+  actor         text
+);
+create index if not exists pump_runtime_log_eq_idx
+  on pump_runtime_log (equipment, unit, created_at desc);
+-- hanya diakses lewat service key dari dashboard:
+alter table pump_runtime_log enable row level security;
+"""
+
+to_wib_naive = _to_wib_naive   # alias publik untuk halaman
+
+
+def _num(x, default: float = 0.0) -> float:
+    """float aman: None/NaN/teks rusak -> default."""
+    try:
+        v = float(x)
+        return default if np.isnan(v) else v
+    except (TypeError, ValueError):
+        return default
+
+
+def _floor_min(value) -> pd.Timestamp:
+    return _to_wib_naive(value).floor("min")
+
+
+def fmt_wib(ts) -> str:
+    return pd.Timestamp(ts).strftime("%d %b %Y %H:%M")
+
+
+def _is_editor() -> bool:
+    return check_role() == "editor"
+
+
 @st.cache_data(ttl=15)
 def get_pump_runtime() -> pd.DataFrame:
     cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours", "install_date"]
@@ -585,6 +637,30 @@ def get_pump_runtime() -> pd.DataFrame:
         st.error(f"Gagal load running hours: {e}")
         return pd.DataFrame(columns=cols)
 
+
+@st.cache_data(ttl=15, show_spinner=False)
+def get_pump_log(limit: int = 1000):
+    """Return (DataFrame, error|None). Dibaca dengan service key; hanya dipakai di bagian Editor."""
+    cols = ["created_at", "equipment", "unit", "action", "event_time",
+            "hours_before", "hours_after", "note", "actor"]
+    try:
+        sb = get_supabase(service_role=True)
+        res = (
+            sb.table(PUMP_LOG_TABLE).select(",".join(cols))
+            .order("created_at", desc=True).limit(limit).execute()
+        )
+        return (pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)), None
+    except Exception as e:
+        return pd.DataFrame(columns=cols), str(e)
+
+
+def clear_runtime_caches() -> None:
+    """Hapus cache data jam operasi saja (tanpa memaksa reload seluruh data vibrasi)."""
+    get_pump_runtime.clear()
+    get_bearing_install.clear()
+    get_pump_log.clear()
+
+
 def _fetch_pump_row(sb, equipment: str, unit: str):
     """Baca baris terbaru langsung dari DB (bukan dari cache 15 detik)."""
     res = (
@@ -594,6 +670,24 @@ def _fetch_pump_row(sb, equipment: str, unit: str):
         .limit(1).execute()
     )
     return res.data[0] if res.data else None
+
+
+def _log_pump_event(sb, equipment, unit, action, event_time, hours_before, hours_after,
+                    note: str = "", actor: str = "") -> str:
+    """Catat riwayat (best effort). Return "" jika sukses, atau teks peringatan jika gagal."""
+    try:
+        sb.table(PUMP_LOG_TABLE).insert({
+            "equipment": equipment, "unit": unit, "action": action,
+            "event_time": pd.Timestamp(event_time).strftime("%Y-%m-%d %H:%M:%S"),
+            "hours_before": round(float(hours_before), 4),
+            "hours_after": round(float(hours_after), 4),
+            "note": note or None, "actor": actor or None,
+        }).execute()
+        return ""
+    except Exception:
+        return (" ⚠️ Perubahan tersimpan, tetapi catatan riwayat gagal ditulis "
+                "(tabel `pump_runtime_log` belum dibuat?).")
+
 
 def init_pump_runtime(equipment: str, unit: str):
     if not _assert_editor():
@@ -612,107 +706,60 @@ def init_pump_runtime(equipment: str, unit: str):
     except Exception as e:
         st.error(f"Gagal inisialisasi data running hours: {e}")
 
-def start_pump_runtime(equipment: str, unit: str, start_dt) -> None:
-    if not _assert_editor():
-        return
+
+# ── Validasi (dipakai UI untuk pratinjau, dan ditegakkan lagi di fungsi tulis) ──
+def validate_start(row, start_ts):
+    """Return None jika boleh, atau pesan alasan penolakan."""
     try:
-        sb = get_supabase(service_role=True)
-        fresh = _fetch_pump_row(sb, equipment, unit)
-        if fresh and fresh.get("status") == "running":
-            st.warning(
-                "Equipment sudah berstatus Running (mungkin diubah pengguna lain). "
-                "Muat ulang halaman untuk melihat kondisi terbaru."
-            )
-            return
-        start_ts = _to_wib_naive(start_dt)
-        sb.table("pump_runtime").update({
-            "status": "running",
-            "status_changed_at": start_ts.strftime("%Y-%m-%d %H:%M:%S"),
-        }).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal mencatat waktu mulai: {e}")
+        ts = _floor_min(start_ts)
+    except Exception:
+        return "Waktu start tidak valid."
+    if ts > _floor_min(now_wib()):
+        return f"Waktu start tidak boleh di masa depan (sekarang {fmt_wib(now_wib())} WIB)."
+    if row:
+        if row.get("status") == "running":
+            return "Equipment sudah berstatus Running."
+        if _num(row.get("accumulated_hours")) > 0:
+            try:
+                last = _floor_min(row.get("status_changed_at"))
+            except Exception:
+                last = None
+            if last is not None and ts < last:
+                return (f"Waktu start tidak boleh sebelum waktu stop terakhir ({fmt_wib(last)} WIB) — "
+                        "periode itu sudah tercatat dan akan terhitung dobel.")
+    return None
 
-def stop_pump_runtime(equipment: str, unit: str, stop_dt, current_status: str = None,
-                      current_accum: float = None, current_changed_at=None) -> None:
-    """
-    Hentikan operasi dan tambahkan durasi berjalan ke accumulated_hours.
 
-    Status/akumulasi dibaca ULANG dari database tepat sebelum update, sehingga tidak
-    memakai data cache halaman yang bisa basi (mencegah jam tertimpa kalau dua editor
-    menekan tombol hampir bersamaan). Argumen current_* hanya dipakai sebagai cadangan
-    kalau pembacaan ulang gagal; tetap ada agar pemanggil lama tidak perlu diubah.
-    """
-    if not _assert_editor():
-        return
+def validate_stop(row, stop_ts):
+    """Return None jika boleh, atau pesan alasan penolakan."""
+    if not row:
+        return "Data running hours equipment tidak ditemukan."
+    if row.get("status") != "running":
+        return "Equipment tidak sedang Running, tidak ada yang bisa di-stop."
     try:
-        sb = get_supabase(service_role=True)
-        stop_ts = _to_wib_naive(stop_dt)
-
-        fresh = _fetch_pump_row(sb, equipment, unit)
-        if fresh:
-            status = fresh.get("status")
-            changed_at = fresh.get("status_changed_at")
-            accum = float(fresh.get("accumulated_hours") or 0)
-        else:
-            status, changed_at, accum = current_status, current_changed_at, float(current_accum or 0)
-
-        if status != "running":
-            st.warning(
-                "Equipment sudah berstatus Stopped (mungkin diubah pengguna lain). "
-                "Tidak ada jam yang ditambahkan."
-            )
-            return
-
-        try:
-            started = _to_wib_naive(changed_at)
-            delta_hours = (stop_ts - started).total_seconds() / 3600.0
-            if delta_hours < 0:
-                st.warning("Waktu berhenti lebih awal dari waktu mulai — jam operasi tidak ditambahkan.")
-                delta_hours = 0.0
-        except Exception:
-            delta_hours = 0.0
-        new_accum = accum + delta_hours
-
-        q = sb.table("pump_runtime").update({
-            "status": "stopped",
-            "status_changed_at": stop_ts.strftime("%Y-%m-%d %H:%M:%S"),
-            "accumulated_hours": new_accum,
-        }).eq("equipment", equipment).eq("unit", unit)
-        if fresh:
-            q = q.eq("status", "running")   # tidak menimpa kalau status keburu berubah
-        res = q.execute()
-        if fresh and not res.data:
-            st.warning("Status berubah saat diproses pengguna lain. Muat ulang halaman lalu coba lagi.")
-    except Exception as e:
-        st.error(f"Gagal mencatat waktu berhenti: {e}")
-
-def reset_pump_runtime(equipment: str, unit: str) -> None:
-    if not _assert_editor():
-        return
+        ts = _floor_min(stop_ts)
+    except Exception:
+        return "Waktu stop tidak valid."
     try:
-        sb = get_supabase(service_role=True)
-        sb.table("pump_runtime").update({
-            "status": "stopped",
-            "status_changed_at": now_wib().strftime("%Y-%m-%d %H:%M:%S"),
-            "accumulated_hours": 0.0,
-        }).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal reset running hours: {e}")
+        started = _floor_min(row.get("status_changed_at"))
+    except Exception:
+        return "Waktu start tercatat tidak valid — perbaiki lewat menu Edit Running Hours."
+    if ts < started:
+        return f"Waktu stop tidak boleh sebelum waktu start ({fmt_wib(started)} WIB)."
+    if ts > _floor_min(now_wib()):
+        return f"Waktu stop tidak boleh di masa depan (sekarang {fmt_wib(now_wib())} WIB)."
+    return None
 
-def reset_pump_install_date(equipment: str, unit: str) -> None:
-    if not _assert_editor():
-        return
-    try:
-        sb = get_supabase(service_role=True)
-        sb.table("pump_runtime").update(
-            {"install_date": today_wib().isoformat()}
-        ).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal reset umur pompa: {e}")
+
+def session_hours(row, stop_ts) -> float:
+    """Durasi sesi Running (jam) dari waktu start tercatat sampai stop_ts."""
+    started = _floor_min(row.get("status_changed_at"))
+    return max((_floor_min(stop_ts) - started).total_seconds() / 3600.0, 0.0)
+
 
 def compute_running_hours(row: dict) -> float:
-    """Menghitung total jam berjalan. Jam saat status STOPPED dijamin tidak ikut terhitung."""
-    accum = float(row.get("accumulated_hours", 0) or 0)
+    """Total jam berjalan. Jam saat status STOPPED tidak ikut terhitung."""
+    accum = _num(row.get("accumulated_hours"))
     if row.get("status") != "running":
         return accum
     try:
@@ -721,6 +768,145 @@ def compute_running_hours(row: dict) -> float:
         return accum + max(delta_seconds / 3600.0, 0.0)
     except Exception:
         return accum
+
+
+# ── Aksi (semua return (ok: bool, pesan: str)) ───────────────────────────────
+def start_pump_runtime(equipment: str, unit: str, start_dt, actor: str = ""):
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)     # selalu data terbaru dari DB
+        if not fresh:
+            return False, "Data running hours equipment belum ada. Muat ulang halaman."
+        err = validate_start(fresh, start_dt)
+        if err:
+            return False, err
+        ts = _floor_min(start_dt)
+        q = sb.table("pump_runtime").update({
+            "status": "running",
+            "status_changed_at": ts.strftime("%Y-%m-%d %H:%M:%S"),
+        }).eq("equipment", equipment).eq("unit", unit)
+        if fresh.get("status") is not None:
+            q = q.eq("status", fresh["status"])           # jangan menimpa kalau status keburu berubah
+        if not q.execute().data:
+            return False, "Status berubah saat diproses (mungkin oleh pengguna lain). Muat ulang halaman."
+        accum = _num(fresh.get("accumulated_hours"))
+        warn = _log_pump_event(sb, equipment, unit, "start", ts, accum, accum, actor=actor)
+        return True, f"Running dicatat sejak {fmt_wib(ts)} WIB." + warn
+    except Exception as e:
+        return False, f"Gagal mencatat waktu mulai: {e}"
+
+
+def stop_pump_runtime(equipment: str, unit: str, stop_dt, actor: str = ""):
+    """Stop + tambahkan durasi sesi ke akumulasi. Ditolak jika stop < start atau di masa depan."""
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)     # selalu data terbaru dari DB
+        err = validate_stop(fresh, stop_dt)
+        if err:
+            return False, err
+        ts = _floor_min(stop_dt)
+        added = session_hours(fresh, ts)
+        accum = _num(fresh.get("accumulated_hours"))
+        new_accum = accum + added
+        started = _floor_min(fresh.get("status_changed_at"))
+
+        res = sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "accumulated_hours": round(new_accum, 4),
+        }).eq("equipment", equipment).eq("unit", unit).eq("status", "running").execute()
+        if not res.data:
+            return False, "Status berubah saat diproses (mungkin oleh pengguna lain). Muat ulang halaman."
+
+        warn = _log_pump_event(
+            sb, equipment, unit, "stop", ts, accum, new_accum,
+            note=f"Sesi {fmt_wib(started)} → {fmt_wib(ts)} = {added:.2f} jam", actor=actor,
+        )
+        return True, (f"Stop dicatat pada {fmt_wib(ts)} WIB. "
+                      f"Ditambahkan {added:,.2f} jam → total {new_accum:,.1f} jam.") + warn
+    except Exception as e:
+        return False, f"Gagal mencatat waktu berhenti: {e}"
+
+
+def edit_pump_hours(equipment: str, unit: str, *, new_total=None, delta=None,
+                    note: str = "", actor: str = ""):
+    """
+    Koreksi manual total running hours: isi `new_total` (atur ke nilai tertentu)
+    ATAU `delta` (tambah/kurangi). Alasan dan nama petugas wajib; tercatat di riwayat.
+    Kalau equipment sedang Running, bagian sesi yang sedang berjalan tetap dihitung
+    otomatis, jadi total yang tampil = nilai yang kamu masukkan.
+    """
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    if (new_total is None) == (delta is None):
+        return False, "Isi salah satu: total baru atau penyesuaian."
+    note, actor = (note or "").strip(), (actor or "").strip()
+    if not actor:
+        return False, "Nama petugas wajib diisi."
+    if not note:
+        return False, "Alasan perubahan wajib diisi."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)
+        if not fresh:
+            return False, "Data running hours equipment belum ada. Muat ulang halaman."
+        accum = _num(fresh.get("accumulated_hours"))
+        current_total = compute_running_hours(fresh)
+        live_part = current_total - accum                      # 0 jika Stopped
+        target = _num(new_total) if new_total is not None else current_total + _num(delta)
+        if target < 0:
+            return False, "Total running hours tidak boleh negatif."
+        new_accum = target - live_part
+        if new_accum < -1e-9:
+            return False, (f"Total tidak boleh lebih kecil dari durasi sesi Running yang sedang berjalan "
+                           f"({live_part:,.1f} jam). Stop dulu jika perlu.")
+        new_accum = max(new_accum, 0.0)
+
+        q = sb.table("pump_runtime").update({"accumulated_hours": round(new_accum, 4)}) \
+            .eq("equipment", equipment).eq("unit", unit)
+        if fresh.get("status") is not None:
+            q = q.eq("status", fresh["status"])
+        if not q.execute().data:
+            return False, "Status berubah saat diproses (mungkin oleh pengguna lain). Muat ulang halaman."
+
+        warn = _log_pump_event(sb, equipment, unit, "edit_hours", now_wib(),
+                               current_total, target, note=note, actor=actor)
+        return True, (f"Running hours diubah: {current_total:,.1f} → {target:,.1f} jam "
+                      f"({target - current_total:+,.1f}).") + warn
+    except Exception as e:
+        return False, f"Gagal mengubah running hours: {e}"
+
+
+def reset_pump_runtime(equipment: str, unit: str, note: str = "", actor: str = ""):
+    """Reset ke 0 jam (setelah penggantian/overhaul total). Alasan & petugas wajib; tercatat."""
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    note, actor = (note or "").strip(), (actor or "").strip()
+    if not actor:
+        return False, "Nama petugas wajib diisi."
+    if not note:
+        return False, "Alasan reset wajib diisi."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)
+        before = compute_running_hours(fresh) if fresh else 0.0
+        ts = now_wib()
+        res = sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "accumulated_hours": 0.0,
+        }).eq("equipment", equipment).eq("unit", unit).execute()
+        if not res.data:
+            return False, "Data running hours equipment tidak ditemukan."
+        warn = _log_pump_event(sb, equipment, unit, "reset_hours", ts, before, 0.0, note=note, actor=actor)
+        return True, f"Running hours direset ke 0 (sebelumnya {before:,.1f} jam)." + warn
+    except Exception as e:
+        return False, f"Gagal reset running hours: {e}"
+
 
 def get_pump_age(install_date) -> str:
     if not install_date or pd.isna(install_date):
@@ -741,16 +927,6 @@ def get_pump_age(install_date) -> str:
     except Exception:
         return None
 
-def update_pump_install_date(equipment: str, unit: str, install_date) -> None:
-    if not _assert_editor():
-        return
-    try:
-        sb = get_supabase(service_role=True)
-        sb.table("pump_runtime").update(
-            {"install_date": str(install_date)}
-        ).eq("equipment", equipment).eq("unit", unit).execute()
-    except Exception as e:
-        st.error(f"Gagal simpan tanggal instalasi: {e}")
 
 BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"]
 
