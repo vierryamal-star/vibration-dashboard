@@ -37,7 +37,7 @@ table.ds td{padding:7px 10px;vertical-align:middle;overflow-wrap:anywhere;}
 table.ds td.c{border-right:1px solid rgba(128,128,128,.18);border-bottom:1px solid rgba(128,128,128,.18);}
 table.ds td.sec{background:#1f5f8b;color:#fff;font-weight:700;text-align:center;letter-spacing:.05em;border-color:rgba(255,255,255,.22);}
 table.ds td.lbl{background:rgba(128,128,128,.12);font-weight:600;}
-table.ds td.no{color:rgba(128,128,128,.95);text-align:center;font-variant-numeric:tabular-nums;}
+table.ds td.no{background:rgba(31,95,139,.16);color:#2f86c0;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;}
 table.ds tr:hover td.c:not(.sec){background:rgba(31,95,139,.10);}
 table.ds mark{background:#ffd54f;color:#000;padding:0 3px;border-radius:3px;}
 .ds-info{display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0 .9rem 0;}
@@ -63,6 +63,8 @@ def _style_class(text, cls, cs):
     bold, fill = "b" in flags, "f" in flags
     if re.fullmatch(r"\d{1,2}\.", text):
         return "no"
+    if bold and text.lower() in ("no.", "no"):
+        return "sec"
     if bold and (cs >= 3 or text.isupper()):
         return "sec"
     if bold or fill:
@@ -243,7 +245,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                             [('7.', 1, 1, '', 'center'), ('Model', 3, 1, '', ''), ('Two Rubber Seals ( 2RS )', 9, 1, '', '')],
                             [('8.', 1, 1, '', 'center'), ('Price ( 2013 )', 3, 1, '', ''), ('£ 8.30', 9, 1, '', '')]],
                            [4.44, 5.26, 13.96, 6.07, 8.43, 4.53, 6.8, 6.07, 14.33, 2.72, 6.07, 3.62, 17.68])]},
- '2. Booster Pump': {'name': 'COOLING BOOSTER PUMP',
+ '2. Boster Pump': {'name': 'COOLING BOOSTER PUMP',
                     'info': {},
                     'col_pct': [4.02, 6.45, 13.47, 6.27, 8.7, 4.68, 7.76, 4.02, 13.57, 2.81, 6.27, 3.74, 18.25],
                     'segments': [('table',
@@ -344,7 +346,7 @@ DATA = {'1. CCWP': {'name': 'CLOSE COOLING WATER PUMP ( CCWP )',
                             ('3.69E + 06', 2, 1, '', 'center'), ('Kcal/hour', 1, 1, '', 'center')]],
                           [4.89, 7.24, 6.86, 6.3, 8.74, 4.7, 6.48, 4.89, 14.85, 2.82, 6.3, 6.3, 19.65]),
                          ('images', ['s03_1.jpg'])]},
- '4. Water Jet Pump': {'name': 'WATER JET PUMP',
+ '4. Jet Pump': {'name': 'WATER JET PUMP',
                  'info': {},
                  'col_pct': [4.1, 11.45, 3.53, 6.39, 8.87, 4.77, 10.02, 4.1, 15.08, 2.86, 6.39, 3.81, 18.61],
                  'segments': [('table',
