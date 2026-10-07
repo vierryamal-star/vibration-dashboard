@@ -121,19 +121,17 @@ def safe_date(value):
     except Exception:
         return None
 
-# ── Load Equipment & Filtering Unit ─────────────────────────────────────────
+# ── Load Equipment & Filter Unit ───────────────────────────────────────────
 df_hist = load_history()
 if df_hist.empty:
     st.info("📂 Belum ada data equipment terdaftar. Silakan upload data di menu **Data & Kelola**.")
     st.stop()
 
-# Ambil pasangan equipment & unit
 all_pairs_raw = sorted(
     list({(str(e), str(u)) for e, u in df_hist[["equipment", "unit"]].dropna().drop_duplicates().to_numpy()}),
     key=lambda p: (p[1], p[0])
 )
 
-# Filter Unit & Equipment Berjenjang
 col_u, col_eq = st.columns([1.5, 2.5])
 
 with col_u:
@@ -144,7 +142,6 @@ with col_u:
         key="ds_unit_filter"
     )
 
-# Filter daftar equipment berdasarkan unit terpilih
 if sel_unit_filter == "Semua Unit":
     filtered_pairs = all_pairs_raw
 else:
@@ -211,7 +208,7 @@ tab_bearing, tab_spec = st.tabs([
 # ═════════════════════════════════════════════════════════════════════════════
 with tab_bearing:
     st.markdown("##### 🔩 Riwayat Pemasangan & Pemantauan Bearing")
-    st.caption("Umur kalender dihitung otomatis sejak tanggal instalasi fisik terakhir.")
+    st.caption("Pilih 'Ganti Hari Ini' untuk mereset dan mulai akumulasi baru, atau 'Reset / Nonaktifkan' agar umur berhenti dihitung.")
 
     df_bearing_all = get_bearing_install()
     cols_bearing = st.columns(len(BEARING_POSISI))
@@ -232,20 +229,20 @@ with tab_bearing:
               <div>
                 <div class="bearing-title">📍 {posisi}</div>
                 <div class="bearing-age-box">
-                  <div class="bearing-age-lbl">Umur Kalender</div>
-                  <div class="bearing-age-val">{b_age if b_age else 'Belum Diatur'}</div>
+                  <div class="bearing-age-lbl">Status Umur</div>
+                  <div class="bearing-age-val">{b_age if b_age else '⏹️ Nonaktif / Belum Diatur'}</div>
                 </div>
                 <div style="font-size:11.5px;opacity:.7;margin-bottom:8px;">
-                  🗓️ Pasang: <b>{b_existing.strftime('%d %b %Y') if b_existing else '–'}</b>
+                  🗓️ Tanggal Pasang: <b>{b_existing.strftime('%d %b %Y') if b_existing else 'Tidak Aktif'}</b>
                 </div>
               </div>
             </div>
             """, unsafe_allow_html=True)
 
             if is_editor:
-                with st.expander("Kelola / Ganti Bearing"):
+                with st.expander("Kelola Bearing"):
                     b_val = st.date_input(
-                        "Tanggal Pasang Baru",
+                        "Tanggal Pasang",
                         value=b_existing or today,
                         max_value=today,
                         key=f"ds_b_date_{ek}_{i}",
@@ -256,14 +253,20 @@ with tab_bearing:
                     with c_save:
                         if st.button("💾 Simpan", key=f"ds_b_btn_{ek}_{i}", use_container_width=True):
                             update_bearing_install(sel_eq, sel_unit, posisi, b_val)
-                            st.success(f"{posisi} tersimpan.")
+                            st.success(f"{posisi} berhasil disimpan.")
                             st.rerun()
 
                     with c_reset:
-                        if st.button("🔄 Ganti Hari Ini", key=f"ds_b_rst_{ek}_{i}", use_container_width=True, help="Set tanggal pasang ke hari ini (umur otomatis kembali ke 0 hari)"):
+                        if st.button("🔄 Ganti Hari Ini", key=f"ds_b_rst_{ek}_{i}", use_container_width=True, help="Set tanggal ke hari ini (umur mulai berjalan dari 0 hari)"):
                             update_bearing_install(sel_eq, sel_unit, posisi, today)
-                            st.success(f"Bearing {posisi} direset ke hari ini.")
+                            st.success(f"Bearing {posisi} diset ke hari ini dan mulai berakumulasi.")
                             st.rerun()
+
+                    st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+                    if st.button("⏹️ Reset / Nonaktifkan", key=f"ds_b_clear_{ek}_{i}", use_container_width=True, help="Kosongkan tanggal pasang agar umur tidak berakumulasi"):
+                        update_bearing_install(sel_eq, sel_unit, posisi, None)
+                        st.info(f"Pencatatan umur {posisi} dinonaktifkan (tidak berjalan).")
+                        st.rerun()
 
 # ═════════════════════════════════════════════════════════════════════════════
 # TAB 2: SPESIFIKASI DATASHEET (PUMP & MOTOR)
