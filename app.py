@@ -4,7 +4,6 @@ from datetime import datetime, timezone, timedelta
 from utils import (
     load_history, get_zone, get_threshold, add_zone_cols,
     get_temp_threshold, get_zone_temp,
-    get_pump_runtime, compute_running_hours,
     days_since, age_label, age_level, age_badge_html, AGE_COLORS, STALE_DAYS,
     ZC, ZB, render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
 )
@@ -398,24 +397,6 @@ if zone_filter_key:
 
 @st.fragment(run_every="5s")
 def _render_cards():
-    df_runtime_now = get_pump_runtime()
-
-    def _runtime_box(eq, unit):
-        match = df_runtime_now[
-            (df_runtime_now["equipment"] == eq) & (df_runtime_now["unit"] == unit)
-        ] if not df_runtime_now.empty else pd.DataFrame()
-        
-        if match.empty:
-            return ""
-        
-        row_data = match.iloc[0].to_dict()
-        hours = compute_running_hours(row_data)
-
-        return f"""
-<div style="margin-bottom:6px;font-size:11px;">
-  <span style="font-weight:700;color:var(--text-color);opacity:.9;">⏱️ {hours:,.1f} jam</span>
-</div>"""
-
     for i in range(0, len(eq_rows), 3):
         cols = st.columns(3)
         for col, r in zip(cols, eq_rows[i:i+3]):
@@ -454,7 +435,6 @@ def _render_cards():
       {r['zi']} {r['zl']}
     </span>
   </div>
-  {_runtime_box(r['eq'], r['unit'])}
   <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;">
     <span style="color:color-mix(in srgb, var(--text-color) 75%, transparent);font-weight:600;">{titik_info}:</span>
     <span style="font-weight:800;color:{bc};font-size:13px;">{r['mx']:.3f} mm/s</span>
