@@ -1,606 +1,1085 @@
-import streamlit as st
+import hmac
+import time
+from datetime import datetime, date, timezone, timedelta
+
+import numpy as np
 import pandas as pd
-from datetime import datetime, timezone, timedelta
-from utils import (
-    load_history, get_zone, get_threshold, add_zone_cols,
-    get_temp_threshold, get_zone_temp,
-    get_pump_runtime, compute_running_hours,
-    days_since, age_label, age_level, age_badge_html, AGE_COLORS, STALE_DAYS,
-    ZC, ZB, render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
-)
+import streamlit as st
 
-st.set_page_config(
-    page_title="Monitor Vibrasi — PLTU TBK",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ── Waktu WIB (satu sumber kebenaran) ────────────────────────────────────────
+WIB = timezone(timedelta(hours=7))
 
-st.markdown("""
-<style>
-[data-testid="stSidebarNav"]{ display:none; }
-section[data-testid="stSidebar"]>div:first-child{ padding-top:1rem; }
 
-.eq-card-modern {
-    border-radius: 12px;
-    padding: 14px 16px;
-    border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
-    background: color-mix(in srgb, var(--secondary-background-color) 70%, var(--background-color));
-    box-shadow: 0 2px 10px rgba(0,0,0,.04);
-    margin-bottom: 12px;
-    color: var(--text-color);
-    transition: transform .15s ease, box-shadow .15s ease;
+def now_wib() -> datetime:
+    """Waktu sekarang di WIB (GMT+7), tanpa tzinfo (naive)."""
+    return datetime.now(WIB).replace(tzinfo=None)
+
+
+def today_wib() -> date:
+    return datetime.now(WIB).date()
+
+
+def _to_wib_naive(value) -> pd.Timestamp:
+    """Ubah nilai waktu apa pun menjadi Timestamp naive dalam WIB."""
+    ts = pd.to_datetime(value)
+    if pd.isna(ts):
+        raise ValueError("Nilai waktu tidak valid")
+    if ts.tzinfo is not None:
+        ts = ts.tz_convert("Asia/Jakarta").tz_localize(None)
+    return ts
+
+
+# ── Kesegaran data (umur pengukuran) ─────────────────────────────────────────
+# Pengukuran dilakukan berkala (± mingguan). Ubah dua angka ini bila jadwal berubah.
+FRESH_DAYS = 7     # ≤ 7 hari   → "terbaru"
+STALE_DAYS = 14    # > 14 hari  → "data usang"; di antaranya → "perlu diperbarui"
+
+AGE_COLORS = {"fresh": "#16a34a", "aging": "#d97706", "stale": "#dc2626", "archive": "#6b7280"}
+
+
+def days_since(d):
+    """Selisih hari (WIB) dari tanggal d sampai hari ini; None bila tanggal tidak valid."""
+    try:
+        ts = pd.Timestamp(d)
+        if pd.isna(ts):
+            return None
+        return max((today_wib() - ts.date()).days, 0)
+    except Exception:
+        return None
+
+
+def age_label(days) -> str:
+    if days is None:
+        return "–"
+    if days == 0:
+        return "Hari ini"
+    if days == 1:
+        return "Kemarin"
+    if days < 60:
+        return f"{days} hari lalu"
+    return f"± {days // 30} bulan lalu"
+
+
+def age_level(days) -> str:
+    if days is None or days > STALE_DAYS:
+        return "stale"
+    return "fresh" if days <= FRESH_DAYS else "aging"
+
+
+def age_badge_html(d_new, d_old=None, archive: bool = False) -> str:
+    """
+    Badge umur data untuk kartu pengukuran (satu baris HTML, tanpa baris kosong).
+    d_new = tanggal terbaru pada equipment, d_old = tanggal TERTUA di antara titik ukurnya.
+    Jika titik-titik ukurnya punya tanggal berbeda, ditambahkan keterangan titik tertua.
+    archive=True (mode "Tanggal Tertentu"): warna netral, bukan peringatan.
+    """
+    dn = days_since(d_new)
+    if dn is None:
+        return ""
+    lvl = "archive" if archive else age_level(dn)
+    c = AGE_COLORS[lvl]
+    hint = {"fresh": "", "aging": " · perlu diperbarui", "stale": " · data usang", "archive": " · arsip"}[lvl]
+    full = pd.Timestamp(d_new).strftime("%d %b %Y")
+    html = (f'<span title="Pengukuran terakhir: {full}" style="display:inline-block;font-size:10px;'
+            f'font-weight:700;color:{c};background:{c}1f;border:1px solid {c}55;'
+            f'border-radius:99px;padding:1px 8px;margin-left:4px;">🕒 {age_label(dn)}{hint}</span>')
+    do = days_since(d_old) if d_old is not None else None
+    if do is not None and do > dn:
+        lo = "archive" if archive else age_level(do)
+        co = AGE_COLORS[lo]
+        html += (f'<div style="font-size:10px;font-weight:600;color:{co};margin-top:3px;">'
+                 f'⚠️ Ada titik yang terakhir diukur {age_label(do).lower()}</div>')
+    return html
+
+
+# ── Threshold Vibrasi (ISO 10816) ──────────────────────────────────────────
+THRESHOLD = {
+    "Turbine": {"A": 1.4, "B": 2.8, "C": 4.5},
+    "Pump/Fan": {"A": 1.4, "B": 2.8, "C": 4.5},
 }
-.eq-card-modern:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0,0,0,.08);
+
+ZONE_COLOR = {
+    "ZONE A": "#2563eb",
+    "ZONE B": "#16a34a",
+    "ZONE C": "#d97706",
+    "ZONE D": "#dc2626",
+    "N/A":    "#6b7280",
 }
 
-.eq-subtext {
-    font-size: 11px;
-    color: color-mix(in srgb, var(--text-color) 70%, transparent);
-    margin-bottom: 6px;
-    font-weight: 500;
+ZONE_BG = {
+    "ZONE A": "rgba(37,99,235,.12)",
+    "ZONE B": "rgba(22,163,74,.12)",
+    "ZONE C": "rgba(217,119,6,.14)",
+    "ZONE D": "rgba(220,38,38,.14)",
+    "N/A":    "rgba(107,114,128,.1)",
 }
 
-.pill-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin-top: 8px;
-}
-.pill-item {
-    border-radius: 8px;
-    padding: 6px 3px;
-    text-align: center;
-    border: 1px solid transparent;
+ZONE_LABEL = {
+    "ZONE A": "Accepted",
+    "ZONE B": "Pre Warning",
+    "ZONE C": "Warning",
+    "ZONE D": "Danger",
+    "N/A":    "N/A",
 }
 
-details.eq-details {
-    margin-top: 8px;
-    border-top: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent);
-    padding-top: 8px;
-}
-details.eq-details summary {
-    cursor: pointer;
-    font-size: 11px;
-    font-weight: 600;
-    color: color-mix(in srgb, var(--text-color) 75%, transparent);
-    list-style: none;
-    outline: none;
-}
-details.eq-details summary::-webkit-details-marker {
-    display: none;
+ZONE_ICON = {
+    "ZONE A": "🔵",
+    "ZONE B": "🟢",
+    "ZONE C": "🟡",
+    "ZONE D": "🔴",
+    "N/A":    "⬜",
 }
 
-.vt-wrap {
-    border-radius: 12px; overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
-    margin-bottom: 24px;
-    box-shadow: 0 2px 14px rgba(0,0,0,.06);
+ZC = ZONE_COLOR
+ZB = ZONE_BG
+
+UI = {
+    "radius_card":   "12px",
+    "radius_pill":   "8px",
+    "radius_badge":  "99px",
+    "pad_card":      "14px",
+    "font_xs":       "10px",
+    "font_sm":       "11px",
+    "font_base":     "12px",
+    "font_md":       "13px",
+    "font_lg":       "15px",
+    "font_xl":       "24px",
+    "accent_gradient": "linear-gradient(180deg, #2563eb, #0891b2)",
 }
-.vt {
-    width: 100%; border-collapse: collapse; font-size: 13px;
-    background: color-mix(in srgb, var(--background-color) 95%, transparent);
-    color: var(--text-color);
-}
-.vt thead tr {
-    background: color-mix(in srgb, var(--secondary-background-color) 100%, transparent);
-    border-bottom: 2px solid color-mix(in srgb, var(--text-color) 12%, transparent);
-}
-.vt thead th {
-    padding: 11px 14px; font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .08em;
-    color: color-mix(in srgb, var(--text-color) 75%, transparent);
-    white-space: nowrap;
-}
-.vt tbody tr {
-    border-bottom: 1px solid color-mix(in srgb, var(--text-color) 8%, transparent);
-    transition: background .1s;
-}
-.vt tbody tr:hover { filter: brightness(1.05); }
-.vt td { padding: 9px 14px; vertical-align: middle; }
-</style>
-""", unsafe_allow_html=True)
-st.markdown(GLOBAL_UI_CSS, unsafe_allow_html=True)
 
-def bar_pct(val, thr):
-    max_scale = thr.get("C", 4.5) * 1.2
-    return min(int((val / max(max_scale, 0.001)) * 100), 100)
-
-df_hist = load_history()
-
-# Render Sidebar Terpusat
-render_app_sidebar()
-
-if df_hist.empty:
-    render_page_header("📊 Monitor Vibrasi & Status Operasi")
-    st.info("📂 Belum ada data. Silakan upload data Excel pada menu **Data & Kelola**.")
-    st.stop()
-
-df_hist["date"]  = pd.to_datetime(df_hist["date"], errors="coerce")
-df_hist["value"] = pd.to_numeric(df_hist["value"], errors="coerce")
-all_units = sorted(df_hist["unit"].dropna().unique())
-all_dates = sorted(df_hist["date"].dt.date.dropna().unique(), reverse=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# HEADER & LIVE CLOCK (WIB / GMT+7)
-# ══════════════════════════════════════════════════════════════════════════════
-head_col, clock_col = st.columns([3, 2])
-
-with head_col:
-    render_page_header("📊 Monitor Vibrasi & Status Operasi")
-
-with clock_col:
-    @st.fragment(run_every="1s")
-    def _live_clock():
-        wib_tz = timezone(timedelta(hours=7))
-        _now = datetime.now(wib_tz)
-        
-        _hari = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"][_now.weekday()]
-        _bulan = ["","Januari","Februari","Maret","April","Mei","Juni","Juli",
-                  "Agustus","September","Oktober","November","Desember"][_now.month]
-        
-        st.markdown(
-            f'<div style="text-align:right;padding-top:4px;">'
-            f'  <div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#2563eb;">'
-            f'    {_now.strftime("%H:%M:%S")} <span style="font-size:13px;font-weight:600;opacity:.75;">WIB</span>'
-            f'  </div>'
-            f'  <div style="font-size:11px;font-weight:600;color:color-mix(in srgb, var(--text-color) 70%, transparent);margin-top:2px;">'
-            f'    {_hari}, {_now.day} {_bulan} {_now.year} (GMT+7)'
-            f'  </div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-
-    _live_clock()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FILTER BAGIAN UNIT PINTAR (STATUS CHIPS)
-# ══════════════════════════════════════════════════════════════════════════════
-unit_status_summary = {}
-for u in all_units:
-    sub_u = df_hist[df_hist["unit"] == u]
-    sub_latest = (
-        sub_u[sub_u["direction"] != "T"]
-        .sort_values("date")
-        .groupby(["equipment", "titik", "direction"], as_index=False)
-        .last()
-    )
-    if not sub_latest.empty:
-        zones = sub_latest.apply(
-            lambda r: get_zone(r["value"], get_threshold(r["equipment"]))[0], axis=1
-        )
-        n_danger = (zones == "ZONE D").sum()
-        n_warn = (zones == "ZONE C").sum()
-        if n_danger > 0:
-            unit_status_summary[u] = f"🔴 {u} ({n_danger})"
-        elif n_warn > 0:
-            unit_status_summary[u] = f"🟡 {u} ({n_warn})"
-        else:
-            unit_status_summary[u] = f"✅ {u}"
-    else:
-        unit_status_summary[u] = u
-
-unit_display_options = ["🏢 Semua Bagian Unit"] + [unit_status_summary[u] for u in all_units]
-unit_map_reverse = {unit_status_summary[u]: u for u in all_units}
-unit_map_reverse["🏢 Semua Bagian Unit"] = "All"
-
-st.caption("**🏭 Bagian Unit Pembangkit**")
-sel_unit_label = st.segmented_control(
-    "Bagian Unit",
-    options=unit_display_options,
-    default="🏢 Semua Bagian Unit",
-    key="mon_unit_segmented",
-    label_visibility="collapsed"
-)
-
-sel_unit_raw = unit_map_reverse.get(sel_unit_label, "All")
-sel_unit = all_units if sel_unit_raw == "All" else [sel_unit_raw]
-
-all_equip = sorted(df_hist[df_hist["unit"].isin(sel_unit)]["equipment"].dropna().unique())
-
-if st.session_state.get("_last_unit") != sel_unit_raw:
-    st.session_state["mon_equip"] = all_equip
-    st.session_state["_last_unit"] = sel_unit_raw
-
-c_eq, c_dt = st.columns([3, 2])
-with c_eq:
-    with st.expander(f"⚙️ Filter Spesifik Equipment ({len(all_equip)} mesin)", expanded=False):
-        if st.button("Pilih Semua Mesin", key="eq_selall", width="stretch"):
-            st.session_state["mon_equip"] = all_equip
-        if "mon_equip" in st.session_state:
-            st.session_state["mon_equip"] = [
-                e for e in st.session_state["mon_equip"] if e in all_equip
-            ]
-        sel_equip = st.multiselect("Equipment", all_equip, key="mon_equip", label_visibility="collapsed")
-
-if not sel_equip:
-    sel_equip = all_equip
-
-with c_dt:
-    date_mode = st.radio(
-        "Mode Tampilan",
-        ["🕐 Nilai Terbaru", "📅 Tanggal Tertentu"],
-        horizontal=True,
-        key="mon_date_mode",
-        label_visibility="collapsed"
-    )
-
-sel_tgl_str = None
-if date_mode == "📅 Tanggal Tertentu":
-    sel_tgl = st.date_input("Pilih Tanggal", value=max(all_dates), min_value=min(all_dates), max_value=max(all_dates), key="mon_tgl")
-    sel_tgl_str = pd.to_datetime(sel_tgl).strftime("%Y-%m-%d")
-    df_base = df_hist[
-        df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip) &
-        (df_hist["date"].dt.date == sel_tgl)
-    ].copy()
-    st.caption(f"Data arsip tanggal: **{pd.to_datetime(sel_tgl_str).strftime('%d %b %Y')}**")
-else:
-    df_base = df_hist[
-        df_hist["unit"].isin(sel_unit) & df_hist["equipment"].isin(sel_equip)
-    ].copy()
-    _last_date = df_hist["date"].max()
-    _last_date_str = pd.to_datetime(_last_date).strftime("%d %b %Y") if pd.notna(_last_date) else "–"
-    _last_days = days_since(_last_date)
-    st.caption(
-        f"Menampilkan kondisi **paling mutakhir** (Data terakhir: **{_last_date_str}** · "
-        f"**{age_label(_last_days)}**)"
-    )
-    if _last_days is not None and _last_days > STALE_DAYS:
-        st.warning(
-            f"⏳ Pengukuran terbaru di database sudah **{_last_days} hari lalu** ({_last_date_str}). "
-            "Nilai pada kartu di bawah bukan kondisi saat ini — cek apakah data minggu ini sudah di-upload."
-        )
-
-if df_base.empty:
-    st.warning("⚠️ Tidak ada data pengukuran yang sesuai dengan filter yang dipilih.")
-    st.stop()
-
-df_base = add_zone_cols(df_base)
-
-latest_all = (
-    df_base
-    .sort_values("date")
-    .groupby(["unit", "equipment", "titik", "direction"], as_index=False)
-    .last()
-)
-
-latest      = latest_all[latest_all["direction"] != "T"].copy()
-latest_temp = latest_all[latest_all["direction"] == "T"].copy()
-
-total = len(latest)
-n_d = int((latest["zone"] == "ZONE D").sum())
-n_c = int((latest["zone"] == "ZONE C").sum())
-n_b = int((latest["zone"] == "ZONE B").sum())
-n_a = int((latest["zone"] == "ZONE A").sum())
-
-# ══════════════════════════════════════════════════════════════════════════════
-# KPI STATISTIK
-# ══════════════════════════════════════════════════════════════════════════════
-kpi_items = [
-    ("📊", "Total Titik", str(total), "#4f46e5"),
-    ("🔵", "Accepted (A)", str(n_a), "#2563eb"),
-    ("🟢", "Pre Warning (B)", str(n_b), "#16a34a"),
-    ("🟡", "Warning (C)", str(n_c), "#d97706"),
-    ("🔴", "Danger (D)", str(n_d), "#dc2626"),
-]
-kpi_html = '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:8px 0 14px">'
-for ico, lbl, val, col in kpi_items:
-    kpi_html += f"""
-<div style="background:{col}14;border:1px solid {col}30;border-radius:12px;padding:12px 8px;text-align:center">
-  <div style="font-size:24px;font-weight:800;color:{col};line-height:1">{val}</div>
-  <div style="font-size:11px;margin-top:4px;color:{col};font-weight:700">{ico} {lbl}</div>
-</div>"""
-kpi_html += "</div>"
-st.markdown(kpi_html, unsafe_allow_html=True)
-
-_zone_filter_map = {
-    "Semua Status": None,
-    f"🔴 Danger ({n_d})": "ZONE D",
-    f"🟡 Warning ({n_c})": "ZONE C",
-    f"🟢 Pre Warning ({n_b})": "ZONE B",
-    f"🔵 Accepted ({n_a})": "ZONE A",
-}
-zone_filter_label = st.radio(
-    "Filter Status Mesin", list(_zone_filter_map.keys()),
-    horizontal=True, key="zone_filter", label_visibility="collapsed"
-)
-zone_filter_key = _zone_filter_map[zone_filter_label]
-
-st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STATUS CARD PER EQUIPMENT
-# ══════════════════════════════════════════════════════════════════════════════
-df_card_lat = latest[
-    latest["unit"].isin(sel_unit) &
-    latest["equipment"].isin(sel_equip)
-].copy()
-
-df_temp_lat = latest_temp[
-    latest_temp["unit"].isin(sel_unit) &
-    latest_temp["equipment"].isin(sel_equip)
-].copy()
-
-def _max_dir(df_eq, d):
-    sub = df_eq[df_eq["direction"] == d][["value", "titik"]].dropna(subset=["value"])
-    if sub.empty: return None, None
-    idx = sub["value"].idxmax()
-    return float(sub.loc[idx, "value"]), str(sub.loc[idx, "titik"])
-
-def _max_temp(eq):
-    sub = df_temp_lat[df_temp_lat["equipment"] == eq][["value", "titik"]].dropna(subset=["value"])
-    if sub.empty: return None, None
-    idx = sub["value"].idxmax()
-    return float(sub.loc[idx, "value"]), str(sub.loc[idx, "titik"])
-
-def _render_pill(label, val, unit_s, zk, titik):
-    if val is None or pd.isna(val):
-        return f"""
-<div class="pill-item" style="background:rgba(128,128,128,.08);">
-  <div style="font-size:10px;font-weight:700;opacity:.5;">{label}</div>
-  <div style="font-size:13px;font-weight:600;opacity:.35;">–</div>
-  <div style="font-size:9px;opacity:.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">–</div>
-</div>"""
-    c = ZC.get(zk, "#4b5563")
-    bg = ZB.get(zk, "rgba(128,128,128,.08)")
-    val_str = f"{val:.1f}" if unit_s == "°C" else f"{val:.2f}"
-    titik_str = str(titik) if titik and not pd.isna(titik) else "–"
-    
-    return f"""
-<div class="pill-item" title="{titik_str}" style="background:{bg};border:1px solid {c}40;">
-  <div style="font-size:10px;font-weight:700;color:{c};">{label}</div>
-  <div style="font-size:13px;font-weight:800;color:{c};">{val_str}</div>
-  <div style="font-size:9px;font-weight:600;color:{c};opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;">
-    {titik_str}
-  </div>
-</div>"""
-
-eq_rows = []
-for eq in sorted(df_card_lat["equipment"].dropna().unique()):
-    if eq not in sel_equip: continue
-    df_eq = df_card_lat[df_card_lat["equipment"] == eq]
-    thr   = get_threshold(eq)
-    hv, ht = _max_dir(df_eq, "H")
-    vv, vt = _max_dir(df_eq, "V")
-    av, at = _max_dir(df_eq, "A")
-    
-    all_v = []
-    if hv is not None and not pd.isna(hv): all_v.append((hv, ht, "H"))
-    if vv is not None and not pd.isna(vv): all_v.append((vv, vt, "V"))
-    if av is not None and not pd.isna(av): all_v.append((av, at, "A"))
-    
-    if all_v:
-        mx_val, mx_titik, mx_dir = max(all_v, key=lambda x: x[0])
-    else:
-        mx_val, mx_titik, mx_dir = float("nan"), "–", ""
-
-    zk, zi, zl = get_zone(mx_val, thr)
-    tv, tt = _max_temp(eq)
-    _dates_eq = pd.concat([
-        df_eq["date"],
-        df_temp_lat.loc[df_temp_lat["equipment"] == eq, "date"],
-    ]).dropna()
-    d_new = _dates_eq.max() if not _dates_eq.empty else pd.NaT
-    d_old = _dates_eq.min() if not _dates_eq.empty else pd.NaT
-    tgl = pd.to_datetime(d_new).strftime("%d %b %Y") if pd.notna(d_new) else "–"
-    
-    eq_rows.append(dict(
-        eq=eq, unit=df_eq["unit"].iloc[0],
-        H=hv, Ht=ht, V=vv, Vt=vt, A=av, At=at, T=tv, Tt=tt,
-        zk=zk, zi=zi, zl=zl, thr=thr, tgl=tgl, d_new=d_new, d_old=d_old,
-        mx=mx_val, mx_titik=mx_titik, mx_dir=mx_dir
-    ))
-
-if zone_filter_key:
-    eq_rows = [r for r in eq_rows if r["zk"] == zone_filter_key]
-
-@st.fragment(run_every="5s")
-def _render_cards():
-    df_runtime_now = get_pump_runtime()
-
-    def _runtime_box(eq, unit):
-        match = df_runtime_now[
-            (df_runtime_now["equipment"] == eq) & (df_runtime_now["unit"] == unit)
-        ] if not df_runtime_now.empty else pd.DataFrame()
-        
-        if match.empty:
-            return ""
-        
-        row_data = match.iloc[0].to_dict()
-        hours = compute_running_hours(row_data)
-
-        return f"""
-<div style="margin-bottom:6px;font-size:11px;">
-  <span style="font-weight:700;color:var(--text-color);opacity:.9;">⏱️ {hours:,.1f} jam</span>
-</div>"""
-
-    for i in range(0, len(eq_rows), 3):
-        cols = st.columns(3)
-        for col, r in zip(cols, eq_rows[i:i+3]):
-            bc = ZC.get(r["zk"], "#6b7280")
-            bar = bar_pct(r["mx"], r["thr"]) if not pd.isna(r["mx"]) else 0
-            is_danger = r["zk"] == "ZONE D"
-            border_left = f"6px solid {bc}" if is_danger else f"4px solid {bc}"
-            danger_class = "card-danger-glow-static" if is_danger else ""
-            
-            zk_h = get_zone(r["H"], r["thr"])[0] if r["H"] is not None else "N/A"
-            zk_v = get_zone(r["V"], r["thr"])[0] if r["V"] is not None else "N/A"
-            zk_a = get_zone(r["A"], r["thr"])[0] if r["A"] is not None else "N/A"
-            zk_t = get_zone_temp(r["T"], get_temp_threshold(r["eq"], r["Tt"]))[0] if r["T"] is not None else "N/A"
-
-            pills_html = f"""
-<div class="pill-grid">
-  {_render_pill("H (mm/s)", r['H'], "mm/s", zk_h, r['Ht'])}
-  {_render_pill("V (mm/s)", r['V'], "mm/s", zk_v, r['Vt'])}
-  {_render_pill("A (mm/s)", r['A'], "mm/s", zk_a, r['At'])}
-  {_render_pill("T (°C)", r['T'], "°C", zk_t, r['Tt'])}
-</div>"""
-
-            titik_info = f"Max ({r['mx_titik']} · {r['mx_dir']})" if r['mx_dir'] else "Max Vibrasi"
-
-            with col:
-                st.markdown(f"""
-<div class="eq-card-modern {danger_class}" style="border-left:{border_left};">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-    <div>
-      <div style="font-size:15px;font-weight:800;line-height:1.2;">{r['eq']}</div>
-      <div class="eq-subtext">
-        {r['unit']} &nbsp;·&nbsp; 📅 {r['tgl']}{age_badge_html(r['d_new'], r['d_old'], archive=(date_mode == "📅 Tanggal Tertentu"))}
-      </div>
-    </div>
-    <span style="font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:3px 8px;border-radius:99px;border:1px solid {bc}50;">
-      {r['zi']} {r['zl']}
-    </span>
-  </div>
-  {_runtime_box(r['eq'], r['unit'])}
-  <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;">
-    <span style="color:color-mix(in srgb, var(--text-color) 75%, transparent);font-weight:600;">{titik_info}:</span>
-    <span style="font-weight:800;color:{bc};font-size:13px;">{r['mx']:.3f} mm/s</span>
-  </div>
-  <div style="height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-top:4px;">
-    <div style="height:4px;width:{bar}%;background:{bc};"></div>
-  </div>
-  <details class="eq-details">
-    <summary>▸ Detail Arah &amp; Suhu</summary>
-    {pills_html}
-  </details>
+def render_page_header(title: str) -> None:
+    st.markdown(f"""
+<div style="margin-bottom:8px">
+  <div style="font-size:24px;font-weight:800;line-height:1.2;color:var(--text-color);">{title}</div>
 </div>""", unsafe_allow_html=True)
 
-_render_cards()
+def render_section_header(title: str) -> None:
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+        f'<div style="width:4px;height:20px;border-radius:2px;'
+        f'background:{UI["accent_gradient"]};flex-shrink:0"></div>'
+        f'<span style="font-size:15px;font-weight:700;color:var(--text-color);">{title}</span></div>',
+        unsafe_allow_html=True)
 
-st.divider()
+GLOBAL_UI_CSS = """
+<style>
+* { font-variant-numeric: tabular-nums; }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DETAIL LENGKAP SEMUA PENGUKURAN (TABLE VIEW)
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("### 🔍 Matriks Pengukuran Seluruh Titik")
+div[data-testid="stExpander"] {
+    border-radius: 12px !important;
+    border: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent) !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,.03) !important;
+}
 
-da, db = st.columns([5, 3])
-with da:
-    st.caption("**Bagian Unit**")
-    det_unit_opts = ["All"] + sorted(latest["unit"].dropna().unique())
-    det_unit_sel  = st.radio("det_unit", det_unit_opts, horizontal=True, key="det_unit", label_visibility="collapsed")
-with db:
-    st.caption("**Arah Vibrasi Terpilih**")
-    det_dir_sel = st.multiselect("Direction", ["H","V","A"], default=["H","V","A"], key="det_dir_multi", label_visibility="collapsed")
-    if not det_dir_sel: det_dir_sel = ["H","V","A"]
+.card-danger-glow-static {
+    border-color: rgba(220, 38, 38, 0.45) !important;
+    box-shadow: 0 0 12px rgba(220, 38, 38, 0.18) !important;
+    background: color-mix(in srgb, rgba(220, 38, 38, 0.05) 50%, var(--secondary-background-color)) !important;
+}
 
-show_temp_col = st.checkbox("🌡️ Tampilkan Kolom Temperatur (°C)", value=True, key="det_show_temp") if not latest_temp.empty else False
+@media (max-width: 992px) {
+    .pill-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+</style>
+"""
 
-df_det = latest.copy()
-df_det_temp = latest_temp.copy()
-if det_unit_sel != "All":
-    df_det = df_det[df_det["unit"] == det_unit_sel]
-    df_det_temp = df_det_temp[df_det_temp["unit"] == det_unit_sel]
+# ── Threshold Suhu (°C) ──────────────────────────────────────────────────────
+THRESHOLD_TEMP = {
+    "TURBIN":            {"normal": 80, "danger": 119},
+    "WINDING":           {"normal": 99, "danger": 140},
+    "BEARING DE MOTOR":  {"normal": 74, "danger": 95},
+    "BEARING DE DRIVEN":  {"normal": 74, "danger": 95},
+    "BEARING NDE DRIVEN": {"normal": 74, "danger": 95},
+}
 
-def _val_td(val, thr, show=True):
-    if not show or val is None or pd.isna(val):
-        return '<td style="text-align:center;padding:8px 10px;opacity:.3;">–</td>'
-    zk = get_zone(val, thr)[0]
-    tc = ZC.get(zk, "#4b5563")
-    bg = ZB.get(zk, "transparent")
-    return f'<td style="text-align:center;padding:8px 10px;background:{bg};"><span style="font-weight:700;color:{tc};">{val:.3f}</span></td>'
+def get_temp_threshold(equipment: str, titik: str):
+    eq, t = str(equipment).upper(), str(titik).upper()
+    if "TURBIN" in eq and "WINDING" not in t:
+        return THRESHOLD_TEMP["TURBIN"]
+    if "WINDING" in t:
+        return THRESHOLD_TEMP["WINDING"]
+    if "MOTOR" in t:
+        # TODO(verifikasi): titik "NDE Motor" saat ini memakai batas WINDING (99/140 °C).
+        # Pastikan memang disengaja — bearing NDE motor biasanya memakai batas bearing.
+        return THRESHOLD_TEMP["WINDING"] if "NDE" in t else THRESHOLD_TEMP["BEARING DE MOTOR"]
+    if any(k in t for k in ["POMPA", "PUMP", "FAN"]):
+        return THRESHOLD_TEMP["BEARING NDE DRIVEN" if "NDE" in t else "BEARING DE DRIVEN"]
+    return THRESHOLD_TEMP["BEARING DE DRIVEN"]
 
-def _val_td_temp(val, thr, show=True):
-    if not show or val is None or pd.isna(val):
-        return '<td style="text-align:center;padding:8px 10px;opacity:.3;">–</td>'
-    zk = get_zone_temp(val, thr)[0]
-    tc = ZC.get(zk, "#4b5563")
-    bg = ZB.get(zk, "transparent")
-    return f'<td style="text-align:center;padding:8px 10px;background:{bg};"><span style="font-weight:700;color:{tc};">{val:.1f}°C</span></td>'
+def get_zone_temp(value, thr):
+    if pd.isna(value):
+        return "N/A", "⬜", "N/A"
+    if value <= thr["normal"]:
+        return "ZONE A", "🔵", "Normal"
+    elif value < thr["danger"]:
+        return "ZONE C", "🟡", "Warning"
+    else:
+        return "ZONE D", "🔴", "Danger"
 
-def _badge_td(zk, zi, zl):
-    tc = ZC.get(zk, "#4b5563")
-    bg = ZB.get(zk, "transparent")
-    return f'<td style="padding:8px 12px;text-align:center;"><span style="background:{bg};color:{tc};border:1px solid {tc}50;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700;">{zi} {zl}</span></td>'
+# ── Koneksi Supabase ─────────────────────────────────────────────────────────
+@st.cache_resource(show_spinner=False)
+def _supabase_client(url: str, key: str):
+    """Client dibuat sekali per (url, key), bukan di setiap pemanggilan."""
+    from supabase import create_client
+    return create_client(url, key)
 
-def _render_tbl(df_unit, unit_label, df_unit_temp=None):
-    equips = sorted(df_unit["equipment"].dropna().unique())
-    if not equips: return ""
+def get_supabase(service_role=False):
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_SERVICE_KEY"] if service_role else st.secrets["SUPABASE_KEY"]
+    return _supabase_client(url, key)
 
-    dir_th = "".join(f'<th style="text-align:center;min-width:75px">{d}</th>' for d in ["H","V","A"] if d in det_dir_sel)
-    temp_th = '<th style="text-align:center;min-width:75px">Suhu</th>' if show_temp_col else ""
+def _paged_select(sb, table: str, cols: str, order_cols=("date", "id"),
+                  desc: bool = False, query_mod=None, batch: int = 1000) -> list:
+    """
+    Ambil semua baris dengan pagination yang STABIL.
 
-    rows = ""
-    for eq in equips:
-        df_eq = df_unit[df_unit["equipment"] == eq].sort_values("titik")
-        thr   = get_threshold(eq)
-        titiks = sorted(df_eq["titik"].dropna().unique())
+    Pagination dengan range() hanya aman kalau urutannya deterministik. Banyak baris
+    punya tanggal yang sama, jadi diberi tie-breaker kedua (id). Kalau kolom tie-breaker
+    tidak ada di tabel, otomatis fallback ke urutan kolom pertama saja.
+    """
+    def _run(order_list):
+        rows, start = [], 0
+        while True:
+            q = sb.table(table).select(cols)
+            if query_mod is not None:
+                q = query_mod(q)
+            for c in order_list:
+                q = q.order(c, desc=desc)
+            data = q.range(start, start + batch - 1).execute().data or []
+            rows.extend(data)
+            if len(data) < batch:
+                return rows
+            start += batch
 
-        _all_vals_eq = df_eq["value"].dropna().tolist()
-        _worst_zone = "ZONE A"
-        _zone_order = {"ZONE D": 4, "ZONE C": 3, "ZONE B": 2, "ZONE A": 1, "N/A": 0}
-        for _v in _all_vals_eq:
-            _zk = get_zone(_v, thr)[0]
-            if _zone_order.get(_zk, 0) > _zone_order.get(_worst_zone, 0):
-                _worst_zone = _zk
-        eq_border = ZC.get(_worst_zone, "#6b7280")
+    try:
+        return _run(order_cols)
+    except Exception:
+        if len(order_cols) > 1:
+            return _run(order_cols[:1])
+        raise
 
-        for i, titik in enumerate(titiks):
-            df_t = df_eq[df_eq["titik"] == titik]
+# ── Threshold & Zona ─────────────────────────────────────────────────────────
+def get_threshold(equipment: str):
+    name = str(equipment).upper()
+    key = "Turbine" if "TURBINE" in name else "Pump/Fan"
+    overrides = st.session_state.get("threshold_override")
+    if overrides and key in overrides:
+        return overrides[key]
+    return THRESHOLD[key]
 
-            gv = lambda d, _df=df_t: (
-                float(_df[_df["direction"] == d]["value"].dropna().iloc[0])
-                if not _df[_df["direction"] == d]["value"].dropna().empty else None
-            )
+def get_zone(value, thr):
+    if pd.isna(value):
+        return "N/A", "⬜", "N/A"
+    if value < thr["A"]:
+        return "ZONE A", "🔵", "Accepted"
+    elif value <= thr["B"]:
+        return "ZONE B", "🟢", "Pre Warning"
+    elif value <= thr["C"]:
+        return "ZONE C", "🟡", "Warning"
+    else:
+        return "ZONE D", "🔴", "Danger"
 
-            h, v, a = gv("H"), gv("V"), gv("A")
-            all_v = [x for x in [h, v, a] if x is not None]
-            max_v = max(all_v) if all_v else float("nan")
-            zk, zi, zl = get_zone(max_v, thr)
+def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Tambahkan kolom thr_type, zone, zone_icon, zone_label.
 
-            temp_td = ""
-            if show_temp_col:
-                t_val = None
-                if df_unit_temp is not None and not df_unit_temp.empty:
-                    sub_t = df_unit_temp[(df_unit_temp["equipment"] == eq) & (df_unit_temp["titik"] == titik)]["value"].dropna()
-                    if not sub_t.empty: t_val = float(sub_t.iloc[0])
-                temp_td = _val_td_temp(t_val, get_temp_threshold(eq, titik))
-
-            _t_new = df_t["date"].max()
-            tgl = pd.to_datetime(_t_new).strftime("%d %b %Y") if pd.notna(_t_new) else "–"
-            _t_days = days_since(_t_new)
-            _t_col = AGE_COLORS["archive" if sel_tgl_str else age_level(_t_days)]
-            tgl_html = (f'{tgl}<div style="font-size:10px;font-weight:700;color:{_t_col};">'
-                        f'{age_label(_t_days)}</div>')
-
-            eq_td = f'<td rowspan="{len(titiks)}" style="padding:10px 14px;font-size:13px;font-weight:700;vertical-align:middle;border-left:4px solid {eq_border};background:rgba(128,128,128,.04);">{eq}</td>' if i == 0 else ""
-
-            rows += (
-                '<tr>'
-                + eq_td
-                + f'<td style="padding:8px 14px;opacity:.9;">{titik}</td>'
-                + _val_td(h, thr, "H" in det_dir_sel)
-                + _val_td(v, thr, "V" in det_dir_sel)
-                + _val_td(a, thr, "A" in det_dir_sel)
-                + _val_td(max_v, thr)
-                + temp_td
-                + _badge_td(zk, zi, zl)
-                + f'<td style="padding:8px 14px;font-size:11px;text-align:right;"><span style="opacity:.75;">{tgl_html}</span></td>'
-                + '</tr>'
-            )
-
-    return (
-        f'<div style="margin-bottom:24px;">'
-        f'<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:color-mix(in srgb, var(--text-color) 70%, transparent);margin-bottom:8px;">🏭 {unit_label}</div>'
-        f'<div class="vt-wrap"><table class="vt"><thead><tr>'
-        f'<th style="text-align:left;min-width:140px;">Equipment</th>'
-        f'<th style="text-align:left;min-width:120px;">Titik Ukur</th>'
-        f'{dir_th}'
-        f'<th style="text-align:center;min-width:80px;">Max</th>'
-        f'{temp_th}'
-        f'<th style="text-align:center;min-width:100px;">Status ISO</th>'
-        f'<th style="text-align:right;min-width:90px;">Tanggal</th>'
-        f'</tr></thead><tbody>{rows}</tbody></table></div></div>'
+    Memakai get_threshold() sehingga override threshold dari halaman Data & Kelola
+    ikut berlaku (sebelumnya memakai THRESHOLD default sehingga KPI/sidebar bisa
+    berbeda dengan kartu equipment). Versi ini juga vektorisasi, bukan apply per baris.
+    """
+    df = df.copy()
+    df["thr_type"] = df["equipment"].map(
+        lambda x: "Turbine" if "turbine" in str(x).lower() else "Pump/Fan"
     )
+    if df.empty:
+        for c in ("zone", "zone_icon", "zone_label"):
+            df[c] = pd.Series(dtype=object)
+        return df
 
-if det_unit_sel == "All":
-    for u in sorted(df_det["unit"].dropna().unique()):
-        blk = _render_tbl(df_det[df_det["unit"] == u], f"Bagian Unit · {u}", df_det_temp[df_det_temp["unit"] == u])
-        if blk: st.markdown(blk, unsafe_allow_html=True)
-else:
-    blk = _render_tbl(df_det, f"Bagian Unit · {det_unit_sel}", df_det_temp)
-    if blk: st.markdown(blk, unsafe_allow_html=True)
+    vals = pd.to_numeric(df["value"], errors="coerce").to_numpy(dtype=float)
+    temp_mask = df["direction"].eq("T").to_numpy()
+    zone = np.full(len(df), "N/A", dtype=object)
 
+    # Vibrasi
+    if (~temp_mask).any():
+        eqs = df["equipment"].astype(str)
+        thr_by_eq = {e: get_threshold(e) for e in eqs.unique()}
+        a = eqs.map({e: t["A"] for e, t in thr_by_eq.items()}).to_numpy(dtype=float)
+        b = eqs.map({e: t["B"] for e, t in thr_by_eq.items()}).to_numpy(dtype=float)
+        c = eqs.map({e: t["C"] for e, t in thr_by_eq.items()}).to_numpy(dtype=float)
+        vz = np.select(
+            [np.isnan(vals) | np.isnan(a), vals < a, vals <= b, vals <= c],
+            ["N/A", "ZONE A", "ZONE B", "ZONE C"],
+            default="ZONE D",
+        )
+        zone[~temp_mask] = vz[~temp_mask]
+
+    # Suhu
+    if temp_mask.any():
+        sub = df.loc[temp_mask, ["equipment", "titik"]]
+        cache, normal, danger = {}, [], []
+        for key in zip(sub["equipment"], sub["titik"]):
+            if key not in cache:
+                cache[key] = get_temp_threshold(*key)
+            normal.append(cache[key]["normal"])
+            danger.append(cache[key]["danger"])
+        tv = vals[temp_mask]
+        normal = np.asarray(normal, dtype=float)
+        danger = np.asarray(danger, dtype=float)
+        tz = np.select(
+            [np.isnan(tv), tv <= normal, tv < danger],
+            ["N/A", "ZONE A", "ZONE C"],
+            default="ZONE D",
+        )
+        zone[temp_mask] = tz
+
+    df["zone"] = zone
+    df["zone_icon"] = df["zone"].map(ZONE_ICON)
+    label = df["zone"].map(ZONE_LABEL)
+    is_temp_normal = pd.Series(temp_mask, index=df.index) & df["zone"].eq("ZONE A")
+    df["zone_label"] = label.where(~is_temp_normal, "Normal")
+    return df
+
+# ── Data Vibrasi (Supabase) ──────────────────────────────────────────────────
+# Fungsi ber-cache sengaja MELEMPAR error (bukan menelannya). Dengan begitu kegagalan
+# sesaat (koneksi putus, Supabase sibuk) TIDAK ikut tersimpan di cache selama 60 detik;
+# percobaan berikutnya langsung mencoba lagi. Pesan error ditampilkan oleh pembungkus.
+@st.cache_data(ttl=60, show_spinner="Memuat data vibrasi…")
+def _load_history_cached() -> pd.DataFrame:
+    sb = get_supabase()
+    rows = _paged_select(
+        sb, "vibration", "equipment,unit,titik,direction,date,value",
+        order_cols=("date", "id"), desc=True,
+    )
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        df = df.dropna(subset=["date", "value"])
+    return df
+
+
+def load_history(silent: bool = False) -> pd.DataFrame:
+    """Riwayat vibrasi/suhu. silent=True: tidak menampilkan pesan error (dipakai sidebar)."""
+    try:
+        return _load_history_cached()
+    except Exception as e:
+        if not silent:
+            st.error(f"Gagal load data: {e}")
+        return pd.DataFrame()
+
+_KEY_COLS = ["equipment", "unit", "titik", "direction"]
+
+def save_to_db_detailed(df: pd.DataFrame):
+    """
+    Simpan data baru ke tabel vibration, lewati duplikat.
+
+    Return (jumlah_baris_tersimpan, pesan_error | None). Berbeda dengan save_to_db(),
+    pemanggil bisa membedakan "semua duplikat" (0, None) dari "gagal" (0, "pesan").
+    Kalau gagal di tengah jalan, jumlah yang sudah masuk tetap dilaporkan.
+    """
+    if not _assert_editor():
+        return 0, "Hanya Editor yang dapat menyimpan data."
+    if df is None or df.empty:
+        return 0, None
+
+    inserted = 0
+    try:
+        sb = get_supabase(service_role=True)
+        now = datetime.now(WIB).isoformat()
+
+        work = df.copy()
+        for c in _KEY_COLS:
+            work[c] = work[c].astype(str).str.strip()
+        work["date"] = pd.to_datetime(work["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        work["value"] = pd.to_numeric(work["value"], errors="coerce")
+        work = work.dropna(subset=["date", "value"])
+        if work.empty:
+            return 0, None
+        work["_key"] = work[_KEY_COLS + ["date"]].agg("|".join, axis=1)
+        work = work.drop_duplicates("_key")
+
+        # Hanya unduh data existing pada rentang tanggal file ini (bukan seluruh tabel).
+        d_min, d_max = work["date"].min(), work["date"].max()
+        existing_rows = _paged_select(
+            sb, "vibration", "equipment,unit,titik,direction,date",
+            order_cols=("date", "id"),
+            query_mod=lambda q: q.gte("date", d_min).lte("date", d_max),
+        )
+        existing_keys = {
+            "|".join([str(r["equipment"]).strip(), str(r["unit"]).strip(),
+                      str(r["titik"]).strip(), str(r["direction"]).strip(),
+                      str(r["date"])[:10]])
+            for r in existing_rows
+        }
+
+        new_rows = work[~work["_key"].isin(existing_keys)]
+        if new_rows.empty:
+            return 0, None
+
+        records = new_rows[_KEY_COLS + ["date", "value"]].to_dict("records")
+        for rec in records:
+            rec["value"] = float(rec["value"])
+            rec["uploaded_at"] = now
+
+        step = 500
+        for i in range(0, len(records), step):
+            batch = records[i:i + step]
+            sb.table("vibration").insert(batch).execute()
+            inserted += len(batch)
+        return inserted, None
+    except Exception as e:
+        return inserted, str(e)
+
+def save_to_db(df: pd.DataFrame) -> int:
+    """Versi kompatibel: return jumlah baris tersimpan, error ditampilkan lewat st.error."""
+    inserted, err = save_to_db_detailed(df)
+    if err:
+        st.error(f"Gagal simpan data: {err}")
+    return inserted
+
+def delete_by_dates_detailed(dates: list):
+    """Return (jumlah_terhapus, pesan_error | None)."""
+    if check_role() != "editor":
+        return 0, "Hanya Editor yang dapat menghapus data."
+    total = 0
+    try:
+        sb = get_supabase(service_role=True)
+        for d in dates:
+            res = sb.table("vibration").delete().eq("date", d).execute()
+            total += len(res.data or [])
+        return total, None
+    except Exception as e:
+        return total, str(e)
+
+
+def delete_by_dates(dates: list) -> int:
+    n, err = delete_by_dates_detailed(dates)
+    if err:
+        st.error(f"Gagal hapus data: {err}")
+    return n
+
+
+def delete_all_detailed():
+    """Return (jumlah_terhapus, pesan_error | None)."""
+    if check_role() != "editor":
+        return 0, "Hanya Editor yang dapat menghapus data."
+    try:
+        sb = get_supabase(service_role=True)
+        res = sb.table("vibration").delete().neq("equipment", "").execute()
+        return (len(res.data) if res.data else 0), None
+    except Exception as e:
+        return 0, str(e)
+
+
+def delete_all() -> int:
+    n, err = delete_all_detailed()
+    if err:
+        st.error(f"Gagal hapus semua data: {err}")
+    return n
+
+
+# ── Pesan "flash": tetap terlihat setelah st.rerun() ─────────────────────────
+# st.success(...) lalu st.rerun() membuat pesan hilang sebelum sempat dibaca.
+# flash() menyimpan pesan di session_state; show_flash() menampilkannya SEKALI
+# pada run berikutnya (di tab/bagian tempat dipanggil).
+_FLASH_ICON = {"success": "✅", "error": "❌", "warning": "⚠️", "info": "ℹ️"}
+
+
+def flash(channel: str, kind: str, message: str) -> None:
+    st.session_state.setdefault("_flash", {}).setdefault(channel, []).append((kind, message))
+
+
+def show_flash(channel: str) -> None:
+    msgs = st.session_state.get("_flash", {}).pop(channel, [])
+    for kind, msg in msgs:
+        getattr(st, kind if kind in _FLASH_ICON else "info")(msg)
+    if msgs:
+        kind, msg = msgs[0]
+        st.toast(msg, icon=_FLASH_ICON.get(kind, "ℹ️"))
+
+
+def parse_excel(file) -> pd.DataFrame:
+    try:
+        df = pd.read_excel(file, sheet_name="Vibration_Data")
+    except Exception as e:
+        st.error(f"Gagal baca file {getattr(file, 'name', 'unknown')}: {e}")
+        return pd.DataFrame()
+    df.columns = [c.strip() for c in df.columns]
+    col_map = {}
+    for c in df.columns:
+        cl = c.lower()
+        if "equipment" in cl:    col_map[c] = "equipment"
+        elif "unit" in cl:       col_map[c] = "unit"
+        elif "titik" in cl:      col_map[c] = "titik"
+        elif "direction" in cl:  col_map[c] = "direction"
+        elif "date" in cl:       col_map[c] = "date"
+        elif "value" in cl:      col_map[c] = "value"
+    df = df.rename(columns=col_map)
+    required = {"equipment", "unit", "titik", "direction", "date", "value"}
+    missing = required - set(df.columns)
+    if missing:
+        st.error(f"Kolom tidak ditemukan: {missing}")
+        return pd.DataFrame()
+    df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["value"])
+    return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
+
+# ── Autentikasi Editor ───────────────────────────────────────────────────────
+# Password TIDAK lagi ditulis di kode. Atur di .streamlit/secrets.toml (lokal)
+# atau menu Secrets di Streamlit Cloud:
+#     EDITOR_PASSWORD = "isi-password-baru"
+_MAX_LOGIN_ATTEMPTS = 5
+_LOGIN_LOCK_SECONDS = 60
+
+def check_role():
+    if "role" not in st.session_state:
+        st.session_state["role"] = "viewer"
+    return st.session_state["role"]
+
+def _verify_editor_password(pwd: str) -> bool:
+    try:
+        expected = str(st.secrets["EDITOR_PASSWORD"])
+    except Exception:
+        return False
+    if not expected:
+        return False
+    return hmac.compare_digest(pwd.encode("utf-8"), expected.encode("utf-8"))
+
+def _try_login(pwd: str):
+    """Return None jika sukses, atau string pesan error."""
+    now = time.time()
+    lock_until = st.session_state.get("_login_lock_until", 0)
+    if lock_until > now:
+        return f"Terlalu banyak percobaan. Coba lagi dalam {int(lock_until - now) + 1} detik."
+    try:
+        st.secrets["EDITOR_PASSWORD"]
+    except Exception:
+        return "EDITOR_PASSWORD belum diatur di secrets. Hubungi admin dashboard."
+
+    if _verify_editor_password(pwd):
+        st.session_state["role"] = "editor"
+        st.session_state["_login_fails"] = 0
+        return None
+
+    fails = st.session_state.get("_login_fails", 0) + 1
+    if fails >= _MAX_LOGIN_ATTEMPTS:
+        st.session_state["_login_lock_until"] = now + _LOGIN_LOCK_SECONDS
+        fails = 0
+    st.session_state["_login_fails"] = fails
+    return "Password salah."
+
+def require_editor():
+    if check_role() != "editor":
+        st.warning("🔒 Fitur ini hanya tersedia untuk Editor.")
+        return False
+    return True
+
+def _assert_editor() -> bool:
+    """Guard di fungsi tulis: tombol yang disembunyikan di UI saja tidak cukup."""
+    if check_role() != "editor":
+        st.error("🔒 Aksi ini hanya dapat dilakukan oleh Editor.")
+        return False
+    return True
+
+# ── Ringkasan alarm (di-cache, sadar override threshold) ─────────────────────
+@st.cache_data(ttl=60, show_spinner=False)
+def _alarm_summary_cached(thr_sig: str):
+    # NB: nama argumen tanpa awalan "_" supaya ikut menjadi cache key.
+    df_h = _load_history_cached()          # melempar error bila gagal → tidak di-cache
+    if df_h.empty:
+        return 0, 0
+    df_lat = (
+        df_h[df_h["direction"] != "T"]
+        .sort_values("date")
+        .groupby(["unit", "equipment", "titik", "direction"], as_index=False)
+        .last()
+    )
+    df_lat = add_zone_cols(df_lat)
+    return int((df_lat["zone"] == "ZONE D").sum()), int((df_lat["zone"] == "ZONE C").sum())
+
+
+def _alarm_summary(thr_sig: str):
+    try:
+        return _alarm_summary_cached(thr_sig)
+    except Exception:
+        return 0, 0                         # sidebar tidak perlu menampilkan error (halaman sudah)
+
+# ── Sidebar Terpusat & Modern ─────────────────────────────────────────────────
+def render_app_sidebar():
+    with st.sidebar:
+        try:
+            st.image("assets/logo_pln_ip.png", width=190)
+        except Exception:
+            pass
+        st.markdown("""
+        <div style="margin-top: 10px; margin-bottom: 14px;">
+            <div style="font-size: 24px; font-weight: 900; line-height: 1.1; color: var(--text-color); letter-spacing: -0.02em;">
+                ⚡ PLTU TBK
+            </div>
+            <div style="font-size: 13px; opacity: .8; font-weight: 600; margin-top: 3px; color: color-mix(in srgb, var(--text-color) 80%, transparent);">
+                Vibration & Asset Monitoring
+            </div>
+            <div style="margin-top: 8px;">
+                <span style="font-size: 11px; font-weight: 700; background: rgba(22, 163, 74, 0.14); color: #16a34a; border: 1px solid rgba(22, 163, 74, 0.35); padding: 3px 10px; border-radius: 99px;">
+                    ● Database Connected
+                </span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+
+        st.caption("**NAVIGASI UTAMA**")
+        st.page_link("app.py",                  label="📊 Monitor Vibrasi")
+        st.page_link("pages/1_Analisis.py",     label="📈 Analisis Vibrasi")
+        st.page_link("pages/2_Data_Kelola.py",  label="🗄️ Data & Kelola")
+        st.page_link("pages/3_Kelola_Pompa.py", label="🛠️ Jam Operasi")
+        st.page_link("pages/4_Rotor_Balance.py", label="⚙️ Rotor Balancing")
+        st.page_link("pages/5_Datasheet.py", label="📋 Datasheet")
+
+        st.divider()
+
+        if st.button("🔄 Segarkan Data", key="sb_sync_btn", width="stretch"):
+            st.cache_data.clear()
+            st.rerun()
+
+        # Ringkasan Global Alert
+        n_d, n_c = _alarm_summary(repr(st.session_state.get("threshold_override")))
+
+        st.markdown(f"""
+        <div style="background: color-mix(in srgb, var(--secondary-background-color) 80%, transparent); border-radius: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent); margin: 12px 0;">
+            <div style="font-size: 10px; font-weight: 700; opacity: .6; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;">Ringkasan Alarm Global</div>
+            <div style="display: flex; gap: 18px; font-size: 11px; font-weight: 700;">
+                <span style="color: #dc2626;">🔴 {n_d} Danger</span>
+                <span style="color: #d97706;">🟡 {n_c} Warning</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        role = check_role()
+        st.divider()
+        if role == "editor":
+            st.success("🔓 Mode: **Editor**")
+            if st.button("🔒 Logout", key="sb_logout_main", width="stretch"):
+                st.session_state["role"] = "viewer"
+                st.rerun()
+        else:
+            st.info("👁️ Mode: **Viewer**")
+            with st.expander("🔑 Login Editor"):
+                pwd = st.text_input("Password", type="password", key="sb_pwd_input_main")
+                if st.button("Login", key="sb_login_btn_main", width="stretch"):
+                    err = _try_login(pwd)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.rerun()
+
+        st.markdown("""
+        <div style="font-size: 10px; text-align: center; opacity: .45; margin-top: 20px;">
+            ISO 10816 Standard Compliance<br>
+            © 2026 PLTU TBK · v2.4
+        </div>
+        """, unsafe_allow_html=True)
+
+# ── Running Hours Pompa (Zona Waktu WIB Terpadu) ──────────────────────────────
+# Aturan akumulasi:
+#   * accumulated_hours = jam dari sesi-sesi Running yang SUDAH selesai (di-stop).
+#   * Selama status Running, total = accumulated_hours + (sekarang - status_changed_at).
+#   * Saat Stop, durasi sesi (stop - start) ditambahkan ke accumulated_hours.
+#   * Semua waktu dibulatkan ke menit (sesuai input di UI) dan dicatat dalam WIB.
+# Karena itu: stop TIDAK boleh sebelum start, dan start tidak boleh sebelum stop terakhir
+# (kalau tidak, periode yang sama terhitung dua kali).
+PUMP_LOG_TABLE = "pump_runtime_log"
+
+PUMP_LOG_SQL = """\
+create table if not exists pump_runtime_log (
+  id            bigint generated always as identity primary key,
+  created_at    timestamptz not null default now(),
+  equipment     text not null,
+  unit          text not null,
+  action        text not null,      -- start | stop | edit_hours | reset_hours
+  event_time    timestamp,          -- waktu kejadian (WIB)
+  hours_before  numeric,
+  hours_after   numeric,
+  note          text,
+  actor         text
+);
+create index if not exists pump_runtime_log_eq_idx
+  on pump_runtime_log (equipment, unit, created_at desc);
+-- hanya diakses lewat service key dari dashboard:
+alter table pump_runtime_log enable row level security;
+"""
+
+to_wib_naive = _to_wib_naive   # alias publik untuk halaman
+
+
+def _num(x, default: float = 0.0) -> float:
+    """float aman: None/NaN/teks rusak -> default."""
+    try:
+        v = float(x)
+        return default if np.isnan(v) else v
+    except (TypeError, ValueError):
+        return default
+
+
+def _floor_min(value) -> pd.Timestamp:
+    return _to_wib_naive(value).floor("min")
+
+
+def fmt_wib(ts) -> str:
+    return pd.Timestamp(ts).strftime("%d %b %Y %H:%M")
+
+
+def _is_editor() -> bool:
+    return check_role() == "editor"
+
+
+_RUNTIME_COLS = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours", "install_date"]
+
+
+@st.cache_data(ttl=15)
+def _get_pump_runtime_cached() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("pump_runtime").select(",".join(_RUNTIME_COLS)).execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=_RUNTIME_COLS)
+
+
+def get_pump_runtime(silent: bool = False) -> pd.DataFrame:
+    try:
+        return _get_pump_runtime_cached()
+    except Exception as e:
+        if not silent:
+            st.error(f"Gagal load running hours: {e}")
+        return pd.DataFrame(columns=_RUNTIME_COLS)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def get_pump_log(limit: int = 1000):
+    """Return (DataFrame, error|None). Dibaca dengan service key; hanya dipakai di bagian Editor."""
+    cols = ["created_at", "equipment", "unit", "action", "event_time",
+            "hours_before", "hours_after", "note", "actor"]
+    try:
+        sb = get_supabase(service_role=True)
+        res = (
+            sb.table(PUMP_LOG_TABLE).select(",".join(cols))
+            .order("created_at", desc=True).limit(limit).execute()
+        )
+        return (pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)), None
+    except Exception as e:
+        return pd.DataFrame(columns=cols), str(e)
+
+
+def clear_runtime_caches() -> None:
+    """Hapus cache data jam operasi saja (tanpa memaksa reload seluruh data vibrasi)."""
+    _get_pump_runtime_cached.clear()
+    _get_bearing_install_cached.clear()
+    get_pump_log.clear()
+
+
+def _fetch_pump_row(sb, equipment: str, unit: str):
+    """Baca baris terbaru langsung dari DB (bukan dari cache 15 detik)."""
+    res = (
+        sb.table("pump_runtime")
+        .select("status,status_changed_at,accumulated_hours")
+        .eq("equipment", equipment).eq("unit", unit)
+        .limit(1).execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def _log_pump_event(sb, equipment, unit, action, event_time, hours_before, hours_after,
+                    note: str = "", actor: str = "") -> str:
+    """Catat riwayat (best effort). Return "" jika sukses, atau teks peringatan jika gagal."""
+    try:
+        sb.table(PUMP_LOG_TABLE).insert({
+            "equipment": equipment, "unit": unit, "action": action,
+            "event_time": pd.Timestamp(event_time).strftime("%Y-%m-%d %H:%M:%S"),
+            "hours_before": round(float(hours_before), 4),
+            "hours_after": round(float(hours_after), 4),
+            "note": note or None, "actor": actor or None,
+        }).execute()
+        return ""
+    except Exception:
+        return (" ⚠️ Perubahan tersimpan, tetapi catatan riwayat gagal ditulis "
+                "(tabel `pump_runtime_log` belum dibuat?).")
+
+
+def init_pump_runtime(equipment: str, unit: str):
+    if not _assert_editor():
+        return
+    try:
+        sb = get_supabase(service_role=True)
+        res = sb.table("pump_runtime").select("id").eq("equipment", equipment).eq("unit", unit).execute()
+        if not res.data:
+            sb.table("pump_runtime").insert({
+                "equipment": equipment,
+                "unit": unit,
+                "status": "stopped",
+                "status_changed_at": now_wib().strftime("%Y-%m-%d %H:%M:%S"),
+                "accumulated_hours": 0.0,
+            }).execute()
+    except Exception as e:
+        st.error(f"Gagal inisialisasi data running hours: {e}")
+
+
+# ── Validasi (dipakai UI untuk pratinjau, dan ditegakkan lagi di fungsi tulis) ──
+def validate_start(row, start_ts):
+    """Return None jika boleh, atau pesan alasan penolakan."""
+    try:
+        ts = _floor_min(start_ts)
+    except Exception:
+        return "Waktu start tidak valid."
+    if ts > _floor_min(now_wib()):
+        return f"Waktu start tidak boleh di masa depan (sekarang {fmt_wib(now_wib())} WIB)."
+    if row:
+        if row.get("status") == "running":
+            return "Equipment sudah berstatus Running."
+        if _num(row.get("accumulated_hours")) > 0:
+            try:
+                last = _floor_min(row.get("status_changed_at"))
+            except Exception:
+                last = None
+            if last is not None and ts < last:
+                return (f"Waktu start tidak boleh sebelum waktu stop terakhir ({fmt_wib(last)} WIB) — "
+                        "periode itu sudah tercatat dan akan terhitung dobel.")
+    return None
+
+
+def validate_stop(row, stop_ts):
+    """Return None jika boleh, atau pesan alasan penolakan."""
+    if not row:
+        return "Data running hours equipment tidak ditemukan."
+    if row.get("status") != "running":
+        return "Equipment tidak sedang Running, tidak ada yang bisa di-stop."
+    try:
+        ts = _floor_min(stop_ts)
+    except Exception:
+        return "Waktu stop tidak valid."
+    try:
+        started = _floor_min(row.get("status_changed_at"))
+    except Exception:
+        return "Waktu start tercatat tidak valid — perbaiki lewat menu Edit Running Hours."
+    if ts < started:
+        return f"Waktu stop tidak boleh sebelum waktu start ({fmt_wib(started)} WIB)."
+    if ts > _floor_min(now_wib()):
+        return f"Waktu stop tidak boleh di masa depan (sekarang {fmt_wib(now_wib())} WIB)."
+    return None
+
+
+def session_hours(row, stop_ts) -> float:
+    """Durasi sesi Running (jam) dari waktu start tercatat sampai stop_ts."""
+    started = _floor_min(row.get("status_changed_at"))
+    return max((_floor_min(stop_ts) - started).total_seconds() / 3600.0, 0.0)
+
+
+def compute_running_hours(row: dict) -> float:
+    """Total jam berjalan. Jam saat status STOPPED tidak ikut terhitung."""
+    accum = _num(row.get("accumulated_hours"))
+    if row.get("status") != "running":
+        return accum
+    try:
+        changed = _to_wib_naive(row["status_changed_at"])
+        delta_seconds = (now_wib() - changed).total_seconds()
+        return accum + max(delta_seconds / 3600.0, 0.0)
+    except Exception:
+        return accum
+
+
+# ── Aksi (semua return (ok: bool, pesan: str)) ───────────────────────────────
+def start_pump_runtime(equipment: str, unit: str, start_dt, actor: str = ""):
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)     # selalu data terbaru dari DB
+        if not fresh:
+            return False, "Data running hours equipment belum ada. Muat ulang halaman."
+        err = validate_start(fresh, start_dt)
+        if err:
+            return False, err
+        ts = _floor_min(start_dt)
+        q = sb.table("pump_runtime").update({
+            "status": "running",
+            "status_changed_at": ts.strftime("%Y-%m-%d %H:%M:%S"),
+        }).eq("equipment", equipment).eq("unit", unit)
+        if fresh.get("status") is not None:
+            q = q.eq("status", fresh["status"])           # jangan menimpa kalau status keburu berubah
+        if not q.execute().data:
+            return False, "Status berubah saat diproses (mungkin oleh pengguna lain). Muat ulang halaman."
+        accum = _num(fresh.get("accumulated_hours"))
+        warn = _log_pump_event(sb, equipment, unit, "start", ts, accum, accum, actor=actor)
+        return True, f"Running dicatat sejak {fmt_wib(ts)} WIB." + warn
+    except Exception as e:
+        return False, f"Gagal mencatat waktu mulai: {e}"
+
+
+def stop_pump_runtime(equipment: str, unit: str, stop_dt, actor: str = ""):
+    """Stop + tambahkan durasi sesi ke akumulasi. Ditolak jika stop < start atau di masa depan."""
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)     # selalu data terbaru dari DB
+        err = validate_stop(fresh, stop_dt)
+        if err:
+            return False, err
+        ts = _floor_min(stop_dt)
+        added = session_hours(fresh, ts)
+        accum = _num(fresh.get("accumulated_hours"))
+        new_accum = accum + added
+        started = _floor_min(fresh.get("status_changed_at"))
+
+        res = sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "accumulated_hours": round(new_accum, 4),
+        }).eq("equipment", equipment).eq("unit", unit).eq("status", "running").execute()
+        if not res.data:
+            return False, "Status berubah saat diproses (mungkin oleh pengguna lain). Muat ulang halaman."
+
+        warn = _log_pump_event(
+            sb, equipment, unit, "stop", ts, accum, new_accum,
+            note=f"Sesi {fmt_wib(started)} → {fmt_wib(ts)} = {added:.2f} jam", actor=actor,
+        )
+        return True, (f"Stop dicatat pada {fmt_wib(ts)} WIB. "
+                      f"Ditambahkan {added:,.2f} jam → total {new_accum:,.1f} jam.") + warn
+    except Exception as e:
+        return False, f"Gagal mencatat waktu berhenti: {e}"
+
+
+def edit_pump_hours(equipment: str, unit: str, *, new_total=None, delta=None,
+                    note: str = "", actor: str = ""):
+    """
+    Koreksi manual total running hours: isi `new_total` (atur ke nilai tertentu)
+    ATAU `delta` (tambah/kurangi). Alasan dan nama petugas wajib; tercatat di riwayat.
+    Kalau equipment sedang Running, bagian sesi yang sedang berjalan tetap dihitung
+    otomatis, jadi total yang tampil = nilai yang kamu masukkan.
+    """
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    if (new_total is None) == (delta is None):
+        return False, "Isi salah satu: total baru atau penyesuaian."
+    note, actor = (note or "").strip(), (actor or "").strip()
+    if not actor:
+        return False, "Nama petugas wajib diisi."
+    if not note:
+        return False, "Alasan perubahan wajib diisi."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)
+        if not fresh:
+            return False, "Data running hours equipment belum ada. Muat ulang halaman."
+        accum = _num(fresh.get("accumulated_hours"))
+        current_total = compute_running_hours(fresh)
+        live_part = current_total - accum                      # 0 jika Stopped
+        target = _num(new_total) if new_total is not None else current_total + _num(delta)
+        if target < 0:
+            return False, "Total running hours tidak boleh negatif."
+        new_accum = target - live_part
+        if new_accum < -1e-9:
+            return False, (f"Total tidak boleh lebih kecil dari durasi sesi Running yang sedang berjalan "
+                           f"({live_part:,.1f} jam). Stop dulu jika perlu.")
+        new_accum = max(new_accum, 0.0)
+
+        q = sb.table("pump_runtime").update({"accumulated_hours": round(new_accum, 4)}) \
+            .eq("equipment", equipment).eq("unit", unit)
+        if fresh.get("status") is not None:
+            q = q.eq("status", fresh["status"])
+        if not q.execute().data:
+            return False, "Status berubah saat diproses (mungkin oleh pengguna lain). Muat ulang halaman."
+
+        warn = _log_pump_event(sb, equipment, unit, "edit_hours", now_wib(),
+                               current_total, target, note=note, actor=actor)
+        return True, (f"Running hours diubah: {current_total:,.1f} → {target:,.1f} jam "
+                      f"({target - current_total:+,.1f}).") + warn
+    except Exception as e:
+        return False, f"Gagal mengubah running hours: {e}"
+
+
+def reset_pump_runtime(equipment: str, unit: str, note: str = "", actor: str = ""):
+    """Reset ke 0 jam (setelah penggantian/overhaul total). Alasan & petugas wajib; tercatat."""
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    note, actor = (note or "").strip(), (actor or "").strip()
+    if not actor:
+        return False, "Nama petugas wajib diisi."
+    if not note:
+        return False, "Alasan reset wajib diisi."
+    try:
+        sb = get_supabase(service_role=True)
+        fresh = _fetch_pump_row(sb, equipment, unit)
+        before = compute_running_hours(fresh) if fresh else 0.0
+        ts = now_wib()
+        res = sb.table("pump_runtime").update({
+            "status": "stopped",
+            "status_changed_at": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "accumulated_hours": 0.0,
+        }).eq("equipment", equipment).eq("unit", unit).execute()
+        if not res.data:
+            return False, "Data running hours equipment tidak ditemukan."
+        warn = _log_pump_event(sb, equipment, unit, "reset_hours", ts, before, 0.0, note=note, actor=actor)
+        return True, f"Running hours direset ke 0 (sebelumnya {before:,.1f} jam)." + warn
+    except Exception as e:
+        return False, f"Gagal reset running hours: {e}"
+
+
+def get_pump_age(install_date) -> str:
+    if not install_date or pd.isna(install_date):
+        return None
+    try:
+        d = pd.to_datetime(install_date)
+        now = today_wib()
+        months = (now.year - d.year) * 12 + (now.month - d.month)
+        if now.day < d.day:
+            months -= 1
+        months = max(months, 0)
+        years, rem_months = divmod(months, 12)
+        parts = []
+        if years:
+            parts.append(f"{years} th")
+        parts.append(f"{rem_months} bln")
+        return " ".join(parts)
+    except Exception:
+        return None
+
+
+BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"]
+
+@st.cache_data(ttl=15)
+def _get_bearing_install_cached() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("bearing_install").select("equipment,unit,posisi,install_date").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=["equipment", "unit", "posisi", "install_date"])
+
+
+def get_bearing_install() -> pd.DataFrame:
+    try:
+        return _get_bearing_install_cached()
+    except Exception as e:
+        st.error(f"Gagal load umur bearing: {e}")
+        return pd.DataFrame(columns=["equipment", "unit", "posisi", "install_date"])
+
+
+def update_bearing_install(equipment: str, unit: str, posisi: str, install_date) -> None:
+    if not _assert_editor():
+        return
+    try:
+        sb = get_supabase(service_role=True)
+        existing = (
+            sb.table("bearing_install").select("id")
+            .eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi)
+            .execute()
+        )
+        if existing.data:
+            sb.table("bearing_install").update(
+                {"install_date": str(install_date)}
+            ).eq("equipment", equipment).eq("unit", unit).eq("posisi", posisi).execute()
+        else:
+            sb.table("bearing_install").insert({
+                "equipment": equipment, "unit": unit, "posisi": posisi,
+                "install_date": str(install_date),
+            }).execute()
+    except Exception as e:
+        st.error(f"Gagal simpan tanggal instalasi bearing: {e}")
