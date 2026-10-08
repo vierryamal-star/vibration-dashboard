@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import io
-from datetime import datetime, date
+from datetime import datetime
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from utils import (
-    load_history, save_to_db, parse_excel,
-    delete_by_dates, delete_all,
+    load_history, save_to_db_detailed, parse_excel,
+    delete_by_dates_detailed, delete_all_detailed,
+    flash, show_flash,
     THRESHOLD, check_role,
     render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
 )
@@ -115,13 +116,20 @@ with tab_hist:
 
         st.markdown(f"**Menampilkan `{len(df_show):,}` baris data sesuai filter:**")
 
+        # Kolom tetap bertipe asli (tanggal & angka) supaya klik header = urut yang benar;
+        # tampilan saja yang diformat lewat column_config.
         df_disp = df_show.drop(columns=["id", "uploaded_at", "date_str"], errors="ignore").copy()
-        if "date" in df_disp.columns:
-            df_disp["date"] = pd.to_datetime(df_disp["date"]).dt.strftime("%d %b %Y")
-        if "value" in df_disp.columns:
-            df_disp["value"] = df_disp["value"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "–")
-
-        st.dataframe(df_disp, width="stretch", hide_index=True)
+        st.dataframe(
+            df_disp, width="stretch", hide_index=True,
+            column_config={
+                "equipment": st.column_config.TextColumn("Equipment"),
+                "unit": st.column_config.TextColumn("Bagian Unit"),
+                "titik": st.column_config.TextColumn("Titik Ukur"),
+                "direction": st.column_config.TextColumn("Arah"),
+                "date": st.column_config.DateColumn("Tanggal", format="DD MMM YYYY"),
+                "value": st.column_config.NumberColumn("Nilai", format="%.3f"),
+            },
+        )
 
         col_dl1, col_dl2, _ = st.columns([1, 1, 3])
         df_exp = df_show.drop(columns=["id", "uploaded_at", "date_str"], errors="ignore")
@@ -151,6 +159,7 @@ with tab_hist:
 # TAB 2: UPLOAD DATA
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_upload:
+    show_flash("upload")
     if role != "editor":
         st.markdown('<div class="warn-box">🔒 Fitur Upload Data hanya dapat diakses oleh <b>Editor</b>. Silakan login pada menu di sidebar.</div>', unsafe_allow_html=True)
     else:
@@ -194,18 +203,28 @@ with tab_upload:
             if parsed_dfs:
                 if st.button("🚀 Simpan Semua Data ke Database", type="primary", width="stretch"):
                     total_saved = total_skip = 0
+                    errors = []
                     progress_bar = st.progress(0.0)
-                    
+
                     for idx, (fname, df_data) in enumerate(parsed_dfs):
-                        saved = save_to_db(df_data)
-                        skipped = len(df_data) - saved
+                        saved, err = save_to_db_detailed(df_data)
                         total_saved += saved
-                        total_skip += skipped
+                        if err:
+                            extra = f" ({saved:,} baris sempat tersimpan)" if saved else ""
+                            errors.append(f"**{fname}**: {err}{extra}")
+                        else:
+                            total_skip += len(df_data) - saved
                         progress_bar.progress((idx + 1) / len(parsed_dfs))
-                        
-                    st.success(f"🎉 Selesai! **{total_saved:,}** baris baru tersimpan ke database.")
-                    if total_skip > 0:
-                        st.info(f"ℹ️ **{total_skip:,}** baris duplikat dilewati secara otomatis.")
+
+                    # Pesan disimpan dulu (flash) karena st.rerun() akan menghapus tampilan saat ini.
+                    if total_saved:
+                        flash("upload", "success", f"🎉 Selesai! **{total_saved:,}** baris baru tersimpan ke database.")
+                    elif not errors:
+                        flash("upload", "info", "Tidak ada baris baru — seluruh data pada file sudah ada di database.")
+                    if total_skip:
+                        flash("upload", "info", f"**{total_skip:,}** baris duplikat dilewati secara otomatis.")
+                    for e in errors:
+                        flash("upload", "error", f"Gagal menyimpan {e}")
                     st.cache_data.clear()
                     st.rerun()
 
@@ -224,6 +243,7 @@ Pastikan file Excel memiliki sheet **`Vibration_Data`** dengan susunan header be
 # TAB 3: HAPUS DATA
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_hapus:
+    show_flash("hapus")
     if role != "editor":
         st.markdown('<div class="warn-box">🔒 Fitur Penghapusan Data hanya dapat diakses oleh <b>Editor</b>.</div>', unsafe_allow_html=True)
     else:
@@ -258,8 +278,14 @@ with tab_hapus:
                         
                         if st.button(f"🗑️ Konfirmasi Hapus ({n_del:,} Baris)", type="secondary", width="stretch"):
                             with st.spinner("Menghapus data..."):
-                                delete_by_dates(sel_dates)
-                            st.success("Data berhasil dihapus.")
+                                n_done, err = delete_by_dates_detailed(sel_dates)
+                            if err:
+                                flash("hapus", "error", f"Gagal menghapus data: {err}"
+                                      + (f" ({n_done:,} baris sempat terhapus)" if n_done else ""))
+                            elif n_done:
+                                flash("hapus", "success", f"{n_done:,} baris pada {len(sel_dates)} tanggal berhasil dihapus.")
+                            else:
+                                flash("hapus", "info", "Tidak ada baris yang terhapus.")
                             st.cache_data.clear()
                             st.rerun()
                     else:
@@ -277,8 +303,11 @@ with tab_hapus:
                     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
                     if st.button("🚨 Hapus Semua Data", type="primary", width="stretch", disabled=(confirm_text.strip() != "HAPUS SEMUA")):
                         with st.spinner("Membersihkan seluruh database..."):
-                            delete_all()
-                        st.success("Seluruh data berhasil dihapus.")
+                            n_done, err = delete_all_detailed()
+                        if err:
+                            flash("hapus", "error", f"Gagal menghapus seluruh data: {err}")
+                        else:
+                            flash("hapus", "success", f"Seluruh data berhasil dihapus ({n_done:,} baris).")
                         st.cache_data.clear()
                         st.rerun()
 
