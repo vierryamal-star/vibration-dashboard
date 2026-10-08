@@ -5,6 +5,7 @@ from utils import (
     load_history, get_zone, get_threshold, add_zone_cols,
     get_temp_threshold, get_zone_temp,
     get_pump_runtime, compute_running_hours,
+    days_since, age_label, age_level, age_badge_html, AGE_COLORS, STALE_DAYS,
     ZC, ZB, render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
 )
 
@@ -241,7 +242,16 @@ else:
     ].copy()
     _last_date = df_hist["date"].max()
     _last_date_str = pd.to_datetime(_last_date).strftime("%d %b %Y") if pd.notna(_last_date) else "–"
-    st.caption(f"Menampilkan kondisi **paling mutakhir** (Data terakhir: **{_last_date_str}**)")
+    _last_days = days_since(_last_date)
+    st.caption(
+        f"Menampilkan kondisi **paling mutakhir** (Data terakhir: **{_last_date_str}** · "
+        f"**{age_label(_last_days)}**)"
+    )
+    if _last_days is not None and _last_days > STALE_DAYS:
+        st.warning(
+            f"⏳ Pengukuran terbaru di database sudah **{_last_days} hari lalu** ({_last_date_str}). "
+            "Nilai pada kartu di bawah bukan kondisi saat ini — cek apakah data minggu ini sudah di-upload."
+        )
 
 if df_base.empty:
     st.warning("⚠️ Tidak ada data pengukuran yang sesuai dengan filter yang dipilih.")
@@ -368,12 +378,18 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
 
     zk, zi, zl = get_zone(mx_val, thr)
     tv, tt = _max_temp(eq)
-    tgl = pd.to_datetime(df_eq["date"].max()).strftime("%d %b %Y") if pd.notna(df_eq["date"].max()) else "–"
+    _dates_eq = pd.concat([
+        df_eq["date"],
+        df_temp_lat.loc[df_temp_lat["equipment"] == eq, "date"],
+    ]).dropna()
+    d_new = _dates_eq.max() if not _dates_eq.empty else pd.NaT
+    d_old = _dates_eq.min() if not _dates_eq.empty else pd.NaT
+    tgl = pd.to_datetime(d_new).strftime("%d %b %Y") if pd.notna(d_new) else "–"
     
     eq_rows.append(dict(
         eq=eq, unit=df_eq["unit"].iloc[0],
         H=hv, Ht=ht, V=vv, Vt=vt, A=av, At=at, T=tv, Tt=tt,
-        zk=zk, zi=zi, zl=zl, thr=thr, tgl=tgl,
+        zk=zk, zi=zi, zl=zl, thr=thr, tgl=tgl, d_new=d_new, d_old=d_old,
         mx=mx_val, mx_titik=mx_titik, mx_dir=mx_dir
     ))
 
@@ -390,17 +406,13 @@ def _render_cards():
         ] if not df_runtime_now.empty else pd.DataFrame()
         
         if match.empty:
-            return '<div style="font-size:11px;opacity:.6;margin-bottom:6px;">⏱️ Jam operasi belum diatur</div>'
+            return ""
         
         row_data = match.iloc[0].to_dict()
-        hours  = compute_running_hours(row_data)
-        status = row_data.get("status", "stopped")
-        rc = "#16a34a" if status == "running" else "#6b7280"
-        dot = "🟢 Running" if status == "running" else "⚪ Stopped"
-        
+        hours = compute_running_hours(row_data)
+
         return f"""
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;">
-  <span style="color:{rc};font-weight:700;">{dot}</span>
+<div style="margin-bottom:6px;font-size:11px;">
   <span style="font-weight:700;color:var(--text-color);opacity:.9;">⏱️ {hours:,.1f} jam</span>
 </div>"""
 
@@ -435,7 +447,7 @@ def _render_cards():
     <div>
       <div style="font-size:15px;font-weight:800;line-height:1.2;">{r['eq']}</div>
       <div class="eq-subtext">
-        {r['unit']} &nbsp;·&nbsp; 📅 {r['tgl']}
+        {r['unit']} &nbsp;·&nbsp; 📅 {r['tgl']}{age_badge_html(r['d_new'], r['d_old'], archive=(date_mode == "📅 Tanggal Tertentu"))}
       </div>
     </div>
     <span style="font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:3px 8px;border-radius:99px;border:1px solid {bc}50;">
@@ -547,12 +559,17 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
                     if not sub_t.empty: t_val = float(sub_t.iloc[0])
                 temp_td = _val_td_temp(t_val, get_temp_threshold(eq, titik))
 
-            tgl = pd.to_datetime(df_t["date"].max()).strftime("%d %b %Y") if pd.notna(df_t["date"].max()) else "–"
+            _t_new = df_t["date"].max()
+            tgl = pd.to_datetime(_t_new).strftime("%d %b %Y") if pd.notna(_t_new) else "–"
+            _t_days = days_since(_t_new)
+            _t_col = AGE_COLORS["archive" if sel_tgl_str else age_level(_t_days)]
+            tgl_html = (f'{tgl}<div style="font-size:10px;font-weight:700;color:{_t_col};">'
+                        f'{age_label(_t_days)}</div>')
 
             eq_td = f'<td rowspan="{len(titiks)}" style="padding:10px 14px;font-size:13px;font-weight:700;vertical-align:middle;border-left:4px solid {eq_border};background:rgba(128,128,128,.04);">{eq}</td>' if i == 0 else ""
 
             rows += (
-                f'<tr>'
+                '<tr>'
                 + eq_td
                 + f'<td style="padding:8px 14px;opacity:.9;">{titik}</td>'
                 + _val_td(h, thr, "H" in det_dir_sel)
@@ -561,7 +578,7 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
                 + _val_td(max_v, thr)
                 + temp_td
                 + _badge_td(zk, zi, zl)
-                + f'<td style="padding:8px 14px;font-size:11px;opacity:.6;text-align:right;">{tgl}</td>'
+                + f'<td style="padding:8px 14px;font-size:11px;text-align:right;"><span style="opacity:.75;">{tgl_html}</span></td>'
                 + '</tr>'
             )
 
