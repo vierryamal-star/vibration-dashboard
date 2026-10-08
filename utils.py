@@ -29,6 +29,69 @@ def _to_wib_naive(value) -> pd.Timestamp:
     return ts
 
 
+# ── Kesegaran data (umur pengukuran) ─────────────────────────────────────────
+# Pengukuran dilakukan berkala (± mingguan). Ubah dua angka ini bila jadwal berubah.
+FRESH_DAYS = 7     # ≤ 7 hari   → "terbaru"
+STALE_DAYS = 14    # > 14 hari  → "data usang"; di antaranya → "perlu diperbarui"
+
+AGE_COLORS = {"fresh": "#16a34a", "aging": "#d97706", "stale": "#dc2626", "archive": "#6b7280"}
+
+
+def days_since(d):
+    """Selisih hari (WIB) dari tanggal d sampai hari ini; None bila tanggal tidak valid."""
+    try:
+        ts = pd.Timestamp(d)
+        if pd.isna(ts):
+            return None
+        return max((today_wib() - ts.date()).days, 0)
+    except Exception:
+        return None
+
+
+def age_label(days) -> str:
+    if days is None:
+        return "–"
+    if days == 0:
+        return "Hari ini"
+    if days == 1:
+        return "Kemarin"
+    if days < 60:
+        return f"{days} hari lalu"
+    return f"± {days // 30} bulan lalu"
+
+
+def age_level(days) -> str:
+    if days is None or days > STALE_DAYS:
+        return "stale"
+    return "fresh" if days <= FRESH_DAYS else "aging"
+
+
+def age_badge_html(d_new, d_old=None, archive: bool = False) -> str:
+    """
+    Badge umur data untuk kartu pengukuran (satu baris HTML, tanpa baris kosong).
+    d_new = tanggal terbaru pada equipment, d_old = tanggal TERTUA di antara titik ukurnya.
+    Jika titik-titik ukurnya punya tanggal berbeda, ditambahkan keterangan titik tertua.
+    archive=True (mode "Tanggal Tertentu"): warna netral, bukan peringatan.
+    """
+    dn = days_since(d_new)
+    if dn is None:
+        return ""
+    lvl = "archive" if archive else age_level(dn)
+    c = AGE_COLORS[lvl]
+    hint = {"fresh": "", "aging": " · perlu diperbarui", "stale": " · data usang", "archive": " · arsip"}[lvl]
+    full = pd.Timestamp(d_new).strftime("%d %b %Y")
+    html = (f'<span title="Pengukuran terakhir: {full}" style="display:inline-block;font-size:10px;'
+            f'font-weight:700;color:{c};background:{c}1f;border:1px solid {c}55;'
+            f'border-radius:99px;padding:1px 8px;margin-left:4px;">🕒 {age_label(dn)}{hint}</span>')
+    do = days_since(d_old) if d_old is not None else None
+    if do is not None and do > dn:
+        lo = "archive" if archive else age_level(do)
+        co = AGE_COLORS[lo]
+        html += (f'<div style="font-size:10px;font-weight:600;color:{co};margin-top:3px;">'
+                 f'⚠️ Ada titik yang terakhir diukur {age_label(do).lower()}</div>')
+    return html
+
+
 # ── Threshold Vibrasi (ISO 10816) ──────────────────────────────────────────
 THRESHOLD = {
     "Turbine": {"A": 1.4, "B": 2.8, "C": 4.5},
@@ -278,22 +341,31 @@ def add_zone_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ── Data Vibrasi (Supabase) ──────────────────────────────────────────────────
-@st.cache_data(ttl=60)
-def load_history() -> pd.DataFrame:
+# Fungsi ber-cache sengaja MELEMPAR error (bukan menelannya). Dengan begitu kegagalan
+# sesaat (koneksi putus, Supabase sibuk) TIDAK ikut tersimpan di cache selama 60 detik;
+# percobaan berikutnya langsung mencoba lagi. Pesan error ditampilkan oleh pembungkus.
+@st.cache_data(ttl=60, show_spinner="Memuat data vibrasi…")
+def _load_history_cached() -> pd.DataFrame:
+    sb = get_supabase()
+    rows = _paged_select(
+        sb, "vibration", "equipment,unit,titik,direction,date,value",
+        order_cols=("date", "id"), desc=True,
+    )
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        df = df.dropna(subset=["date", "value"])
+    return df
+
+
+def load_history(silent: bool = False) -> pd.DataFrame:
+    """Riwayat vibrasi/suhu. silent=True: tidak menampilkan pesan error (dipakai sidebar)."""
     try:
-        sb = get_supabase()
-        rows = _paged_select(
-            sb, "vibration", "equipment,unit,titik,direction,date,value",
-            order_cols=("date", "id"), desc=True,
-        )
-        df = pd.DataFrame(rows)
-        if not df.empty:
-            df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-            df = df.dropna(subset=["date", "value"])
-        return df
+        return _load_history_cached()
     except Exception as e:
-        st.error(f"Gagal load data: {e}")
+        if not silent:
+            st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
 
 _KEY_COLS = ["equipment", "unit", "titik", "direction"]
@@ -366,31 +438,66 @@ def save_to_db(df: pd.DataFrame) -> int:
         st.error(f"Gagal simpan data: {err}")
     return inserted
 
-def delete_by_dates(dates: list) -> int:
-    if not _assert_editor():
-        return 0
+def delete_by_dates_detailed(dates: list):
+    """Return (jumlah_terhapus, pesan_error | None)."""
+    if check_role() != "editor":
+        return 0, "Hanya Editor yang dapat menghapus data."
+    total = 0
     try:
         sb = get_supabase(service_role=True)
-        total = 0
         for d in dates:
             res = sb.table("vibration").delete().eq("date", d).execute()
-            if res.data:
-                total += len(res.data)
-        return total
+            total += len(res.data or [])
+        return total, None
     except Exception as e:
-        st.error(f"Gagal hapus data: {e}")
-        return 0
+        return total, str(e)
 
-def delete_all() -> int:
-    if not _assert_editor():
-        return 0
+
+def delete_by_dates(dates: list) -> int:
+    n, err = delete_by_dates_detailed(dates)
+    if err:
+        st.error(f"Gagal hapus data: {err}")
+    return n
+
+
+def delete_all_detailed():
+    """Return (jumlah_terhapus, pesan_error | None)."""
+    if check_role() != "editor":
+        return 0, "Hanya Editor yang dapat menghapus data."
     try:
         sb = get_supabase(service_role=True)
         res = sb.table("vibration").delete().neq("equipment", "").execute()
-        return len(res.data) if res.data else 0
+        return (len(res.data) if res.data else 0), None
     except Exception as e:
-        st.error(f"Gagal hapus semua data: {e}")
-        return 0
+        return 0, str(e)
+
+
+def delete_all() -> int:
+    n, err = delete_all_detailed()
+    if err:
+        st.error(f"Gagal hapus semua data: {err}")
+    return n
+
+
+# ── Pesan "flash": tetap terlihat setelah st.rerun() ─────────────────────────
+# st.success(...) lalu st.rerun() membuat pesan hilang sebelum sempat dibaca.
+# flash() menyimpan pesan di session_state; show_flash() menampilkannya SEKALI
+# pada run berikutnya (di tab/bagian tempat dipanggil).
+_FLASH_ICON = {"success": "✅", "error": "❌", "warning": "⚠️", "info": "ℹ️"}
+
+
+def flash(channel: str, kind: str, message: str) -> None:
+    st.session_state.setdefault("_flash", {}).setdefault(channel, []).append((kind, message))
+
+
+def show_flash(channel: str) -> None:
+    msgs = st.session_state.get("_flash", {}).pop(channel, [])
+    for kind, msg in msgs:
+        getattr(st, kind if kind in _FLASH_ICON else "info")(msg)
+    if msgs:
+        kind, msg = msgs[0]
+        st.toast(msg, icon=_FLASH_ICON.get(kind, "ℹ️"))
+
 
 def parse_excel(file) -> pd.DataFrame:
     try:
@@ -478,9 +585,9 @@ def _assert_editor() -> bool:
 
 # ── Ringkasan alarm (di-cache, sadar override threshold) ─────────────────────
 @st.cache_data(ttl=60, show_spinner=False)
-def _alarm_summary(thr_sig: str):
+def _alarm_summary_cached(thr_sig: str):
     # NB: nama argumen tanpa awalan "_" supaya ikut menjadi cache key.
-    df_h = load_history()
+    df_h = _load_history_cached()          # melempar error bila gagal → tidak di-cache
     if df_h.empty:
         return 0, 0
     df_lat = (
@@ -491,6 +598,13 @@ def _alarm_summary(thr_sig: str):
     )
     df_lat = add_zone_cols(df_lat)
     return int((df_lat["zone"] == "ZONE D").sum()), int((df_lat["zone"] == "ZONE C").sum())
+
+
+def _alarm_summary(thr_sig: str):
+    try:
+        return _alarm_summary_cached(thr_sig)
+    except Exception:
+        return 0, 0                         # sidebar tidak perlu menampilkan error (halaman sudah)
 
 # ── Sidebar Terpusat & Modern ─────────────────────────────────────────────────
 def render_app_sidebar():
@@ -533,16 +647,13 @@ def render_app_sidebar():
 
         # Ringkasan Global Alert
         n_d, n_c = _alarm_summary(repr(st.session_state.get("threshold_override")))
-        df_rt = get_pump_runtime()
-        n_run = int((df_rt["status"] == "running").sum()) if not df_rt.empty else 0
 
         st.markdown(f"""
         <div style="background: color-mix(in srgb, var(--secondary-background-color) 80%, transparent); border-radius: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent); margin: 12px 0;">
             <div style="font-size: 10px; font-weight: 700; opacity: .6; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;">Ringkasan Alarm Global</div>
-            <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700;">
+            <div style="display: flex; gap: 18px; font-size: 11px; font-weight: 700;">
                 <span style="color: #dc2626;">🔴 {n_d} Danger</span>
                 <span style="color: #d97706;">🟡 {n_c} Warning</span>
-                <span style="color: #16a34a;">🟢 {n_run} Running</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -625,18 +736,23 @@ def _is_editor() -> bool:
     return check_role() == "editor"
 
 
+_RUNTIME_COLS = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours", "install_date"]
+
+
 @st.cache_data(ttl=15)
-def get_pump_runtime() -> pd.DataFrame:
-    cols = ["equipment", "unit", "status", "status_changed_at", "accumulated_hours", "install_date"]
+def _get_pump_runtime_cached() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("pump_runtime").select(",".join(_RUNTIME_COLS)).execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=_RUNTIME_COLS)
+
+
+def get_pump_runtime(silent: bool = False) -> pd.DataFrame:
     try:
-        sb = get_supabase()
-        res = sb.table("pump_runtime").select(
-            "equipment,unit,status,status_changed_at,accumulated_hours,install_date"
-        ).execute()
-        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
+        return _get_pump_runtime_cached()
     except Exception as e:
-        st.error(f"Gagal load running hours: {e}")
-        return pd.DataFrame(columns=cols)
+        if not silent:
+            st.error(f"Gagal load running hours: {e}")
+        return pd.DataFrame(columns=_RUNTIME_COLS)
 
 
 @st.cache_data(ttl=15, show_spinner=False)
@@ -657,8 +773,8 @@ def get_pump_log(limit: int = 1000):
 
 def clear_runtime_caches() -> None:
     """Hapus cache data jam operasi saja (tanpa memaksa reload seluruh data vibrasi)."""
-    get_pump_runtime.clear()
-    get_bearing_install.clear()
+    _get_pump_runtime_cached.clear()
+    _get_bearing_install_cached.clear()
     get_pump_log.clear()
 
 
@@ -932,15 +1048,19 @@ def get_pump_age(install_date) -> str:
 BEARING_POSISI = ["DE Motor", "NDE Motor", "DE Pompa/Fan", "NDE Pompa/Fan"]
 
 @st.cache_data(ttl=15)
+def _get_bearing_install_cached() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("bearing_install").select("equipment,unit,posisi,install_date").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=["equipment", "unit", "posisi", "install_date"])
+
+
 def get_bearing_install() -> pd.DataFrame:
-    cols = ["equipment", "unit", "posisi", "install_date"]
     try:
-        sb = get_supabase()
-        res = sb.table("bearing_install").select("equipment,unit,posisi,install_date").execute()
-        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=cols)
+        return _get_bearing_install_cached()
     except Exception as e:
         st.error(f"Gagal load umur bearing: {e}")
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=["equipment", "unit", "posisi", "install_date"])
+
 
 def update_bearing_install(equipment: str, unit: str, posisi: str, install_date) -> None:
     if not _assert_editor():
