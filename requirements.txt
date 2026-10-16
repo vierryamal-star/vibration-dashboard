@@ -1,8 +1,11 @@
-streamlit
-pandas
-numpy
-plotly
-openpyxl
-supabase
-python-dateutil
-pytz
+# Versi dikunci sesuai log deploy yang terbukti berjalan (Python 3.14, Streamlit Cloud).
+# Naikkan versi secara sengaja & uji dulu — jangan biarkan update otomatis merusak dashboard.
+streamlit==1.65.0
+pandas==3.0.6
+numpy==2.5.3
+plotly==7.1.0
+openpyxl==3.1.5
+supabase==2.32.0
+python-dateutil==2.9.0.post0
+# pyarrow 25 terdeteksi segfault (apache/arrow#50471); Streamlit Cloud menurunkannya otomatis, jadi kunci eksplisit
+pyarrow<25
