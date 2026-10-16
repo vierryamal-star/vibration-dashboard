@@ -1,8 +1,9 @@
+import html
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from utils import (
-    load_history, get_zone, get_threshold, add_zone_cols,
+    load_history, latest_per_series, get_zone, get_threshold, add_zone_cols,
     get_temp_threshold, get_zone_temp,
     days_since, age_label, age_level, age_badge_html, AGE_COLORS, STALE_DAYS,
     ZC, ZB, render_page_header, render_app_sidebar, GLOBAL_UI_CSS,
@@ -158,20 +159,16 @@ with clock_col:
 # FILTER BAGIAN UNIT PINTAR (STATUS CHIPS)
 # ══════════════════════════════════════════════════════════════════════════════
 unit_status_summary = {}
+_lat_glob = latest_per_series()
+_unit_counts = {}
+if not _lat_glob.empty:
+    _lz = add_zone_cols(_lat_glob[_lat_glob["direction"] != "T"])
+    for _u, _g in _lz.groupby("unit"):
+        _unit_counts[_u] = (int((_g["zone"] == "ZONE D").sum()), int((_g["zone"] == "ZONE C").sum()))
+
 for u in all_units:
-    sub_u = df_hist[df_hist["unit"] == u]
-    sub_latest = (
-        sub_u[sub_u["direction"] != "T"]
-        .sort_values("date")
-        .groupby(["equipment", "titik", "direction"], as_index=False)
-        .last()
-    )
-    if not sub_latest.empty:
-        zones = sub_latest.apply(
-            lambda r: get_zone(r["value"], get_threshold(r["equipment"]))[0], axis=1
-        )
-        n_danger = (zones == "ZONE D").sum()
-        n_warn = (zones == "ZONE C").sum()
+    if u in _unit_counts:
+        n_danger, n_warn = _unit_counts[u]
         if n_danger > 0:
             unit_status_summary[u] = f"🔴 {u} ({n_danger})"
         elif n_warn > 0:
@@ -256,14 +253,13 @@ if df_base.empty:
     st.warning("⚠️ Tidak ada data pengukuran yang sesuai dengan filter yang dipilih.")
     st.stop()
 
-df_base = add_zone_cols(df_base)
-
 latest_all = (
     df_base
-    .sort_values("date")
-    .groupby(["unit", "equipment", "titik", "direction"], as_index=False)
-    .last()
+    .sort_values("date", kind="stable")
+    .drop_duplicates(["unit", "equipment", "titik", "direction"], keep="last")
+    .reset_index(drop=True)
 )
+latest_all = add_zone_cols(latest_all)
 
 latest      = latest_all[latest_all["direction"] != "T"].copy()
 latest_temp = latest_all[latest_all["direction"] == "T"].copy()
@@ -345,7 +341,7 @@ def _render_pill(label, val, unit_s, zk, titik):
     c = ZC.get(zk, "#4b5563")
     bg = ZB.get(zk, "rgba(128,128,128,.08)")
     val_str = f"{val:.1f}" if unit_s == "°C" else f"{val:.2f}"
-    titik_str = str(titik) if titik and not pd.isna(titik) else "–"
+    titik_str = html.escape(str(titik)) if titik and not pd.isna(titik) else "–"
     
     return f"""
 <div class="pill-item" title="{titik_str}" style="background:{bg};border:1px solid {c}40;">
@@ -395,7 +391,6 @@ for eq in sorted(df_card_lat["equipment"].dropna().unique()):
 if zone_filter_key:
     eq_rows = [r for r in eq_rows if r["zk"] == zone_filter_key]
 
-@st.fragment(run_every="5s")
 def _render_cards():
     for i in range(0, len(eq_rows), 3):
         cols = st.columns(3)
@@ -419,25 +414,27 @@ def _render_cards():
   {_render_pill("T (°C)", r['T'], "°C", zk_t, r['Tt'])}
 </div>"""
 
-            titik_info = f"Max ({r['mx_titik']} · {r['mx_dir']})" if r['mx_dir'] else "Max Vibrasi"
+            titik_info = f"Max ({html.escape(str(r['mx_titik']))} · {r['mx_dir']})" if r['mx_dir'] else "Max Vibrasi"
+            eq_h, unit_h = html.escape(str(r['eq'])), html.escape(str(r['unit']))
+            mx_txt = f"{r['mx']:.3f} mm/s" if not pd.isna(r['mx']) else "–"
 
             with col:
                 st.markdown(f"""
 <div class="eq-card-modern {danger_class}" style="border-left:{border_left};">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-    <div>
-      <div style="font-size:15px;font-weight:800;line-height:1.2;">{r['eq']}</div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+    <div style="min-width:0;">
+      <div style="font-size:15px;font-weight:800;line-height:1.2;">{eq_h}</div>
       <div class="eq-subtext">
-        {r['unit']} &nbsp;·&nbsp; 📅 {r['tgl']}{age_badge_html(r['d_new'], r['d_old'], archive=(date_mode == "📅 Tanggal Tertentu"))}
+        {unit_h} &nbsp;·&nbsp; 📅 {r['tgl']}{age_badge_html(r['d_new'], r['d_old'], archive=(date_mode == "📅 Tanggal Tertentu"))}
       </div>
     </div>
-    <span style="font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:3px 8px;border-radius:99px;border:1px solid {bc}50;">
+    <span style="flex-shrink:0;white-space:nowrap;font-size:11px;font-weight:700;color:{bc};background:{ZB.get(r['zk'],'transparent')};padding:3px 8px;border-radius:99px;border:1px solid {bc}50;">
       {r['zi']} {r['zl']}
     </span>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;">
     <span style="color:color-mix(in srgb, var(--text-color) 75%, transparent);font-weight:600;">{titik_info}:</span>
-    <span style="font-weight:800;color:{bc};font-size:13px;">{r['mx']:.3f} mm/s</span>
+    <span style="font-weight:800;color:{bc};font-size:13px;">{mx_txt}</span>
   </div>
   <div style="height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-top:4px;">
     <div style="height:4px;width:{bar}%;background:{bc};"></div>
@@ -494,7 +491,7 @@ def _val_td_temp(val, thr, show=True):
 def _badge_td(zk, zi, zl):
     tc = ZC.get(zk, "#4b5563")
     bg = ZB.get(zk, "transparent")
-    return f'<td style="padding:8px 12px;text-align:center;"><span style="background:{bg};color:{tc};border:1px solid {tc}50;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700;">{zi} {zl}</span></td>'
+    return f'<td style="padding:8px 12px;text-align:center;"><span style="white-space:nowrap;background:{bg};color:{tc};border:1px solid {tc}50;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700;">{zi} {zl}</span></td>'
 
 def _render_tbl(df_unit, unit_label, df_unit_temp=None):
     equips = sorted(df_unit["equipment"].dropna().unique())
@@ -546,12 +543,12 @@ def _render_tbl(df_unit, unit_label, df_unit_temp=None):
             tgl_html = (f'{tgl}<div style="font-size:10px;font-weight:700;color:{_t_col};">'
                         f'{age_label(_t_days)}</div>')
 
-            eq_td = f'<td rowspan="{len(titiks)}" style="padding:10px 14px;font-size:13px;font-weight:700;vertical-align:middle;border-left:4px solid {eq_border};background:rgba(128,128,128,.04);">{eq}</td>' if i == 0 else ""
+            eq_td = f'<td rowspan="{len(titiks)}" style="padding:10px 14px;font-size:13px;font-weight:700;vertical-align:middle;border-left:4px solid {eq_border};background:rgba(128,128,128,.04);">{html.escape(str(eq))}</td>' if i == 0 else ""
 
             rows += (
                 '<tr>'
                 + eq_td
-                + f'<td style="padding:8px 14px;opacity:.9;">{titik}</td>'
+                + f'<td style="padding:8px 14px;opacity:.9;">{html.escape(str(titik))}</td>'
                 + _val_td(h, thr, "H" in det_dir_sel)
                 + _val_td(v, thr, "V" in det_dir_sel)
                 + _val_td(a, thr, "A" in det_dir_sel)
