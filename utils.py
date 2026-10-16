@@ -245,13 +245,141 @@ def _paged_select(sb, table: str, cols: str, order_cols=("date", "id"),
 
 
 # ── Threshold & Zona ─────────────────────────────────────────────────────────
+# Batas vibrasi dapat diubah Editor dan disimpan di tabel `app_settings` (berlaku untuk SEMUA
+# pengguna). Prioritas: override sesi (cadangan jika tabel belum ada) > database > default.
+SETTINGS_TABLE = "app_settings"
+_THR_KEY = "thresholds"
+_THR_TTL = 30        # detik; tiap sesi membaca ulang paling cepat sekali per 30 detik
+
+SETTINGS_SQL = """\
+create table if not exists app_settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_at timestamptz not null default now(),
+  updated_by text
+);
+-- hanya diakses lewat service key dari dashboard:
+alter table app_settings enable row level security;
+"""
+
+
+def _valid_thr(d):
+    """Return {"A","B","C"} berupa float jika valid (0 < A < B < C), selain itu None."""
+    try:
+        a, b, c = float(d["A"]), float(d["B"]), float(d["C"])
+    except Exception:
+        return None
+    if not (0 < a < b < c):
+        return None
+    return {"A": a, "B": b, "C": c}
+
+
+def _load_thresholds_db():
+    """Return (nilai: dict, meta: dict). Gagal baca (mis. tabel belum ada) -> ({}, {"error": ...})."""
+    try:
+        sb = get_supabase(service_role=True)
+        res = (sb.table(SETTINGS_TABLE).select("value,updated_at,updated_by")
+               .eq("key", _THR_KEY).limit(1).execute())
+        if not res.data:
+            return {}, {}
+        row = res.data[0]
+        val = row.get("value") or {}
+        out = {}
+        if isinstance(val, dict):
+            for k in ("Turbine", "Pump/Fan"):
+                v = _valid_thr(val.get(k) or {})
+                if v:
+                    out[k] = v
+        return out, {"updated_at": row.get("updated_at"), "updated_by": row.get("updated_by")}
+    except Exception as e:
+        return {}, {"error": str(e)}
+
+
+def _threshold_state() -> dict:
+    ss = st.session_state
+    c = ss.get("_thr_cache")
+    now = time.time()
+    if c is None or now - c["t"] > _THR_TTL:
+        vals, meta = _load_thresholds_db()
+        c = {"t": now, "values": vals, "meta": meta}
+        ss["_thr_cache"] = c
+    return c
+
+
+def _threshold_signature() -> str:
+    """Tanda tangan threshold aktif — dipakai sebagai kunci cache agar ikut berubah."""
+    return repr((st.session_state.get("threshold_override"), _threshold_state()["values"]))
+
+
 def get_threshold(equipment: str):
     name = str(equipment).upper()
     key = "Turbine" if "TURBINE" in name else "Pump/Fan"
-    overrides = st.session_state.get("threshold_override")
-    if overrides and key in overrides:
-        return overrides[key]
-    return THRESHOLD[key]
+    sess = st.session_state.get("threshold_override")
+    if sess and key in sess:
+        return sess[key]
+    return _threshold_state()["values"].get(key, THRESHOLD[key])
+
+
+def current_thresholds() -> dict:
+    """Threshold aktif untuk kedua kelas: {"Turbine": {...}, "Pump/Fan": {...}}."""
+    return {"Turbine": get_threshold("TURBINE"), "Pump/Fan": get_threshold("PUMP")}
+
+
+def threshold_status() -> dict:
+    """{"source": "sesi"|"database"|"default", "updated_at", "updated_by", "error"}"""
+    st_ = _threshold_state()
+    meta = st_["meta"]
+    if st.session_state.get("threshold_override"):
+        src = "sesi"
+    elif st_["values"]:
+        src = "database"
+    else:
+        src = "default"
+    return {"source": src, "updated_at": meta.get("updated_at"),
+            "updated_by": meta.get("updated_by"), "error": meta.get("error")}
+
+
+def save_thresholds(new: dict, actor: str = ""):
+    """
+    Simpan batas vibrasi. Return (ok, pesan, persisted).
+    persisted=False berarti hanya tersimpan untuk sesi ini (tabel app_settings belum tersedia).
+    """
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor.", False
+    clean = {}
+    for k in ("Turbine", "Pump/Fan"):
+        v = _valid_thr(new.get(k) or {})
+        if v is None:
+            return False, f"Batas {k} tidak valid: harus 0 < A < B < C.", False
+        clean[k] = v
+    try:
+        sb = get_supabase(service_role=True)
+        sb.table(SETTINGS_TABLE).upsert({
+            "key": _THR_KEY, "value": clean,
+            "updated_at": datetime.now(WIB).isoformat(),
+            "updated_by": (actor or "").strip() or None,
+        }, on_conflict="key").execute()
+        st.session_state.pop("threshold_override", None)
+        st.session_state.pop("_thr_cache", None)
+        return True, "Konfigurasi threshold tersimpan dan berlaku untuk semua pengguna.", True
+    except Exception:
+        st.session_state["threshold_override"] = clean
+        return True, ("⚠️ Tersimpan hanya untuk sesi ini — tabel `app_settings` belum dibuat, "
+                      "jadi hilang saat refresh dan tidak dilihat pengguna lain."), False
+
+
+def reset_thresholds():
+    """Kembalikan ke default bawaan (hapus pengaturan tersimpan). Return (ok, pesan)."""
+    if not _is_editor():
+        return False, "Aksi ini hanya dapat dilakukan oleh Editor."
+    st.session_state.pop("threshold_override", None)
+    st.session_state.pop("_thr_cache", None)
+    try:
+        sb = get_supabase(service_role=True)
+        sb.table(SETTINGS_TABLE).delete().eq("key", _THR_KEY).execute()
+        return True, "Threshold dikembalikan ke nilai default."
+    except Exception as e:
+        return True, f"Threshold sesi dikembalikan ke default (database tidak dapat diakses: {str(e)[:80]})."
 
 
 def get_zone(value, thr):
@@ -345,6 +473,31 @@ def load_history(silent: bool = False) -> pd.DataFrame:
         if not silent:
             st.error(f"Gagal load data: {e}")
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _latest_per_series_cached() -> pd.DataFrame:
+    df = _load_history_cached()
+    if df.empty:
+        return df
+    return (df.sort_values("date", kind="stable")
+              .drop_duplicates(["unit", "equipment", "titik", "direction"], keep="last")
+              .reset_index(drop=True))
+
+
+def latest_per_series() -> pd.DataFrame:
+    """Pengukuran terakhir tiap (unit, equipment, titik, direction) dari seluruh riwayat."""
+    try:
+        return _latest_per_series_cached()
+    except Exception:
+        return pd.DataFrame()
+
+
+def clear_vibration_caches() -> None:
+    """Hapus cache data vibrasi setelah upload/hapus/ubah threshold (tanpa cache lain)."""
+    _load_history_cached.clear()
+    _latest_per_series_cached.clear()
+    _alarm_summary_cached.clear()
 
 
 _KEY_COLS = ["equipment", "unit", "titik", "direction"]
@@ -492,7 +645,13 @@ def parse_excel(file) -> pd.DataFrame:
     df["date"]  = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     df = df.dropna(subset=["value"])
-    return df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"])
+    out = df[list(required)].dropna(subset=["equipment", "unit", "titik", "direction"]).copy()
+    # Rapikan spasi dan samakan huruf arah ("h " / "t" -> "H" / "T") agar tidak
+    # diam-diam tidak terbaca oleh halaman monitor.
+    for c in ("equipment", "unit", "titik"):
+        out[c] = out[c].astype(str).str.strip()
+    out["direction"] = out["direction"].astype(str).str.strip().str.upper()
+    return out
 
 
 # ── Autentikasi Editor ───────────────────────────────────────────────────────
@@ -556,17 +715,15 @@ def _assert_editor() -> bool:
 # ── Ringkasan alarm (di-cache, sadar override threshold) ─────────────────────
 @st.cache_data(ttl=60, show_spinner=False)
 def _alarm_summary_cached(thr_sig: str):
-    df_h = _load_history_cached()
-    if df_h.empty:
+    # NB: nama argumen tanpa awalan "_" supaya ikut menjadi cache key.
+    lat = _latest_per_series_cached()
+    if lat.empty:
         return 0, 0
-    df_lat = (
-        df_h[df_h["direction"] != "T"]
-        .sort_values("date")
-        .groupby(["unit", "equipment", "titik", "direction"], as_index=False)
-        .last()
-    )
-    df_lat = add_zone_cols(df_lat)
-    return int((df_lat["zone"] == "ZONE D").sum()), int((df_lat["zone"] == "ZONE C").sum())
+    lat = lat[lat["direction"] != "T"]
+    if lat.empty:
+        return 0, 0
+    lat = add_zone_cols(lat)
+    return int((lat["zone"] == "ZONE D").sum()), int((lat["zone"] == "ZONE C").sum())
 
 
 def _alarm_summary(thr_sig: str):
@@ -615,7 +772,7 @@ def render_app_sidebar():
             st.cache_data.clear()
             st.rerun()
 
-        n_d, n_c = _alarm_summary(repr(st.session_state.get("threshold_override")))
+        n_d, n_c = _alarm_summary(_threshold_signature())
 
         st.markdown(f"""
         <div style="background: color-mix(in srgb, var(--secondary-background-color) 80%, transparent); border-radius: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent); margin: 12px 0;">
